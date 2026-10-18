@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::path::PathBuf;
 
@@ -73,12 +73,36 @@ impl<'de, T: Deserialize<'de>> SerdeReplace for HashMap<String, T> {
     }
 }
 
+impl<'de, T: Deserialize<'de>> SerdeReplace for BTreeMap<String, T> {
+    fn replace(&mut self, value: Value) -> Result<(), Box<dyn Error>> {
+        self.extend(Self::deserialize(value)?);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate as alacritty_config;
     use alacritty_config_derive::ConfigDeserialize;
+
+    #[test]
+    fn replace_ordered_map_merges_without_erasing_unrelated_entries() {
+        let mut settings = BTreeMap::from([
+            ("SplitVertical".to_string(), "Control+Shift+E".to_string()),
+            ("Unrelated".to_string(), "keep".to_string()),
+        ]);
+        settings
+            .replace(toml::from_str("SplitVertical='Control+Alt+E'\nClosePane=''\n").unwrap())
+            .unwrap();
+        assert_eq!(settings["Unrelated"], "keep");
+        assert_eq!(settings["SplitVertical"], "Control+Alt+E");
+        assert_eq!(settings["ClosePane"], "");
+        let before = settings.clone();
+        assert!(settings.replace(toml::from_str("SplitVertical=7").unwrap()).is_err());
+        assert_eq!(settings, before);
+    }
 
     #[test]
     fn replace_option() {

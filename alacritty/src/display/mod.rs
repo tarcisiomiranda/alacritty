@@ -67,12 +67,6 @@ mod bell;
 mod damage;
 mod meter;
 
-/// Label for the forward terminal search bar.
-const FORWARD_SEARCH_LABEL: &str = "Search: ";
-
-/// Label for the backward terminal search bar.
-const BACKWARD_SEARCH_LABEL: &str = "Backward Search: ";
-
 /// The character used to shorten the visible text like uri preview or search regex.
 const SHORTENER: char = '…';
 
@@ -157,9 +151,11 @@ pub struct SizeInfo<T = f32> {
 
     /// Horizontal window padding.
     padding_x: T,
+    right_padding_x: T,
 
     /// Vertical window padding.
     padding_y: T,
+    bottom_padding_y: T,
 
     /// Number of lines in the viewport.
     screen_lines: usize,
@@ -176,7 +172,9 @@ impl From<SizeInfo<f32>> for SizeInfo<u32> {
             cell_width: size_info.cell_width as u32,
             cell_height: size_info.cell_height as u32,
             padding_x: size_info.padding_x as u32,
+            right_padding_x: size_info.right_padding_x as u32,
             padding_y: size_info.padding_y as u32,
+            bottom_padding_y: size_info.bottom_padding_y as u32,
             screen_lines: size_info.screen_lines,
             columns: size_info.columns,
         }
@@ -221,6 +219,15 @@ impl<T: Clone + Copy> SizeInfo<T> {
     }
 
     #[inline]
+    pub fn right_padding_x(&self) -> T {
+        self.right_padding_x
+    }
+
+    pub fn bottom_padding_y(&self) -> T {
+        self.bottom_padding_y
+    }
+
+    #[inline]
     pub fn padding_y(&self) -> T {
         self.padding_y
     }
@@ -254,9 +261,34 @@ impl SizeInfo<f32> {
             cell_width,
             cell_height,
             padding_x: padding_x.floor(),
+            right_padding_x: padding_x.floor(),
             padding_y: padding_y.floor(),
+            bottom_padding_y: padding_y.floor(),
             screen_lines,
             columns,
+        }
+    }
+
+    pub fn reserve_top_lines(&mut self, count: usize) {
+        self.padding_y += self.cell_height * count as f32;
+        self.reserve_lines(count);
+    }
+
+    pub fn pane(&self, x: usize, y: usize, columns: usize, lines: usize) -> Self {
+        let padding_x = self.padding_x + x as f32 * self.cell_width;
+        let padding_y = self.padding_y + y as f32 * self.cell_height;
+        let right_padding_x = (self.width - padding_x - columns as f32 * self.cell_width).max(0.);
+        let bottom_padding_y = (self.height - padding_y - lines as f32 * self.cell_height).max(0.);
+        let columns = columns.max(MIN_COLUMNS);
+        let screen_lines = lines.max(MIN_SCREEN_LINES);
+        Self {
+            padding_x,
+            padding_y,
+            right_padding_x,
+            bottom_padding_y,
+            columns,
+            screen_lines,
+            ..*self
         }
     }
 
@@ -339,10 +371,24 @@ impl DisplayUpdate {
 }
 
 /// The display wraps a window, font rasterizer, and GPU renderer.
+pub struct PaneRender<'a, T> {
+    pub terminal: MutexGuard<'a, Term<T>>,
+    pub search_state: &'a mut SearchState,
+    pub size: SizeInfo,
+    pub focused: bool,
+}
+
 pub struct Display {
     pub window: Window,
+    pub tab_bar: Option<crate::tabs::TabBar>,
+    pub tab_dialog: Option<crate::tab_ui::TabDialog>,
+    pub context_menu: Option<crate::context_menu::ContextMenu>,
+    pub language_dialog: Option<crate::language_settings::LanguageDialog>,
+    pub productivity_dialog: Option<crate::productivity::ProductivityDialog>,
+    pub close_confirmation: Option<crate::close_confirmation::CloseConfirmation>,
 
     pub size_info: SizeInfo,
+    pub split_active: bool,
 
     /// Hint highlighted by the mouse.
     pub highlighted_hint: Option<HintMatch>,
@@ -448,7 +494,7 @@ impl Display {
         let viewport_size = window.inner_size();
 
         // Create new size with at least one column and row.
-        let size_info = SizeInfo::new(
+        let mut size_info = SizeInfo::new(
             viewport_size.width as f32,
             viewport_size.height as f32,
             cell_width,
@@ -458,6 +504,9 @@ impl Display {
             config.window.dynamic_padding && config.window.dimensions().is_none(),
         );
 
+        if cfg!(not(target_os = "macos")) {
+            size_info.reserve_top_lines(crate::tabs::TabBar::ROWS);
+        }
         info!("Cell size: {cell_width} x {cell_height}");
         info!("Padding: {} x {}", size_info.padding_x(), size_info.padding_y());
         info!("Width: {}, Height: {}", size_info.width(), size_info.height());
@@ -521,12 +570,19 @@ impl Display {
             renderer_preference: config.debug.renderer,
             surface: ManuallyDrop::new(surface),
             colors: List::from(&config.colors),
+            tab_bar: cfg!(not(target_os = "macos")).then(Default::default),
+            tab_dialog: None,
+            context_menu: None,
+            language_dialog: None,
+            productivity_dialog: None,
+            close_confirmation: None,
             frame_timer: FrameTimer::new(),
             raw_window_handle,
             damage_tracker,
             glyph_cache,
             hint_state,
             size_info,
+            split_active: false,
             font_size,
             window,
             pending_renderer_update: Default::default(),
@@ -700,9 +756,14 @@ impl Display {
         );
 
         // Update number of column/lines in the viewport.
+        if self.tab_bar.is_some() {
+            new_size.reserve_top_lines(crate::tabs::TabBar::ROWS);
+        }
         let search_active = search_state.history_index.is_some();
-        let message_bar_lines = message_buffer.message().map_or(0, |m| m.text(&new_size).len());
-        let search_lines = usize::from(search_active);
+        let message_bar_lines = message_buffer
+            .message()
+            .map_or(0, |m| m.text_with_locale(&new_size, config.general.language.resolve()).len());
+        let search_lines = usize::from(search_active && !self.split_active);
         new_size.reserve_lines(message_bar_lines + search_lines);
 
         // Update resize increments.
@@ -714,11 +775,10 @@ impl Display {
         if self.size_info.screen_lines() != new_size.screen_lines
             || self.size_info.columns() != new_size.columns()
         {
-            // Resize PTY.
-            pty_resize_handle.on_resize(new_size.into());
-
-            // Resize terminal.
-            terminal.resize(new_size);
+            if !self.split_active {
+                pty_resize_handle.on_resize(new_size.into());
+                terminal.resize(new_size);
+            }
 
             // Resize damage tracking.
             self.damage_tracker.resize(new_size.screen_lines(), new_size.columns());
@@ -774,11 +834,86 @@ impl Display {
     /// This call may block if vsync is enabled.
     pub fn draw<T: EventListener>(
         &mut self,
-        mut terminal: MutexGuard<'_, Term<T>>,
+        terminal: MutexGuard<'_, Term<T>>,
         scheduler: &mut Scheduler,
         message_buffer: &MessageBuffer,
         config: &UiConfig,
         search_state: &mut SearchState,
+    ) {
+        self.draw_terminal(terminal, config, search_state, true);
+        self.draw_messages(message_buffer, config, usize::from(search_state.regex().is_some()));
+        self.finish_frame(scheduler, config);
+    }
+
+    pub fn draw_panes<T: EventListener>(
+        &mut self,
+        mut panes: Vec<PaneRender<'_, T>>,
+        scheduler: &mut Scheduler,
+        message_buffer: &MessageBuffer,
+        config: &UiConfig,
+        mut dividers: Vec<RenderRect>,
+    ) {
+        let window_size = self.size_info;
+        self.make_current();
+        self.renderer.set_scissor(None);
+        self.renderer.clear(config.colors.primary.background, config.window_opacity());
+        self.damage_tracker.frame().mark_fully_damaged();
+        self.damage_tracker.next_frame().mark_fully_damaged();
+        panes.sort_by_key(|pane| pane.focused);
+        let mut focused_size = None;
+        for pane in panes {
+            self.size_info = pane.size;
+            self.renderer.resize(&pane.size);
+            self.renderer.set_scissor(Some(&pane.size));
+            let inactive_state = (!pane.focused).then(|| {
+                let hints =
+                    mem::replace(&mut self.hint_state, HintState::new(config.hints.alphabet()));
+                let highlighted = self.highlighted_hint.take();
+                let vi_highlighted = self.vi_highlighted_hint.take();
+                let ime = mem::take(&mut self.ime);
+                let cursor_hidden = mem::replace(&mut self.cursor_hidden, true);
+                (hints, highlighted, vi_highlighted, ime, cursor_hidden)
+            });
+            self.draw_terminal(pane.terminal, config, pane.search_state, pane.focused);
+            if let Some((hints, highlighted, vi_highlighted, ime, cursor_hidden)) = inactive_state {
+                self.hint_state = hints;
+                self.highlighted_hint = highlighted;
+                self.vi_highlighted_hint = vi_highlighted;
+                self.ime = ime;
+                self.cursor_hidden = cursor_hidden;
+            }
+            if pane.focused {
+                focused_size = Some(pane.size);
+            }
+        }
+        self.size_info = window_size;
+        self.renderer.set_scissor(None);
+        self.renderer.resize(&window_size);
+        if let Some(size) = focused_size {
+            let x = size.padding_x();
+            let y = size.padding_y();
+            let width = (size.width() - x - size.right_padding_x()).max(0.);
+            let height = (size.height() - y - size.bottom_padding_y()).max(0.);
+            let color = config.colors.normal.blue;
+            dividers.extend([
+                RenderRect::new(x, y, width, 1., color, 0.8),
+                RenderRect::new(x, y + height - 1., width, 1., color, 0.8),
+                RenderRect::new(x, y, 1., height, color, 0.8),
+                RenderRect::new(x + width - 1., y, 1., height, color, 0.8),
+            ]);
+        }
+        let metrics = self.glyph_cache.font_metrics();
+        self.renderer.draw_rects(&window_size, &metrics, dividers);
+        self.draw_messages(message_buffer, config, 0);
+        self.finish_frame(scheduler, config);
+    }
+
+    fn draw_terminal<T: EventListener>(
+        &mut self,
+        mut terminal: MutexGuard<'_, Term<T>>,
+        config: &UiConfig,
+        search_state: &mut SearchState,
+        focused: bool,
     ) {
         // Collect renderable content before the terminal is dropped.
         let mut content = RenderableContent::new(config, self, &terminal, search_state);
@@ -797,7 +932,7 @@ impl Display {
         let metrics = self.glyph_cache.font_metrics();
         let size_info = self.size_info;
 
-        let vi_mode = terminal.mode().contains(TermMode::VI);
+        let vi_mode = focused && terminal.mode().contains(TermMode::VI);
         let vi_cursor_point = if vi_mode { Some(terminal.vi_mode_cursor.point) } else { None };
 
         // Add damage from the terminal.
@@ -815,7 +950,9 @@ impl Display {
         drop(terminal);
 
         // Invalidate highlighted hints if grid has changed.
-        self.validate_hint_highlights(display_offset);
+        if focused {
+            self.validate_hint_highlights(display_offset);
+        }
 
         // Add damage from alacritty's UI elements overlapping terminal.
 
@@ -912,10 +1049,11 @@ impl Display {
         // Handle IME positioning and search bar rendering.
         let ime_position = match search_state.regex() {
             Some(regex) => {
-                let search_label = match search_state.direction() {
-                    Direction::Right => FORWARD_SEARCH_LABEL,
-                    Direction::Left => BACKWARD_SEARCH_LABEL,
-                };
+                let locale = config.general.language.resolve();
+                let search_label = locale.text(match search_state.direction() {
+                    Direction::Right => crate::localization::Message::SearchForward,
+                    Direction::Left => crate::localization::Message::SearchBackward,
+                });
 
                 let search_text = Self::format_search(regex, search_label, size_info.columns());
 
@@ -927,7 +1065,7 @@ impl Display {
                 let column = Column(search_text.chars().count() - 1);
 
                 // Add cursor to search bar if IME is not active.
-                if self.ime.preedit().is_none() {
+                if focused && self.ime.preedit().is_none() {
                     let fg = config.colors.footer_bar_foreground();
                     let shape = CursorShape::Underline;
                     let cursor_width = NonZeroU32::new(1).unwrap();
@@ -949,7 +1087,7 @@ impl Display {
         };
 
         // Handle IME.
-        if self.ime.is_enabled() {
+        if focused && self.ime.is_enabled() {
             if let Some(point) = ime_position {
                 let (fg, bg) = if search_state.regex().is_some() {
                     (config.colors.footer_bar_foreground(), config.colors.footer_bar_background())
@@ -961,9 +1099,25 @@ impl Display {
             }
         }
 
+        self.renderer.draw_rects(&size_info, &metrics, rects);
+
+        if has_highlighted_hint {
+            let cursor_point = vi_cursor_point.or(Some(cursor_point));
+            self.draw_hyperlink_preview(config, cursor_point, display_offset);
+        }
+    }
+
+    fn draw_messages(
+        &mut self,
+        message_buffer: &MessageBuffer,
+        config: &UiConfig,
+        search_offset: usize,
+    ) {
+        let size_info = self.size_info;
+        let metrics = self.glyph_cache.font_metrics();
+        let mut rects = Vec::new();
         if let Some(message) = message_buffer.message() {
-            let search_offset = usize::from(search_state.regex().is_some());
-            let text = message.text(&size_info);
+            let text = message.text_with_locale(&size_info, config.general.language.resolve());
 
             // Create a new rectangle for the background.
             let start_line = size_info.screen_lines() + search_offset;
@@ -1003,18 +1157,19 @@ impl Display {
                     glyph_cache,
                 );
             }
-        } else {
-            // Draw rectangles.
-            self.renderer.draw_rects(&size_info, &metrics, rects);
         }
+    }
 
+    fn finish_frame(&mut self, scheduler: &mut Scheduler, config: &UiConfig) {
+        let metrics = self.glyph_cache.font_metrics();
+        self.draw_tab_bar(config);
         self.draw_render_timer(config);
 
-        // Draw hyperlink uri preview.
-        if has_highlighted_hint {
-            let cursor_point = vi_cursor_point.or(Some(cursor_point));
-            self.draw_hyperlink_preview(config, cursor_point, display_offset);
-        }
+        self.draw_tab_dialog(config);
+        self.draw_language_dialog();
+        self.draw_productivity_dialog();
+        self.draw_close_confirmation();
+        self.draw_context_menu();
 
         // Notify winit that we're about to present.
         self.window.pre_present_notify();
@@ -1217,21 +1372,25 @@ impl Display {
 
     /// Format search regex to account for the cursor and fullwidth characters.
     fn format_search(search_regex: &str, search_label: &str, max_width: usize) -> String {
-        let label_len = search_label.len();
+        let label_len = unicode_width::UnicodeWidthStr::width(search_label);
 
         // Skip `search_regex` formatting if only label is visible.
-        if label_len > max_width {
-            return search_label[..max_width].to_owned();
+        if label_len >= max_width {
+            return StrShortener::new(search_label, max_width, ShortenDirection::Right, None)
+                .collect();
         }
 
         // The search string consists of `search_label` + `search_regex` + `cursor`.
         let mut bar_text = String::from(search_label);
-        bar_text.extend(StrShortener::new(
-            search_regex,
-            max_width.wrapping_sub(label_len + 1),
-            ShortenDirection::Left,
-            Some(SHORTENER),
-        ));
+        let query_width = max_width.saturating_sub(label_len + 1);
+        if query_width > 0 {
+            bar_text.extend(StrShortener::new(
+                search_regex,
+                query_width,
+                ShortenDirection::Left,
+                Some(SHORTENER),
+            ));
+        }
 
         // Add place for cursor.
         bar_text.push(' ');
@@ -1326,6 +1485,584 @@ impl Display {
     }
 
     /// Draw render timer.
+    fn draw_ui_panel(&mut self, layout: crate::tab_ui::UiRect, modal: bool) {
+        use crate::ui::{Palette, rounded};
+
+        let size = self.size_info;
+        let metrics = self.glyph_cache.font_metrics();
+        let palette = Palette::new(&self.colors);
+        let x = size.padding_x() + layout.left as f32 * size.cell_width();
+        let y = size.padding_y() + layout.top as f32 * size.cell_height();
+        let width = layout.width as f32 * size.cell_width();
+        let height = layout.height as f32 * size.cell_height();
+        let mut rects = Vec::new();
+        if modal {
+            rects.push(RenderRect::new(
+                0.,
+                0.,
+                size.width(),
+                size.height(),
+                Rgb::new(0, 0, 0),
+                0.48,
+            ));
+        }
+        for (offset, alpha) in [(7., 0.12), (4., 0.18)] {
+            rects.extend(rounded(
+                RenderRect::new(x + offset, y + offset, width, height, Rgb::new(0, 0, 0), alpha),
+                9.,
+            ));
+        }
+        rects.extend(rounded(RenderRect::new(x, y, width, height, palette.border, 1.), 8.));
+        rects.extend(rounded(
+            RenderRect::new(
+                x + 1.,
+                y + 1.,
+                (width - 2.).max(0.),
+                (height - 2.).max(0.),
+                palette.panel,
+                1.,
+            ),
+            7.,
+        ));
+        self.renderer.draw_rects(&size, &metrics, rects);
+        self.damage_tracker.frame().mark_fully_damaged();
+        self.damage_tracker.next_frame().mark_fully_damaged();
+    }
+
+    fn draw_ui_elements(&mut self, elements: Vec<crate::tab_ui::UiElement>) {
+        use crate::tab_ui::UiKind;
+        use crate::ui::{Palette, rounded};
+
+        let size = self.size_info;
+        let metrics = self.glyph_cache.font_metrics();
+        let p = Palette::new(&self.colors);
+        for element in elements {
+            let mut rect = element.rect;
+            if rect.width == 0
+                || rect.height == 0
+                || rect.left >= size.columns()
+                || rect.top >= size.screen_lines()
+            {
+                continue;
+            }
+            rect.width = rect.width.min(size.columns() - rect.left);
+            rect.height = rect.height.min(size.screen_lines() - rect.top);
+            let x = size.padding_x() + rect.left as f32 * size.cell_width();
+            let y = size.padding_y() + rect.top as f32 * size.cell_height();
+            let width = rect.width as f32 * size.cell_width();
+            let height = rect.height as f32 * size.cell_height();
+            let active = (element.focused || element.hovered) && !element.disabled;
+            let selected =
+                matches!(element.kind, UiKind::SelectedNavigation | UiKind::SelectedItem);
+            let button = matches!(
+                element.kind,
+                UiKind::PrimaryButton | UiKind::SecondaryButton | UiKind::DangerButton
+            );
+            let interactive = button
+                || matches!(
+                    element.kind,
+                    UiKind::Input
+                        | UiKind::Checkbox
+                        | UiKind::Radio
+                        | UiKind::Navigation
+                        | UiKind::SelectedNavigation
+                        | UiKind::SelectedItem
+                        | UiKind::MenuItem
+                        | UiKind::DangerMenu
+                        | UiKind::Scrollbar
+                        | UiKind::Link
+                );
+            let (mut fg, bg) = match element.kind {
+                UiKind::Subtitle | UiKind::Label | UiKind::Status => (p.muted, p.panel),
+                UiKind::Input => (p.text, p.input),
+                UiKind::Command => (p.text, p.surface),
+                UiKind::PrimaryButton if !element.disabled => (p.on_accent, p.accent),
+                UiKind::SecondaryButton => (p.text, if active { p.hover } else { p.surface }),
+                UiKind::DangerButton => (p.danger, if active { p.danger_hover } else { p.panel }),
+                UiKind::DangerMenu => (p.danger, if active { p.hover } else { p.panel }),
+                UiKind::SelectedNavigation | UiKind::SelectedItem => (p.text, p.selected),
+                UiKind::Checkbox
+                | UiKind::Radio
+                | UiKind::Navigation
+                | UiKind::MenuItem
+                | UiKind::Scrollbar => (p.text, if active { p.hover } else { p.panel }),
+                UiKind::Shortcut => (p.muted, if active { p.hover } else { p.panel }),
+                UiKind::Link => (p.accent, if active { p.hover } else { p.panel }),
+                _ => (p.text, p.panel),
+            };
+            if element.disabled {
+                fg = p.disabled;
+            }
+            if element.kind == UiKind::Divider {
+                let divider = if rect.width == 1 && rect.height > 1 {
+                    RenderRect::new(x + width / 2., y, 1., height, p.border, 0.65)
+                } else {
+                    RenderRect::new(x, y + height / 2., width, 1., p.border, 0.65)
+                };
+                self.renderer.draw_rects(&size, &metrics, vec![divider]);
+                continue;
+            }
+            if element.kind == UiKind::Scrollbar && element.text == "┃" {
+                self.renderer.draw_rects(
+                    &size,
+                    &metrics,
+                    rounded(
+                        RenderRect::new(
+                            x + width / 2. - 2.,
+                            y + 2.,
+                            4.,
+                            (height - 4.).max(1.),
+                            p.border,
+                            1.,
+                        ),
+                        2.,
+                    ),
+                );
+                continue;
+            }
+            let mut rects = Vec::new();
+            if interactive || element.kind == UiKind::Command {
+                let border = if element.focused && !element.disabled { p.accent } else { p.border };
+                let outlined = element.kind == UiKind::Input
+                    || (button && element.kind != UiKind::DangerButton)
+                    || (element.focused && !element.disabled);
+                if outlined {
+                    rects.extend(rounded(
+                        RenderRect::new(x, y + 1., width, (height - 2.).max(0.), border, 1.),
+                        5.,
+                    ));
+                    rects.extend(rounded(
+                        RenderRect::new(
+                            x + 1.,
+                            y + 2.,
+                            (width - 2.).max(0.),
+                            (height - 4.).max(0.),
+                            bg,
+                            1.,
+                        ),
+                        4.,
+                    ));
+                } else {
+                    rects.extend(rounded(
+                        RenderRect::new(x, y + 1., width, (height - 2.).max(0.), bg, 1.),
+                        5.,
+                    ));
+                }
+                if selected {
+                    rects.extend(rounded(
+                        RenderRect::new(x + 1., y + 4., 3., (height - 8.).max(1.), p.accent, 1.),
+                        1.,
+                    ));
+                }
+            }
+            self.renderer.draw_rects(&size, &metrics, rects);
+            let mut string: String = element.text.chars().filter(|ch| !ch.is_control()).collect();
+            let scroll_arrow =
+                element.kind == UiKind::MenuItem && matches!(string.trim(), "↑" | "↓");
+            if scroll_arrow {
+                string = string.trim().to_owned();
+            }
+            let checkbox = element.kind == UiKind::Checkbox
+                && (string.starts_with("[ ] ")
+                    || string.starts_with("[✓] ")
+                    || string.starts_with("☑ ")
+                    || string.starts_with("☐ "));
+            let radio = element.kind == UiKind::Radio
+                && (string.starts_with("● ") || string.starts_with("○ "));
+            if checkbox || radio {
+                let checked =
+                    string.starts_with("[✓]") || string.starts_with("☑") || string.starts_with("●");
+                string = if string.starts_with('[') {
+                    string.split_once(']').unwrap().1.trim_start().to_owned()
+                } else {
+                    string.chars().skip(2).collect()
+                };
+                let side = (size.cell_width() * 1.4).min(height - 6.).max(4.);
+                let box_x = x + size.cell_width() * 0.5;
+                let box_y = y + (height - side) / 2.;
+                let border = if element.disabled {
+                    p.disabled
+                } else if checked || active {
+                    p.accent
+                } else {
+                    p.muted
+                };
+                let radius = if radio { side / 2. } else { 3. };
+                let mut glyph =
+                    rounded(RenderRect::new(box_x, box_y, side, side, border, 1.), radius);
+                glyph.extend(rounded(
+                    RenderRect::new(
+                        box_x + 1.5,
+                        box_y + 1.5,
+                        side - 3.,
+                        side - 3.,
+                        if checked && checkbox { p.accent } else { bg },
+                        1.,
+                    ),
+                    (radius - 1.).max(0.),
+                ));
+                if checked && radio {
+                    glyph.extend(rounded(
+                        RenderRect::new(
+                            box_x + 4.,
+                            box_y + 4.,
+                            (side - 8.).max(2.),
+                            (side - 8.).max(2.),
+                            border,
+                            1.,
+                        ),
+                        side / 2.,
+                    ));
+                } else if checked {
+                    let scale = side / 12.;
+                    for (dx, dy) in [(3, 6), (4, 7), (5, 8), (6, 7), (7, 6), (8, 5), (9, 4)] {
+                        glyph.push(RenderRect::new(
+                            box_x + dx as f32 * scale,
+                            box_y + dy as f32 * scale,
+                            2. * scale,
+                            2. * scale,
+                            p.on_accent,
+                            1.,
+                        ));
+                    }
+                }
+                self.renderer.draw_rects(&size, &metrics, glyph);
+            }
+            let padded = (interactive || element.kind == UiKind::Command) && rect.width > 2;
+            let inset = if checkbox || radio {
+                3
+            } else if padded && rect.width > 2 {
+                1
+            } else {
+                0
+            };
+            let available = rect.width.saturating_sub(inset + usize::from(padded));
+            if available == 0 {
+                continue;
+            }
+            let string_width =
+                unicode_width::UnicodeWidthStr::width(string.as_str()).min(available);
+            let offset = if button || scroll_arrow {
+                rect.width.saturating_sub(string_width) / 2
+            } else {
+                inset
+            };
+            let mut text_size = size;
+            if rect.height % 2 == 0 {
+                text_size.padding_y += size.cell_height() / 2.;
+                text_size.bottom_padding_y -= size.cell_height() / 2.;
+                self.renderer.set_viewport(&text_size);
+            }
+            let bold = matches!(
+                element.kind,
+                UiKind::Title | UiKind::SelectedNavigation | UiKind::PrimaryButton
+            );
+            self.renderer.draw_string_styled(
+                Point::new(
+                    rect.top + rect.height.saturating_sub(1) / 2,
+                    Column(rect.left + offset),
+                ),
+                (fg, bg, bold),
+                StrShortener::new(&string, available, ShortenDirection::Right, Some('…')),
+                &text_size,
+                &mut self.glyph_cache,
+            );
+            self.renderer.set_viewport(&size);
+            if element.focused && !element.disabled && interactive {
+                let top = y + 1.;
+                let bottom = y + height - 2.;
+                self.renderer.draw_rects(&size, &metrics, vec![
+                    RenderRect::new(x + 5., top, (width - 10.).max(0.), 1., p.accent, 1.),
+                    RenderRect::new(x + 5., bottom, (width - 10.).max(0.), 1., p.accent, 1.),
+                    RenderRect::new(x, top + 4., 1., (height - 10.).max(0.), p.accent, 1.),
+                    RenderRect::new(
+                        x + width - 1.,
+                        top + 4.,
+                        1.,
+                        (height - 10.).max(0.),
+                        p.accent,
+                        1.,
+                    ),
+                ]);
+            }
+        }
+    }
+
+    fn draw_language_dialog(&mut self) {
+        let Some(dialog) = &self.language_dialog else { return };
+        let size = self.size_info;
+        let layout = dialog.layout(size.columns(), size.screen_lines());
+        let elements = dialog.elements(size.columns(), size.screen_lines());
+        self.draw_ui_panel(layout, true);
+        self.draw_ui_elements(elements);
+    }
+
+    fn draw_close_confirmation(&mut self) {
+        let Some(dialog) = &self.close_confirmation else { return };
+        let size = self.size_info;
+        let layout = dialog.layout(size.columns(), size.screen_lines());
+        let elements = dialog.elements(size.columns(), size.screen_lines());
+        self.draw_ui_panel(layout, true);
+        self.draw_ui_elements(elements);
+    }
+
+    fn draw_productivity_dialog(&mut self) {
+        let Some(dialog) = &self.productivity_dialog else { return };
+        let size = self.size_info;
+        let layout = dialog.layout(size.columns(), size.screen_lines());
+        let elements = dialog.elements(size.columns(), size.screen_lines());
+        self.draw_ui_panel(layout, true);
+        self.draw_ui_elements(elements);
+    }
+
+    fn draw_context_menu(&mut self) {
+        use crate::context_menu::MenuAction;
+        use crate::tab_ui::{UiElement, UiKind, UiRect};
+
+        let size = self.size_info;
+        let Some(menu) = &mut self.context_menu else { return };
+        menu.ensure_visible(size.columns(), size.screen_lines());
+        let layout = menu.layout(size.columns(), size.screen_lines());
+        let mut elements = menu.decorations(size.columns(), size.screen_lines());
+        for item in menu.items(size.columns(), size.screen_lines()) {
+            let selected = menu.selected == Some(item.action);
+            let shortcut_width = unicode_width::UnicodeWidthStr::width(item.shortcut.as_str());
+            let show_shortcut = shortcut_width > 0 && item.rect.width >= shortcut_width + 14;
+            let available =
+                item.rect.width.saturating_sub(if show_shortcut { shortcut_width + 4 } else { 2 });
+            let text = StrShortener::new(&item.text, available, ShortenDirection::Right, Some('…'))
+                .collect();
+            elements.push(UiElement {
+                rect: item.rect,
+                kind: if matches!(item.action, MenuAction::Close | MenuAction::ClosePane) {
+                    UiKind::DangerMenu
+                } else {
+                    UiKind::MenuItem
+                },
+                text,
+                focused: false,
+                hovered: selected,
+                disabled: !item.enabled,
+            });
+            if show_shortcut {
+                elements.push(UiElement {
+                    rect: UiRect {
+                        left: item.rect.left + item.rect.width - shortcut_width - 1,
+                        width: shortcut_width,
+                        ..item.rect
+                    },
+                    kind: UiKind::Shortcut,
+                    text: item.shortcut,
+                    focused: false,
+                    hovered: selected,
+                    disabled: !item.enabled,
+                });
+            }
+        }
+        self.draw_ui_panel(layout, false);
+        self.draw_ui_elements(elements);
+    }
+
+    fn draw_tab_dialog(&mut self, _config: &UiConfig) {
+        let Some(dialog) = &self.tab_dialog else { return };
+        let size = self.size_info;
+        let layout = dialog.layout(size.columns(), size.screen_lines());
+        let elements = dialog.elements(size.columns(), size.screen_lines());
+        self.draw_ui_panel(layout, true);
+        self.draw_ui_elements(elements);
+    }
+
+    fn draw_tab_bar(&mut self, config: &UiConfig) {
+        use crate::tabs::{TabActivity, TabBar, TabButton};
+        use crate::ui::{Palette, rounded};
+
+        let Some(bar) = &self.tab_bar else { return };
+        let mut size = self.size_info;
+        let height = size.cell_height() * TabBar::ROWS as f32;
+        size.padding_y -= height;
+        self.renderer.resize(&size);
+        let layout = bar.layout(size.columns());
+        let p = Palette::new(&self.colors);
+        let metrics = self.glyph_cache.font_metrics();
+        let top = size.padding_y();
+        let mut rects = vec![
+            RenderRect::new(0., 0., size.width(), self.size_info.padding_y(), p.panel, 1.),
+            RenderRect::new(0., top + height - 1., size.width(), 1., p.border, 0.55),
+        ];
+        for slot in 0..layout.visible {
+            let index = layout.first + slot;
+            let active = index == bar.active;
+            let hovered = matches!(bar.hovered, Some(TabButton::Select(i) | TabButton::Close(i)) if i == index);
+            let x = size.padding_x() + (slot * layout.width) as f32 * size.cell_width();
+            let width = layout.width as f32 * size.cell_width();
+            let background = if active {
+                p.selected
+            } else if hovered {
+                p.hover
+            } else {
+                p.panel
+            };
+            if active || hovered {
+                rects.extend(rounded(
+                    RenderRect::new(x + 2., top, (width - 4.).max(0.), height, background, 1.),
+                    4.,
+                ));
+            } else if slot > 0 {
+                rects.push(RenderRect::new(x, top + height * 0.3, 1., height * 0.4, p.border, 0.6));
+            }
+        }
+        self.renderer.draw_rects(&size, &metrics, rects);
+        let text_size = size;
+        for slot in 0..layout.visible {
+            let index = layout.first + slot;
+            let active = index == bar.active;
+            let hovered = matches!(bar.hovered, Some(TabButton::Select(i) | TabButton::Close(i)) if i == index);
+            let bg = if active {
+                p.selected
+            } else if hovered {
+                p.hover
+            } else {
+                p.panel
+            };
+            let column = slot * layout.width;
+            let marker = bar.marker(index);
+            let badge = if marker.is_empty() { (index + 1).to_string() } else { marker.into() };
+            let show_badge = layout.width >= 12 || !marker.is_empty();
+            let prefix = if show_badge { badge.len().min(3) + 2 } else { 1 };
+            let prefix = if !marker.is_empty() && show_badge { 3 } else { prefix };
+            self.renderer.set_viewport(&text_size);
+            if show_badge {
+                let color = match bar.activities.get(index).copied().unwrap_or_default() {
+                    TabActivity::Running => p.accent,
+                    TabActivity::Success => config.colors.normal.green,
+                    TabActivity::Failed => p.danger,
+                    TabActivity::Idle => p.muted,
+                };
+                self.renderer.draw_string_styled(
+                    Point::new(0, Column(column + 1)),
+                    (color, bg, false),
+                    badge.chars().take(3),
+                    &text_size,
+                    &mut self.glyph_cache,
+                );
+            }
+            let title_width = layout.width.saturating_sub(prefix + 4);
+            let title = bar.label(index, title_width);
+            self.renderer.draw_string_styled(
+                Point::new(0, Column(column + prefix)),
+                (p.text, bg, false),
+                StrShortener::new(&title, title_width, ShortenDirection::Right, None),
+                &text_size,
+                &mut self.glyph_cache,
+            );
+            self.renderer.set_viewport(&size);
+            if active {
+                let x = size.padding_x() + column as f32 * size.cell_width();
+                self.renderer.draw_rects(&size, &metrics, vec![RenderRect::new(
+                    x + 8.,
+                    top + height - 1.,
+                    (layout.width as f32 * size.cell_width() - 16.).max(1.),
+                    1.,
+                    p.accent,
+                    1.,
+                )]);
+            }
+            if bar.close_visible(index) && layout.width >= 5 {
+                let close_x =
+                    size.padding_x() + (column + layout.width - 3) as f32 * size.cell_width();
+                let hovered = bar.hovered == Some(TabButton::Close(index));
+                let center_x = close_x + size.cell_width();
+                let center_y = top + height / 2.;
+                let side = (height - 6.).min(size.cell_width() * 2. - 4.).max(4.);
+                let color = if hovered { p.danger } else { p.muted };
+                let mut icon = Vec::new();
+                if hovered {
+                    icon.extend(rounded(
+                        RenderRect::new(
+                            center_x - side / 2.,
+                            center_y - side / 2.,
+                            side,
+                            side,
+                            p.danger_hover,
+                            1.,
+                        ),
+                        5.,
+                    ));
+                }
+                let scale = (side / 12.).max(0.5);
+                for step in -3..=3 {
+                    let offset = step as f32 * scale;
+                    icon.push(RenderRect::new(
+                        center_x + offset - scale / 2.,
+                        center_y + offset - scale / 2.,
+                        scale * 1.5,
+                        scale * 1.5,
+                        color,
+                        1.,
+                    ));
+                    icon.push(RenderRect::new(
+                        center_x + offset - scale / 2.,
+                        center_y - offset - scale / 2.,
+                        scale * 1.5,
+                        scale * 1.5,
+                        color,
+                        1.,
+                    ));
+                }
+                self.renderer.draw_rects(&size, &metrics, icon);
+            }
+        }
+        for (offset, action) in [(0, TabButton::Create), (3, TabButton::Menu)] {
+            let column = layout.button_start + offset;
+            if column >= size.columns() {
+                continue;
+            }
+            let width = (size.columns() - column).min(3) as f32 * size.cell_width();
+            let x = size.padding_x() + column as f32 * size.cell_width();
+            let hovered = bar.hovered == Some(action);
+            let center_x = x + width / 2.;
+            let center_y = top + height / 2.;
+            let mut icon = Vec::new();
+            if hovered {
+                icon.extend(rounded(
+                    RenderRect::new(x + 2., top, (width - 4.).max(0.), height, p.hover, 1.),
+                    4.,
+                ));
+            }
+            let color = if hovered { p.text } else { p.muted };
+            let radius = (size.cell_width() * 0.45).min(width / 3.).max(1.);
+            if action == TabButton::Create {
+                icon.extend([
+                    RenderRect::new(center_x - radius, center_y - 1., radius * 2., 2., color, 1.),
+                    RenderRect::new(center_x - 1., center_y - radius, 2., radius * 2., color, 1.),
+                ]);
+            } else {
+                for offset in [-1., 0., 1.] {
+                    icon.extend(rounded(
+                        RenderRect::new(
+                            center_x - 1.5,
+                            center_y + offset * radius - 1.5,
+                            3.,
+                            3.,
+                            color,
+                            1.,
+                        ),
+                        1.5,
+                    ));
+                }
+            }
+            self.renderer.draw_rects(&size, &metrics, icon);
+        }
+        self.renderer.resize(&self.size_info);
+        self.damage_tracker.frame().add_viewport_rect(
+            &self.size_info,
+            0,
+            0,
+            size.width() as i32,
+            self.size_info.padding_y() as i32,
+        );
+    }
+
     #[inline(never)]
     fn draw_render_timer(&mut self, config: &UiConfig) {
         if !config.debug.render_timer {
@@ -1631,4 +2368,60 @@ fn window_size(
     let height = (padding.1).mul_add(2., grid_height).floor();
 
     PhysicalSize::new(width as u32, height as u32)
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+    use crate::localization::{Locale, Message};
+
+    #[test]
+    fn localized_search_labels_fit_even_when_the_label_fills_the_bar() {
+        for locale in [Locale::En, Locale::PtBr] {
+            for key in [Message::SearchForward, Message::SearchBackward] {
+                let label = locale.text(key);
+                for columns in 1..=24 {
+                    let text = Display::format_search("user-query", label, columns);
+                    assert!(text.chars().count() <= columns);
+                }
+                assert!(Display::format_search("user-query", label, 80).contains("user-query"));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod pane_size_tests {
+    use super::*;
+
+    #[test]
+    fn pane_coordinates_preserve_window_projection_and_asymmetric_padding() {
+        let mut window = SizeInfo::new(1000., 800., 10., 20., 10., 10., false);
+        window.reserve_top_lines(crate::tabs::TabBar::ROWS);
+        let pane = window.pane(40, 5, 20, 10);
+        assert_eq!((pane.width(), pane.height()), (1000., 800.));
+        assert_eq!((pane.padding_x(), pane.padding_y()), (410., 130.));
+        assert_eq!((pane.right_padding_x(), pane.bottom_padding_y()), (390., 470.));
+        assert_eq!((pane.columns(), pane.screen_lines()), (20, 10));
+        assert!(pane.contains_point(411, 131));
+        assert!(!pane.contains_point(610, 331));
+        assert!(!pane.contains_point(611, 330));
+        let physical: SizeInfo<u32> = pane.into();
+        assert_eq!((physical.padding_x(), physical.right_padding_x()), (410, 390));
+        let pty: WindowSize = pane.into();
+        assert_eq!((pty.num_cols, pty.num_lines), (20, 10));
+    }
+
+    #[test]
+    fn pane_search_reserves_its_own_row_without_changing_clip_region() {
+        let window = SizeInfo::new(1000., 800., 10., 20., 10., 10., false);
+        let mut pane = window.pane(3, 4, 20, 10);
+        let bottom = pane.bottom_padding_y();
+        pane.reserve_lines(1);
+        assert_eq!(pane.screen_lines(), 9);
+        assert_eq!(pane.bottom_padding_y(), bottom);
+        assert_eq!(window.screen_lines(), 39);
+        let minimum = window.pane(0, 0, 0, 0);
+        assert_eq!((minimum.columns(), minimum.screen_lines()), (MIN_COLUMNS, MIN_SCREEN_LINES));
+    }
 }

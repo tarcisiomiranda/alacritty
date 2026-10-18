@@ -47,6 +47,104 @@ This section documents the *[general]* table of the configuration file.
 	_"alacritty-theme/themes/gruvbox_dark.toml"_,++
 ]
 
+*language* = _"auto"_ | _"en"_ | _"pt-BR"_
+
+	Language of interface menus, dialogs, search bars, and session notices. English and
+	Brazilian Portuguese are the currently available translations.
+
+	_"auto"_ uses the first nonempty _LC_ALL_, _LC_MESSAGES_, or _LANG_. For a
+	base locale other than _C_ or _POSIX_, the first supported entry in
+	_LANGUAGE_ takes precedence. _C_ and _POSIX_ use English; unsupported
+	locales also fall back to English without a supported preference.
+	Windows uses its native user locale when no environment preference is set.
+
+	Right-click the terminal or tab bar and choose *Settings…* (or
+	*Configurações…*), then open Language to select Automatic, English, or
+	Português (Brasil).
+	Saving applies the language to every open window immediately. Reloading
+	the configuration also updates open menus and dialogs. Shell locale and
+	output, tab names, paths, and command text keep their existing values.
+
+	Preferences save *general.language* and the other displayed settings in
+	the active primary TOML file with an atomic write, preserving comments,
+	imports, unrelated settings, and
+	file permissions. With no configuration, it creates
+	_$XDG_CONFIG_HOME/alacritty/alacritty.toml_ on UNIX, falling back to
+	_$HOME/.config/alacritty/alacritty.toml_, or
+	_%APPDATA%\\alacritty\\alacritty.toml_ on Windows. Legacy YAML or an
+	unwritable file reports an error and preserves the previous language and
+	file.
+
+	Saving a choice replaces the current language override from CLI or IPC
+	while retaining other overrides. A later explicit override can still
+	select a language.
+
+	Default: _"auto"_
+
+	Example:
+		*[general]*++
+	language = _"pt-BR"_
+
+*confirm_tab_close* = _true_ | _false_
+
+	Confirm tab closure from the keyboard, tab bar, middle-click or context
+	menu, including the final tab. Y or Enter confirms; N or Escape cancels.
+	The native dialog also offers mouse buttons and identifies the tab.
+	Canceling preserves its running session. Natural shell exits and
+	whole-window closure retain their existing behavior.
+
+	Change this setting in native preferences under Tabs and save to
+	persist it. Setting it to false restores immediate tab closure.
+
+	Default: _true_
+
+*restore_session* = _true_ | _false_
+
+	Restore saved tabs on normal startup. An explicit command, directory,
+	title, or hold option retains its requested behavior.
+
+	Default: _true_
+
+*session_autosave* = _true_ | _false_
+
+	Save the focused window's layout approximately every two seconds to a
+	private recovery.json beside tabs.json. Recovery never overwrites manual
+	or named snapshots and never reexecutes saved commands.
+
+	Default: _false_
+
+*startup_session* = _"<string>"_
+
+	Name of a saved workspace to restore on normal startup. The workspace
+	manager is available with Ctrl+Shift+P or from the context menu. Named
+	workspaces are stored privately in workspaces.json beside tabs.json.
+	An absent or empty name selects optional recovery, then the manual layout.
+
+	Default: _""_
+
+	Ctrl+, opens unified Appearance, Terminal, Tabs, Sessions, Language and
+	Shortcuts preferences. Edit font, size, opacity, colors, scrollback,
+	clipboard and startup behavior. Scrollback capacity applies on Save. Changes
+	preview in the current window; Cancel restores them. Save persists the
+	settings with an atomic TOML update preserving comments and imports.
+
+*shortcuts* = { <action> = _"<combination>"_, ... }
+
+	Overrides for common actions edited in the native Shortcuts preferences.
+	Select an action, press a combination, and save. Conflicts with existing
+	bindings are reported before saving. Escape cancels capture. Use Ctrl, Alt
+	or Super with a key, or a function key. An empty string disables shortcuts
+	for that action. Removing an override restores its original bindings.
+
+	Overrides replace bindings for the named action, preserving unrelated
+	bindings and imported configuration files. For example,
+	*SplitVertical = "Ctrl+Alt+E"*. The editor supports tab creation,
+	duplication, reopening and reordering; pane splitting, focus, maximization
+	and closure; workspaces, settings and session saving. Other actions remain
+	configurable through *keyboard.bindings*.
+
+	Default: _{}_
+
 *working_directory* = _"<string>"_ | _"None"_
 
 	Directory the shell is started in. When this is unset, or _"None"_, the
@@ -955,14 +1053,43 @@ _https://docs.rs/winit/latest/winit/keyboard/enum.Key.html#variant.Dead_
 		*SearchHistoryNext*
 			Go to the next regex in the search history.
 
-		_macOS exclusive:_
+		_Tab actions:_
 
-		*ToggleSimpleFullscreen*
-			Enter fullscreen without occupying another space.
-		*HideOtherApplications*
-			Hide all windows other than Alacritty.
+		On Linux, BSD, and Windows, tabs contain independent terminal sessions in
+		one window. macOS uses the operating system's native window tabbing.
+
 		*CreateNewTab*
-			Create new window in a tab.
+			Create a new terminal session in a tab, or a native tabbed window on macOS.
+		*CloseTab*
+			Close the active tab. Closing the last tab closes its window.
+		*RenameTab*
+			Open the active tab's settings to edit its name and last-command replay option.
+		*SaveSession*
+			Save a snapshot of all tabs in the current window.
+		*RestoreSession*
+			Reopen the saved tabs alongside the current tabs.
+		*DuplicateTab*
+			Create a fresh shell with the active tab's name and working directory.
+		*ReopenClosedTab*
+			Reopen the most recently closed tab using a fresh shell without replay.
+		*MoveTabLeft*
+			Move the active tab left without replacing its terminal session.
+		*MoveTabRight*
+			Move the active tab right without replacing its terminal session.
+		*OpenWorkspaces*
+			Manage named tab layouts and select the startup workspace.
+		*OpenSettings*
+			Open unified native terminal preferences.
+		*SplitVertical*
+			Split the focused terminal to the right with a fresh shell in its directory.
+		*SplitHorizontal*
+			Split the focused terminal below with a fresh shell in its directory.
+		*FocusPaneLeft*, *FocusPaneRight*, *FocusPaneUp*, *FocusPaneDown*
+			Focus a neighboring terminal pane.
+		*TogglePaneZoom*
+			Maximize the focused pane or return to its saved arrangement.
+		*ClosePane*
+			Close the focused pane using the tab confirmation preference.
 		*SelectNextTab*
 			Select next tab.
 		*SelectPreviousTab*
@@ -987,6 +1114,59 @@ _https://docs.rs/winit/latest/winit/keyboard/enum.Key.html#variant.Dead_
 			Select the ninth tab.
 		*SelectLastTab*
 			Select the last tab.
+
+		On Linux, BSD, and Windows, the default shortcuts are *Ctrl+Shift+T* to
+		create a tab, *Ctrl+Shift+W* to close the active tab, *Ctrl+Shift+R* to
+		open its settings, *Ctrl+Shift+S* to save the session, and *Ctrl+Shift+O*
+		to restore saved tabs. Use *Ctrl+PageUp* and *Ctrl+PageDown* to select
+		the previous and next tabs, *Alt+1* through *Alt+8* to select the
+		corresponding tab, and *Alt+9* to select the last tab.
+		Use *Ctrl+Shift+D* to duplicate, *Ctrl+Shift+Alt+T* to reopen a closed
+		tab, *Ctrl+Shift+PageUp* or *Ctrl+Shift+PageDown* to reorder, and
+		*Ctrl+Shift+P* to open workspaces. Dragging tabs also reorders them.
+		Supported Bash, Zsh and Fish profiles show a running marker, then a
+		success or failure marker in background tabs until they are selected.
+
+		Right-click the terminal or tab bar, or click its menu button, to open
+		the context menu. It offers a new tab, tab name and settings, saving all
+		tabs, restoring saved tabs, copying, pasting, language settings, and
+		closing the selected tab. Choose an action with the mouse or Up/Down and
+		Enter. Escape or a click outside closes the menu. When a terminal
+		application handles the
+		mouse, use Shift+right-click to open the menu.
+
+		In the tab settings dialog, edit the highlighted name field and apply
+		the changes. Clear the name to restore the shell's title. Click a button
+		or the last-command checkbox, or navigate with Tab and Shift+Tab. Space
+		toggles the checkbox and Enter activates the focused control. Escape or
+		a click outside dismisses the dialog without applying edits.
+
+		Session snapshots are saved manually and contain tab names, working
+		directories, the active tab, shell settings, up to 20 recent commands per
+		tab, and each tab's last-command replay preference. Closing the terminal
+		does not overwrite the saved snapshot. A normal startup restores saved
+		tabs automatically; an explicit command, working directory, title, or
+		*--hold* starts the requested session instead.
+
+		On UNIX, the snapshot is stored in
+		_$XDG_STATE_HOME/alacritty/tabs.json_, falling back to
+		_$HOME/.local/state/alacritty/tabs.json_. On Windows, it is stored in
+		_%LOCALAPPDATA%\\alacritty\\tabs.json_.
+
+		Command tracking and replay require a supported interactive Bash, Zsh,
+		or Fish shell on UNIX. Replay is disabled by default. Enable the option
+		in the tab's settings and save the session to run only its last recorded
+		command when that tab is restored. The command runs in its recorded
+		working directory once the shell is ready. Earlier commands are retained
+		as history and are not replayed. These session actions apply to the
+		internal tabs on Linux, BSD, and Windows.
+
+		_macOS exclusive:_
+
+		*ToggleSimpleFullscreen*
+			Enter fullscreen without occupying another space.
+		*HideOtherApplications*
+			Hide all windows other than Alacritty.
 
 		_Linux/BSD exclusive:_
 

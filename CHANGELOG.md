@@ -15,6 +15,15 @@ Notable changes to the `alacritty_terminal` crate are documented in its
 - Fixed `alacritty-escapes(7)` manpage missing from macOS install
 - Added the `Open Alacritty here` entry to the right-click context menu for folders on Windows
 
+### Added
+
+- Independent terminal tabs with names, drag reordering and close confirmation
+- Split panes with mouse resizing, keyboard focus and saved layouts
+- Saved sessions, named workspaces and optional replay of the last command
+- Native settings and context menus with English and Brazilian Portuguese
+- Shortcut editing, appearance previews and background command status
+- Compact tabs and native controls that follow the configured terminal colors
+
 ### Fixed
 
 - Spurious "Failed to set new owner of XCB selection" warnings on X11

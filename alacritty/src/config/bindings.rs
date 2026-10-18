@@ -223,6 +223,25 @@ pub enum Action {
     /// Create new window in a tab.
     CreateNewTab,
 
+    CloseTab,
+    RenameTab,
+    SaveSession,
+    RestoreSession,
+    DuplicateTab,
+    ReopenClosedTab,
+    MoveTabLeft,
+    MoveTabRight,
+    OpenWorkspaces,
+    OpenSettings,
+    SplitVertical,
+    SplitHorizontal,
+    FocusPaneLeft,
+    FocusPaneRight,
+    FocusPaneUp,
+    FocusPaneDown,
+    TogglePaneZoom,
+    ClosePane,
+
     /// Toggle fullscreen.
     ToggleFullscreen,
 
@@ -541,9 +560,9 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
     bindings
 }
 
-#[cfg(not(any(target_os = "macos", test)))]
+#[cfg(not(target_os = "macos"))]
 fn common_keybindings() -> Vec<KeyBinding> {
-    bindings!(
+    let bindings = bindings!(
         KeyBinding;
         "v",    ModifiersState::CONTROL | ModifiersState::SHIFT, ~BindingMode::VI;                       Action::Paste;
         "v",    ModifiersState::CONTROL | ModifiersState::SHIFT, +BindingMode::VI, +BindingMode::SEARCH; Action::Paste;
@@ -558,6 +577,48 @@ fn common_keybindings() -> Vec<KeyBinding> {
         "-",    ModifiersState::CONTROL;                                                                 Action::DecreaseFontSize;
         "+" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::IncreaseFontSize;
         "-" => KeyLocation::Numpad, ModifiersState::CONTROL;                                             Action::DecreaseFontSize;
+    );
+
+    #[cfg(not(target_os = "macos"))]
+    let bindings = bindings.into_iter().chain(tab_keybindings()).collect();
+
+    bindings
+}
+
+#[cfg(not(target_os = "macos"))]
+fn tab_keybindings() -> Vec<KeyBinding> {
+    bindings!(
+        KeyBinding;
+        "t", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::CreateNewTab;
+        "w", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::CloseTab;
+        "r", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::RenameTab;
+        "s", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::SaveSession;
+        "o", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::RestoreSession;
+        "d", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::DuplicateTab;
+        "t", ModifiersState::CONTROL | ModifiersState::SHIFT | ModifiersState::ALT; Action::ReopenClosedTab;
+        PageUp, ModifiersState::CONTROL | ModifiersState::SHIFT; Action::MoveTabLeft;
+        PageDown, ModifiersState::CONTROL | ModifiersState::SHIFT; Action::MoveTabRight;
+        "p", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::OpenWorkspaces;
+        ",", ModifiersState::CONTROL; Action::OpenSettings;
+        "e", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::SplitVertical;
+        "j", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::SplitHorizontal;
+        "z", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::TogglePaneZoom;
+        "w", ModifiersState::CONTROL | ModifiersState::ALT; Action::ClosePane;
+        ArrowLeft, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneLeft;
+        ArrowRight, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneRight;
+        ArrowUp, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneUp;
+        ArrowDown, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneDown;
+        PageUp, ModifiersState::CONTROL; Action::SelectPreviousTab;
+        PageDown, ModifiersState::CONTROL; Action::SelectNextTab;
+        "1", ModifiersState::ALT; Action::SelectTab1;
+        "2", ModifiersState::ALT; Action::SelectTab2;
+        "3", ModifiersState::ALT; Action::SelectTab3;
+        "4", ModifiersState::ALT; Action::SelectTab4;
+        "5", ModifiersState::ALT; Action::SelectTab5;
+        "6", ModifiersState::ALT; Action::SelectTab6;
+        "7", ModifiersState::ALT; Action::SelectTab7;
+        "8", ModifiersState::ALT; Action::SelectTab8;
+        "9", ModifiersState::ALT; Action::SelectLastTab;
     )
 }
 
@@ -1249,6 +1310,174 @@ mod tests {
     use super::*;
 
     use winit::keyboard::ModifiersState;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_shortcuts_are_available_in_all_terminal_modes() {
+        let bindings = common_keybindings();
+        let expected = [
+            (
+                Key::Character("t".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::CreateNewTab,
+            ),
+            (
+                Key::Character("w".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::CloseTab,
+            ),
+            (
+                Key::Character("r".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::RenameTab,
+            ),
+            (
+                Key::Character("s".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::SaveSession,
+            ),
+            (
+                Key::Character("o".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::RestoreSession,
+            ),
+            (
+                Key::Character("d".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::DuplicateTab,
+            ),
+            (
+                Key::Character("t".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT | ModifiersState::ALT,
+                Action::ReopenClosedTab,
+            ),
+            (
+                Key::Named(NamedKey::PageUp),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::MoveTabLeft,
+            ),
+            (
+                Key::Named(NamedKey::PageDown),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::MoveTabRight,
+            ),
+            (
+                Key::Character("p".into()),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::OpenWorkspaces,
+            ),
+            (Key::Character(",".into()), ModifiersState::CONTROL, Action::OpenSettings),
+            (Key::Named(NamedKey::PageUp), ModifiersState::CONTROL, Action::SelectPreviousTab),
+            (Key::Named(NamedKey::PageDown), ModifiersState::CONTROL, Action::SelectNextTab),
+            (Key::Character("1".into()), ModifiersState::ALT, Action::SelectTab1),
+            (Key::Character("2".into()), ModifiersState::ALT, Action::SelectTab2),
+            (Key::Character("3".into()), ModifiersState::ALT, Action::SelectTab3),
+            (Key::Character("4".into()), ModifiersState::ALT, Action::SelectTab4),
+            (Key::Character("5".into()), ModifiersState::ALT, Action::SelectTab5),
+            (Key::Character("6".into()), ModifiersState::ALT, Action::SelectTab6),
+            (Key::Character("7".into()), ModifiersState::ALT, Action::SelectTab7),
+            (Key::Character("8".into()), ModifiersState::ALT, Action::SelectTab8),
+            (Key::Character("9".into()), ModifiersState::ALT, Action::SelectLastTab),
+        ];
+
+        for (key, mods, action) in expected {
+            let trigger = BindingKey::Keycode { key, location: KeyLocation::Any };
+            let binding = bindings
+                .iter()
+                .find(|binding| {
+                    binding.trigger == trigger && binding.mods == mods && binding.action == action
+                })
+                .unwrap();
+
+            for mode in [
+                BindingMode::empty(),
+                BindingMode::VI,
+                BindingMode::SEARCH,
+                BindingMode::ALT_SCREEN,
+                BindingMode::VI | BindingMode::SEARCH,
+                BindingMode::all(),
+            ] {
+                assert!(binding.is_triggered_by(mode, mods, &trigger));
+                assert!(!binding.is_triggered_by(mode, ModifiersState::empty(), &trigger));
+            }
+        }
+    }
+
+    #[test]
+    fn close_tab_action_is_configurable() {
+        let binding: KeyBinding =
+            toml::from_str("key = 'w'\nmods = 'Control|Shift'\naction = 'CloseTab'").unwrap();
+        assert_eq!(binding.action, Action::CloseTab);
+    }
+
+    #[test]
+    fn tab_session_actions_are_configurable() {
+        for (key, action_name, action) in [
+            ("r", "RenameTab", Action::RenameTab),
+            ("s", "SaveSession", Action::SaveSession),
+            ("o", "RestoreSession", Action::RestoreSession),
+        ] {
+            let source = format!("key = '{key}'\nmods = 'Control|Shift'\naction = '{action_name}'");
+            let binding: KeyBinding = toml::from_str(&source).unwrap();
+            assert_eq!(binding.action, action);
+            assert_eq!(binding.mods, ModifiersState::CONTROL | ModifiersState::SHIFT);
+        }
+    }
+
+    #[test]
+    fn productivity_actions_accept_custom_shortcuts() {
+        for (key, mods, action_name, action, expected_mods) in [
+            (
+                "d",
+                "Control|Shift",
+                "DuplicateTab",
+                Action::DuplicateTab,
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+            ),
+            (
+                "t",
+                "Control|Shift|Alt",
+                "ReopenClosedTab",
+                Action::ReopenClosedTab,
+                ModifiersState::CONTROL | ModifiersState::SHIFT | ModifiersState::ALT,
+            ),
+            (
+                "PageUp",
+                "Control|Shift",
+                "MoveTabLeft",
+                Action::MoveTabLeft,
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+            ),
+            (
+                "PageDown",
+                "Control|Shift",
+                "MoveTabRight",
+                Action::MoveTabRight,
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+            ),
+            (
+                "p",
+                "Control|Shift",
+                "OpenWorkspaces",
+                Action::OpenWorkspaces,
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+            ),
+            (",", "Control", "OpenSettings", Action::OpenSettings, ModifiersState::CONTROL),
+        ] {
+            let source = format!("key = '{key}'\nmods = '{mods}'\naction = '{action_name}'");
+            let binding: KeyBinding = toml::from_str(&source).unwrap();
+            assert_eq!(binding.action, action);
+            assert_eq!(binding.mods, expected_mods);
+        }
+        let binding: KeyBinding =
+            toml::from_str("key = 'F12'\nmods = 'Alt'\naction = 'OpenWorkspaces'").unwrap();
+        assert_eq!(binding.action, Action::OpenWorkspaces);
+        assert_eq!(binding.mods, ModifiersState::ALT);
+        assert_eq!(binding.trigger, BindingKey::Keycode {
+            key: Key::Named(NamedKey::F12),
+            location: KeyLocation::Any
+        },);
+    }
 
     type MockBinding = Binding<usize>;
 
