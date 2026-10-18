@@ -225,8 +225,18 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         };
 
         // Trigger matching key bindings.
-        for i in 0..self.ctx.config().key_bindings().len() {
-            let binding = &self.ctx.config().key_bindings()[i];
+        let overrides = (!self.ctx.config().general.shortcuts.is_empty()).then(|| {
+            crate::settings::resolved_shortcuts(
+                self.ctx.config(),
+                &self.ctx.config().general.shortcuts,
+            )
+        });
+        let count =
+            overrides.as_ref().map_or_else(|| self.ctx.config().key_bindings().len(), Vec::len);
+        for i in 0..count {
+            let binding = overrides
+                .as_ref()
+                .map_or_else(|| &self.ctx.config().key_bindings()[i], |bindings| &bindings[i]);
             if let Some(action) = binding_action(binding) {
                 action.execute(&mut self.ctx);
             }

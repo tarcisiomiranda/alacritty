@@ -63,6 +63,7 @@ use crate::message_bar::{Message, MessageBuffer};
 #[cfg(unix)]
 use crate::polling::ipc::{self, SocketReply};
 use crate::scheduler::{Scheduler, TimerId, Topic};
+use crate::tabs::{TabAction, TabId};
 use crate::window_context::WindowContext;
 
 /// Duration after the last user input until an unlimited search is performed.
@@ -148,6 +149,149 @@ impl Processor {
     ///
     /// This will initialize the OpenGL Api and pick a config that
     /// will be used for the rest of the windows.
+    fn settings_path(&self) -> Option<PathBuf> {
+        self.config.config_paths.first().cloned().or_else(|| {
+            #[cfg(not(windows))]
+            let directory = std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .or_else(|| home::home_dir().map(|home| home.join(".config")));
+            #[cfg(windows)]
+            let directory = dirs::config_dir();
+            directory.map(|path| path.join("alacritty/alacritty.toml"))
+        })
+    }
+
+    fn publish_settings(&mut self, mut config: UiConfig, path: PathBuf, paths: &[Vec<String>]) {
+        self.cli_options.config_options.clear_settings_overrides(paths);
+        #[cfg(unix)]
+        self.global_ipc_options.clear_settings_overrides(paths);
+        if config.config_paths.is_empty() {
+            config.config_paths.push(path);
+        }
+        self.config = Rc::new(config);
+        for window in self.windows.values_mut() {
+            window.update_settings_config(self.config.clone(), paths);
+        }
+        if let Some(monitor) = self.config_monitor.take() {
+            monitor.shutdown();
+        }
+        if self.config.general.live_config_reload {
+            self.config_monitor =
+                ConfigMonitor::new(self.config.config_paths.clone(), self.proxy.clone());
+        }
+    }
+
+    fn persist_startup(&mut self, name: Option<String>, restore: Option<bool>) -> bool {
+        let path = self.settings_path();
+        let mut config = (*self.config).clone();
+        let valid = name.as_ref().is_none_or(|name| {
+            !name.trim().is_empty()
+                && name.chars().count() <= 80
+                && !name.chars().any(char::is_control)
+        });
+        if let Some(restore) = restore {
+            config.general.restore_session = restore;
+        }
+        config.general.startup_session = name;
+        let mut changes = vec![(
+            vec!["general".into(), "startup_session".into()],
+            Some(toml_edit::Value::from(config.general.startup_session.as_deref().unwrap_or(""))),
+        )];
+        if let Some(restore) = restore {
+            changes.push((
+                vec!["general".into(), "restore_session".into()],
+                Some(toml_edit::Value::from(restore)),
+            ));
+        }
+        let saved = valid
+            && path
+                .as_ref()
+                .is_some_and(|path| crate::language_settings::save_values(path, &changes).is_ok());
+        if saved {
+            let paths: Vec<_> = changes.into_iter().map(|(path, _)| path).collect();
+            self.publish_settings(config, path.unwrap(), &paths);
+        }
+        saved
+    }
+
+    fn remove_workspace(&mut self, name: String, window_id: Option<WindowId>) {
+        let previous = self.config.general.clone();
+        let clears_startup = previous.startup_session.as_ref() == Some(&name);
+        let ready = !clears_startup || self.persist_startup(None, None);
+        let removed = ready
+            && crate::session::WorkspaceStore::default_path().is_some_and(|path| {
+                crate::session::WorkspaceStore::new(path).remove(&name).unwrap_or(false)
+            });
+        if ready && !removed && clears_startup {
+            self.persist_startup(previous.startup_session, Some(previous.restore_session));
+        }
+        if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
+            window.workspace_removed(removed);
+        }
+    }
+
+    fn set_startup_workspace(&mut self, name: Option<String>, window_id: Option<WindowId>) {
+        let restore = name.as_ref().map(|_| true);
+        let saved = self.persist_startup(name, restore);
+        if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
+            window.settings_saved(saved);
+        }
+    }
+
+    fn set_settings(
+        &mut self,
+        values: &crate::settings::SettingsValues,
+        window_id: Option<WindowId>,
+    ) {
+        let path = self.settings_path();
+        let mut config = (*self.config).clone();
+        let saved = values.apply(&mut config).is_ok()
+            && path.as_ref().is_some_and(|path| values.save(path).is_ok());
+        if saved {
+            let paths: Vec<_> = values.changes().into_iter().map(|(path, _)| path).collect();
+            self.publish_settings(config, path.unwrap(), &paths);
+        }
+        if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
+            window.settings_saved(saved);
+        }
+    }
+
+    fn set_language(
+        &mut self,
+        language: crate::localization::Language,
+        window_id: Option<WindowId>,
+    ) {
+        let path = self.settings_path();
+        let saved = path
+            .as_ref()
+            .is_some_and(|path| crate::language_settings::save_language(path, language).is_ok());
+        if saved {
+            self.cli_options.config_options.clear_language_override();
+            #[cfg(unix)]
+            self.global_ipc_options.clear_language_override();
+            let mut config = (*self.config).clone();
+            config.general.language = language;
+            if config.config_paths.is_empty() {
+                config.config_paths.push(path.unwrap());
+            }
+            self.config = Rc::new(config);
+            for window in self.windows.values_mut() {
+                window.update_language_config(self.config.clone());
+            }
+            if let Some(monitor) = self.config_monitor.take() {
+                monitor.shutdown();
+            }
+            if self.config.general.live_config_reload {
+                self.config_monitor =
+                    ConfigMonitor::new(self.config.config_paths.clone(), self.proxy.clone());
+            }
+        }
+        if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
+            window.language_saved(saved);
+        }
+    }
+
     pub fn create_initial_window(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -266,6 +410,12 @@ impl ApplicationHandler<Event> for Processor {
             None => return,
         };
 
+        if matches!(event, WindowEvent::CloseRequested) {
+            window_context.display.window.hold = false;
+            let _ = self.proxy.send_event(Event::new(TerminalEvent::Exit.into(), window_id));
+            return;
+        }
+
         let is_redraw = matches!(event, WindowEvent::RedrawRequested);
 
         window_context.handle_event(
@@ -287,6 +437,7 @@ impl ApplicationHandler<Event> for Processor {
             info!(target: LOG_TARGET_WINIT, "{event:?}");
         }
 
+        let tab_id = event.tab_id;
         // Handle events which don't mandate the WindowId.
         match (event.payload, event.window_id.as_ref()) {
             // Process IPC config update.
@@ -339,6 +490,18 @@ impl ApplicationHandler<Event> for Processor {
                 if let Ok(mut stream) = stream.try_clone() {
                     ipc::send_reply(&mut stream, SocketReply::GetConfig(config_json));
                 }
+            },
+            (EventType::SetLanguage(language), window_id) => {
+                self.set_language(language, window_id.copied());
+            },
+            (EventType::RemoveWorkspace(name), window_id) => {
+                self.remove_workspace(name, window_id.copied());
+            },
+            (EventType::SetStartupWorkspace(name), window_id) => {
+                self.set_startup_workspace(name, window_id.copied());
+            },
+            (EventType::SetSettings(values), window_id) => {
+                self.set_settings(&values, window_id.copied());
             },
             (EventType::ConfigReload(path), _) => {
                 // Clear config logs from message bar for all terminals.
@@ -456,7 +619,7 @@ impl ApplicationHandler<Event> for Processor {
                         &self.proxy,
                         &mut self.clipboard,
                         &mut self.scheduler,
-                        WinitEvent::UserEvent(Event::new(payload, *window_id)),
+                        WinitEvent::UserEvent(Event::new(payload, *window_id).with_tab(tab_id)),
                     );
                 }
             },
@@ -520,15 +683,21 @@ impl ApplicationHandler<Event> for Processor {
 #[derive(Debug, Clone)]
 pub struct Event {
     /// Limit event to a specific window.
-    window_id: Option<WindowId>,
+    pub(crate) window_id: Option<WindowId>,
+    pub(crate) tab_id: Option<TabId>,
 
     /// Event payload.
-    payload: EventType,
+    pub(crate) payload: EventType,
 }
 
 impl Event {
     pub fn new<I: Into<Option<WindowId>>>(payload: EventType, window_id: I) -> Self {
-        Self { window_id: window_id.into(), payload }
+        Self { window_id: window_id.into(), tab_id: None, payload }
+    }
+
+    pub fn with_tab(mut self, tab_id: Option<TabId>) -> Self {
+        self.tab_id = tab_id;
+        self
     }
 }
 
@@ -542,6 +711,28 @@ impl From<Event> for WinitEvent<Event> {
 #[derive(Debug, Clone)]
 pub enum EventType {
     Terminal(TerminalEvent),
+    TabTerminal(TabId, TerminalEvent),
+    CreateTab(WindowOptions),
+    CloseTab(Option<usize>),
+    SelectTab(TabAction),
+    RenameTab(Option<usize>),
+    SaveSession,
+    RestoreSession,
+    RestorePending,
+    OpenSettings,
+    Pane(crate::panes::PaneAction),
+    SetLanguage(crate::localization::Language),
+    SetSettings(Box<crate::settings::SettingsValues>),
+    SetStartupWorkspace(Option<String>),
+    RemoveWorkspace(String),
+    DuplicateTab(Option<usize>),
+    ReopenClosedTab,
+    MoveTab(bool),
+    OpenWorkspaces,
+    OpenWorkspace(crate::session::SavedSession),
+    SessionActivity,
+    ClipboardCopy,
+    ClipboardPaste,
     ConfigReload(PathBuf),
     Message(Message),
     Scroll(Scroll),
@@ -668,6 +859,7 @@ pub struct ActionContext<'a, N, T> {
     pub touch: &'a mut TouchPurpose,
     pub modifiers: &'a mut Modifiers,
     pub display: &'a mut Display,
+    pub window_size: SizeInfo,
     pub message_buffer: &'a mut MessageBuffer,
     pub config: &'a UiConfig,
     pub cursor_blink_timed_out: &'a mut bool,
@@ -681,6 +873,8 @@ pub struct ActionContext<'a, N, T> {
     pub dirty: &'a mut bool,
     pub occluded: &'a mut bool,
     pub preserve_title: bool,
+    pub tab_id: TabId,
+    pub tab_actions: &'a mut Vec<EventType>,
     #[cfg(not(windows))]
     pub master_fd: RawFd,
     #[cfg(not(windows))]
@@ -702,6 +896,13 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     #[inline]
     fn size_info(&self) -> SizeInfo {
         self.display.size_info
+    }
+
+    fn message_bar_size(&self) -> (SizeInfo, usize) {
+        (
+            self.window_size,
+            usize::from(!self.display.split_active && self.search_state.history_index.is_some()),
+        )
     }
 
     fn scroll(&mut self, scroll: Scroll) {
@@ -900,6 +1101,71 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         let _ = self
             .event_proxy
             .send_event(Event::new(EventType::CreateWindow(WindowOptions::default()), None));
+    }
+
+    fn create_new_tab(&mut self) {
+        let mut options = WindowOptions::default();
+        #[cfg(not(windows))]
+        {
+            options.terminal_options.working_directory =
+                foreground_process_path(self.master_fd, self.shell_pid).ok();
+        }
+        self.tab_actions.push(EventType::CreateTab(options));
+    }
+
+    fn close_tab(&mut self) {
+        self.tab_actions.push(EventType::CloseTab(None));
+    }
+
+    fn select_tab(&mut self, action: TabAction) {
+        self.tab_actions.push(EventType::SelectTab(action));
+    }
+
+    fn rename_tab(&mut self) {
+        self.tab_actions.push(EventType::RenameTab(None));
+    }
+
+    fn save_session(&mut self) {
+        self.tab_actions.push(EventType::SaveSession);
+    }
+
+    fn restore_session(&mut self) {
+        self.tab_actions.push(EventType::RestoreSession);
+    }
+
+    fn duplicate_tab(&mut self) {
+        self.tab_actions.push(EventType::DuplicateTab(None));
+    }
+
+    fn reopen_closed_tab(&mut self) {
+        self.tab_actions.push(EventType::ReopenClosedTab);
+    }
+
+    fn move_tab(&mut self, previous: bool) {
+        self.tab_actions.push(EventType::MoveTab(previous));
+    }
+
+    fn open_workspaces(&mut self) {
+        self.tab_actions.push(EventType::OpenWorkspaces);
+    }
+
+    fn open_settings(&mut self) {
+        self.tab_actions.push(EventType::OpenSettings);
+    }
+
+    fn pane_action(&mut self, action: crate::panes::PaneAction) {
+        self.tab_actions.push(EventType::Pane(action));
+    }
+
+    fn quit_window(&mut self) {
+        self.display.window.hold = false;
+        let _ = self
+            .event_proxy
+            .send_event(Event::new(TerminalEvent::Exit.into(), self.display.window.id()));
+    }
+
+    fn tab_id(&self) -> Option<TabId> {
+        Some(self.tab_id)
     }
 
     fn spawn_daemon<I, S>(&self, program: &str, args: I)
@@ -1592,7 +1858,8 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
                 // Schedule delayed search if we ran into our search limit.
                 let timer_id = TimerId::new(Topic::DelayedSearch, self.display.window.id());
                 if !self.scheduler.scheduled(timer_id) {
-                    let event = Event::new(EventType::SearchNext, self.display.window.id());
+                    let event = Event::new(EventType::SearchNext, self.display.window.id())
+                        .with_tab(Some(self.tab_id));
                     self.scheduler.schedule(event, TYPING_SEARCH_DELAY, false, timer_id);
                 }
 
@@ -1652,7 +1919,7 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
     fn schedule_blinking(&mut self) {
         let window_id = self.display.window.id();
         let timer_id = TimerId::new(Topic::BlinkCursor, window_id);
-        let event = Event::new(EventType::BlinkCursor, window_id);
+        let event = Event::new(EventType::BlinkCursor, window_id).with_tab(Some(self.tab_id));
         let blinking_interval = Duration::from_millis(self.config.cursor.blink_interval());
         self.scheduler.schedule(event, blinking_interval, true, timer_id);
     }
@@ -1664,7 +1931,8 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
         }
 
         let window_id = self.display.window.id();
-        let event = Event::new(EventType::BlinkCursorTimeout, window_id);
+        let event =
+            Event::new(EventType::BlinkCursorTimeout, window_id).with_tab(Some(self.tab_id));
         let timer_id = TimerId::new(Topic::BlinkTimeout, window_id);
 
         self.scheduler.schedule(event, blinking_timeout, false, timer_id);
@@ -1841,6 +2109,11 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
     pub fn handle_event(&mut self, event: WinitEvent<Event>) {
         match event {
             WinitEvent::UserEvent(Event { payload, .. }) => match payload {
+                EventType::ClipboardCopy => self.ctx.copy_selection(ClipboardType::Clipboard),
+                EventType::ClipboardPaste => {
+                    let text = self.ctx.clipboard.load(ClipboardType::Clipboard);
+                    self.ctx.paste(&text, true);
+                },
                 EventType::SearchNext => self.ctx.goto_match(None),
                 EventType::Scroll(scroll) => self.ctx.scroll(scroll),
                 EventType::BlinkCursor => {
@@ -1933,7 +2206,27 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 EventType::Message(_)
                 | EventType::ConfigReload(_)
                 | EventType::CreateWindow(_)
-                | EventType::Frame => (),
+                | EventType::Frame
+                | EventType::TabTerminal(..)
+                | EventType::CreateTab(_)
+                | EventType::CloseTab(_)
+                | EventType::SelectTab(_)
+                | EventType::RenameTab(_)
+                | EventType::SaveSession
+                | EventType::RestoreSession
+                | EventType::RestorePending
+                | EventType::Pane(_)
+                | EventType::OpenSettings
+                | EventType::SetLanguage(_)
+                | EventType::SetSettings(_)
+                | EventType::SetStartupWorkspace(_)
+                | EventType::RemoveWorkspace(_)
+                | EventType::DuplicateTab(_)
+                | EventType::ReopenClosedTab
+                | EventType::MoveTab(_)
+                | EventType::OpenWorkspaces
+                | EventType::OpenWorkspace(_)
+                | EventType::SessionActivity => (),
             },
             WinitEvent::WindowEvent { event, .. } => {
                 match event {
@@ -2073,21 +2366,26 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
 pub struct EventProxy {
     proxy: EventLoopProxy<Event>,
     window_id: WindowId,
+    tab_id: TabId,
 }
 
 impl EventProxy {
-    pub fn new(proxy: EventLoopProxy<Event>, window_id: WindowId) -> Self {
-        Self { proxy, window_id }
+    pub fn for_tab(proxy: EventLoopProxy<Event>, window_id: WindowId, tab_id: TabId) -> Self {
+        Self { proxy, window_id, tab_id }
     }
 
     /// Send an event to the event loop.
     pub fn send_event(&self, event: EventType) {
+        let event = match event {
+            EventType::Terminal(event) => EventType::TabTerminal(self.tab_id, event),
+            event => event,
+        };
         let _ = self.proxy.send_event(Event::new(event, self.window_id));
     }
 }
 
 impl EventListener for EventProxy {
     fn send_event(&self, event: TerminalEvent) {
-        let _ = self.proxy.send_event(Event::new(event.into(), self.window_id));
+        self.send_event(event.into());
     }
 }

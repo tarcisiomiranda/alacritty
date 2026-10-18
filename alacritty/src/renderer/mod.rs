@@ -201,6 +201,18 @@ impl Renderer {
         size_info: &SizeInfo,
         glyph_cache: &mut GlyphCache,
     ) {
+        self.draw_string_styled(point, (fg, bg, false), string_chars, size_info, glyph_cache);
+    }
+
+    pub fn draw_string_styled(
+        &mut self,
+        point: Point<usize>,
+        style: (Rgb, Rgb, bool),
+        string_chars: impl Iterator<Item = char>,
+        size_info: &SizeInfo,
+        glyph_cache: &mut GlyphCache,
+    ) {
+        let (fg, bg, bold) = style;
         let mut wide_char_spacer = false;
         let cells = string_chars.enumerate().filter_map(|(i, character)| {
             let flags = if wide_char_spacer {
@@ -218,7 +230,7 @@ impl Renderer {
                 point: Point::new(point.line, point.column + i),
                 character,
                 extra: None,
-                flags,
+                flags: flags | if bold { Flags::BOLD } else { Flags::empty() },
                 bg_alpha: 1.0,
                 fg,
                 bg,
@@ -277,6 +289,22 @@ impl Renderer {
         }
     }
 
+    pub fn set_scissor(&self, size: Option<&SizeInfo>) {
+        unsafe {
+            if let Some(size) = size {
+                gl::Enable(gl::SCISSOR_TEST);
+                gl::Scissor(
+                    size.padding_x() as i32,
+                    size.bottom_padding_y() as i32,
+                    (size.width() - size.padding_x() - size.right_padding_x()).max(0.) as i32,
+                    (size.height() - size.padding_y() - size.bottom_padding_y()).max(0.) as i32,
+                );
+            } else {
+                gl::Disable(gl::SCISSOR_TEST);
+            }
+        }
+    }
+
     /// Get the context reset status.
     pub fn was_context_reset(&self) -> bool {
         // If robustness is not supported, don't use its functions.
@@ -332,9 +360,9 @@ impl Renderer {
         unsafe {
             gl::Viewport(
                 size.padding_x() as i32,
-                size.padding_y() as i32,
-                size.width() as i32 - 2 * size.padding_x() as i32,
-                size.height() as i32 - 2 * size.padding_y() as i32,
+                size.bottom_padding_y() as i32,
+                (size.width() - size.padding_x() - size.right_padding_x()).max(0.) as i32,
+                (size.height() - size.padding_y() - size.bottom_padding_y()).max(0.) as i32,
             );
         }
     }

@@ -83,6 +83,12 @@ pub trait ActionContext<T: EventListener> {
     fn write_to_pty<B: Into<Cow<'static, [u8]>>>(&self, _data: B) {}
     fn mark_dirty(&mut self) {}
     fn size_info(&self) -> SizeInfo;
+    fn message_bar_size(&self) -> (SizeInfo, usize) {
+        (self.size_info(), usize::from(self.search_active()))
+    }
+    fn tab_id(&self) -> Option<crate::tabs::TabId> {
+        None
+    }
     fn copy_selection(&mut self, _ty: ClipboardType) {}
     fn start_selection(&mut self, _ty: SelectionType, _point: Point, _side: Side) {}
     fn toggle_selection(&mut self, _ty: SelectionType, _point: Point, _side: Side) {}
@@ -99,6 +105,21 @@ pub trait ActionContext<T: EventListener> {
     fn terminal(&self) -> &Term<T>;
     fn terminal_mut(&mut self) -> &mut Term<T>;
     fn spawn_new_instance(&mut self) {}
+    fn create_new_tab(&mut self) {}
+    fn close_tab(&mut self) {}
+    fn rename_tab(&mut self) {}
+    fn save_session(&mut self) {}
+    fn restore_session(&mut self) {}
+    fn duplicate_tab(&mut self) {}
+    fn reopen_closed_tab(&mut self) {}
+    fn move_tab(&mut self, _previous: bool) {}
+    fn open_workspaces(&mut self) {}
+    fn open_settings(&mut self) {}
+    fn pane_action(&mut self, _action: crate::panes::PaneAction) {}
+    fn quit_window(&mut self) {
+        self.terminal_mut().exit();
+    }
+    fn select_tab(&mut self, _selection: crate::tabs::TabAction) {}
     #[cfg(target_os = "macos")]
     fn create_new_window(&mut self, _tabbing_id: Option<String>) {}
     #[cfg(not(target_os = "macos"))]
@@ -343,10 +364,7 @@ impl<T: EventListener> Execute<T> for Action {
             #[cfg(not(target_os = "macos"))]
             Action::Hide => ctx.window().set_visible(false),
             Action::Minimize => ctx.window().set_minimized(true),
-            Action::Quit => {
-                ctx.window().hold = false;
-                ctx.terminal_mut().exit();
-            },
+            Action::Quit => ctx.quit_window(),
             Action::IncreaseFontSize => ctx.change_font_size(FONT_SIZE_STEP),
             Action::DecreaseFontSize => ctx.change_font_size(-FONT_SIZE_STEP),
             Action::ResetFontSize => ctx.reset_font_size(),
@@ -408,6 +426,62 @@ impl<T: EventListener> Execute<T> for Action {
             Action::SpawnNewInstance => ctx.spawn_new_instance(),
             #[cfg(target_os = "macos")]
             Action::CreateNewWindow => ctx.create_new_window(None),
+            Action::CloseTab => ctx.close_tab(),
+            Action::RenameTab => ctx.rename_tab(),
+            Action::SaveSession => ctx.save_session(),
+            Action::RestoreSession => ctx.restore_session(),
+            Action::DuplicateTab => ctx.duplicate_tab(),
+            Action::ReopenClosedTab => ctx.reopen_closed_tab(),
+            Action::MoveTabLeft => ctx.move_tab(true),
+            Action::MoveTabRight => ctx.move_tab(false),
+            Action::OpenWorkspaces => ctx.open_workspaces(),
+            Action::OpenSettings => ctx.open_settings(),
+            Action::SplitVertical => {
+                ctx.pane_action(crate::panes::PaneAction::Split(crate::panes::Axis::Vertical))
+            },
+            Action::SplitHorizontal => {
+                ctx.pane_action(crate::panes::PaneAction::Split(crate::panes::Axis::Horizontal))
+            },
+            Action::FocusPaneLeft => {
+                ctx.pane_action(crate::panes::PaneAction::Focus(crate::panes::Direction::Left))
+            },
+            Action::FocusPaneRight => {
+                ctx.pane_action(crate::panes::PaneAction::Focus(crate::panes::Direction::Right))
+            },
+            Action::FocusPaneUp => {
+                ctx.pane_action(crate::panes::PaneAction::Focus(crate::panes::Direction::Up))
+            },
+            Action::FocusPaneDown => {
+                ctx.pane_action(crate::panes::PaneAction::Focus(crate::panes::Direction::Down))
+            },
+            Action::TogglePaneZoom => ctx.pane_action(crate::panes::PaneAction::Zoom),
+            Action::ClosePane => ctx.pane_action(crate::panes::PaneAction::Close),
+            #[cfg(not(target_os = "macos"))]
+            Action::CreateNewTab => ctx.create_new_tab(),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectNextTab => ctx.select_tab(crate::tabs::TabAction::Next),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectPreviousTab => ctx.select_tab(crate::tabs::TabAction::Previous),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab1 => ctx.select_tab(crate::tabs::TabAction::Index(0)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab2 => ctx.select_tab(crate::tabs::TabAction::Index(1)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab3 => ctx.select_tab(crate::tabs::TabAction::Index(2)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab4 => ctx.select_tab(crate::tabs::TabAction::Index(3)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab5 => ctx.select_tab(crate::tabs::TabAction::Index(4)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab6 => ctx.select_tab(crate::tabs::TabAction::Index(5)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab7 => ctx.select_tab(crate::tabs::TabAction::Index(6)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab8 => ctx.select_tab(crate::tabs::TabAction::Index(7)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectTab9 => ctx.select_tab(crate::tabs::TabAction::Index(8)),
+            #[cfg(not(target_os = "macos"))]
+            Action::SelectLastTab => ctx.select_tab(crate::tabs::TabAction::Last),
             #[cfg(target_os = "macos")]
             Action::CreateNewTab => {
                 // Tabs on macOS are not possible without decorations.
@@ -997,15 +1071,19 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         if self.message_bar_cursor_state() == Some(CursorIcon::Pointer)
             && state == ElementState::Pressed
         {
-            let size = self.ctx.size_info();
+            let size = self.ctx.message_bar_size().0;
 
-            let current_lines = self.ctx.message().map_or(0, |m| m.text(&size).len());
+            let current_lines = self.ctx.message().map_or(0, |m| {
+                m.text_with_locale(&size, self.ctx.config().general.language.resolve()).len()
+            });
 
             self.ctx.clear_selection();
             self.ctx.pop_message();
 
             // Reset cursor when message bar height changed or all messages are gone.
-            let new_lines = self.ctx.message().map_or(0, |m| m.text(&size).len());
+            let new_lines = self.ctx.message().map_or(0, |m| {
+                m.text_with_locale(&size, self.ctx.config().general.language.resolve()).len()
+            });
 
             let new_icon = match current_lines.cmp(&new_lines) {
                 Ordering::Less => CursorIcon::Default,
@@ -1070,16 +1148,13 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
     /// Check mouse icon state in relation to the message bar.
     fn message_bar_cursor_state(&self) -> Option<CursorIcon> {
         // Since search is above the message bar, the button is offset by search's height.
-        let search_height = usize::from(self.ctx.search_active());
-
-        // Calculate Y position of the end of the last terminal line.
-        let size = self.ctx.size_info();
+        let (size, search_height) = self.ctx.message_bar_size();
         let terminal_end = size.padding_y() as usize
             + size.cell_height() as usize * (size.screen_lines() + search_height);
 
         let mouse = self.ctx.mouse();
         let display_offset = self.ctx.terminal().grid().display_offset();
-        let point = self.ctx.mouse().point(&self.ctx.size_info(), display_offset);
+        let point = self.ctx.mouse().point(&size, display_offset);
 
         if self.ctx.message().is_none() || (mouse.y <= terminal_end) {
             None
@@ -1117,6 +1192,7 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         let scale_factor = self.ctx.window().scale_factor;
         let size = self.ctx.size_info();
         let window_id = self.ctx.window().id();
+        let tab_id = self.ctx.tab_id();
         let scheduler = self.ctx.scheduler_mut();
 
         // Scale constants by DPI.
@@ -1139,7 +1215,8 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         };
 
         // Scale number of lines scrolled based on distance to boundary.
-        let event = Event::new(EventType::Scroll(Scroll::Delta(delta / step)), Some(window_id));
+        let event = Event::new(EventType::Scroll(Scroll::Delta(delta / step)), Some(window_id))
+            .with_tab(tab_id);
 
         // Schedule event.
         let timer_id = TimerId::new(Topic::SelectionScrolling, window_id);

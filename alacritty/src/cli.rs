@@ -378,6 +378,24 @@ impl ParsedOptions {
     }
 
     /// Apply CLI config overrides, removing broken ones.
+    pub fn clear_language_override(&mut self) {
+        for (_, parsed) in &mut self.config_options {
+            let Some(root) = parsed.as_table_mut() else { continue };
+            let empty = if let Some(general) = root.get_mut("general").and_then(Value::as_table_mut)
+            {
+                general.remove("language");
+                general.is_empty()
+            } else {
+                false
+            };
+            if empty {
+                root.remove("general");
+            }
+        }
+        self.config_options
+            .retain(|(_, parsed)| parsed.as_table().is_none_or(|table| !table.is_empty()));
+    }
+
     pub fn override_config(&mut self, config: &mut UiConfig) {
         let mut i = 0;
         while i < self.config_options.len() {
@@ -396,6 +414,30 @@ impl ParsedOptions {
     }
 
     /// Apply CLI config overrides to a CoW config.
+    pub fn clear_settings_overrides(&mut self, paths: &[Vec<String>]) {
+        fn clear(value: &mut Value, path: &[String]) {
+            let Some((key, rest)) = path.split_first() else { return };
+            let Some(table) = value.as_table_mut() else { return };
+            if rest.is_empty() {
+                table.remove(key);
+                return;
+            }
+            if let Some(child) = table.get_mut(key) {
+                clear(child, rest);
+                if child.as_table().is_some_and(|table| table.is_empty()) {
+                    table.remove(key);
+                }
+            }
+        }
+        for (_, parsed) in &mut self.config_options {
+            for path in paths {
+                clear(parsed, path);
+            }
+        }
+        self.config_options
+            .retain(|(_, parsed)| parsed.as_table().is_none_or(|table| !table.is_empty()));
+    }
+
     pub fn override_config_rc(&mut self, config: Rc<UiConfig>) -> Rc<UiConfig> {
         // Skip clone without write requirement.
         if self.config_options.is_empty() {
@@ -438,6 +480,45 @@ mod tests {
     #[cfg(target_os = "linux")]
     use clap_complete::Shell;
     use toml::Table;
+
+    #[test]
+    fn clearing_settings_preserves_unrelated_nested_overrides() {
+        let text = r"font.size=18.0
+font.normal.family='custom'
+font.normal.style='Regular'
+window.opacity=0.5
+window.blur=true
+general.live_config_reload=false";
+        let mut options = ParsedOptions::from_options(&[text.into()]);
+        options.clear_settings_overrides(&[
+            vec!["font".into(), "size".into()],
+            vec!["font".into(), "normal".into(), "family".into()],
+            vec!["window".into(), "opacity".into()],
+        ]);
+        let mut config = UiConfig::default();
+        options.override_config(&mut config);
+        assert_eq!(config.font.size(), UiConfig::default().font.size());
+        assert_eq!(config.font.normal().family, UiConfig::default().font.normal().family);
+        assert_eq!(config.font.normal().style.as_deref(), Some("Regular"));
+        assert!(config.window.blur);
+        assert!(!config.general.live_config_reload);
+        assert_eq!(config.window_opacity(), 1.);
+    }
+
+    #[test]
+    fn language_override_can_be_cleared_without_changing_other_overrides() {
+        let mut options = ParsedOptions::from_options(&["general.language='en'\ngeneral.\
+                                                         live_config_reload=false\nwindow.\
+                                                         opacity=0.75"
+            .into()]);
+        options.clear_language_override();
+        let mut config = UiConfig::default();
+        config.general.language = crate::localization::Language::PtBr;
+        options.override_config(&mut config);
+        assert_eq!(config.general.language, crate::localization::Language::PtBr);
+        assert!(!config.general.live_config_reload);
+        assert_eq!(config.window_opacity(), 0.75);
+    }
 
     #[test]
     fn dynamic_title_ignoring_options_by_default() {

@@ -5,11 +5,11 @@ use unicode_width::UnicodeWidthChar;
 use alacritty_terminal::grid::Dimensions;
 
 use crate::display::SizeInfo;
+use crate::localization::{Locale, Message as Text};
 
 pub const CLOSE_BUTTON_TEXT: &str = "[X]";
 const CLOSE_BUTTON_PADDING: usize = 1;
 const MIN_FREE_LINES: usize = 3;
-const TRUNCATED_MESSAGE: &str = "[MESSAGE TRUNCATED]";
 
 /// Message for display in the MessageBuffer.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -36,7 +36,12 @@ impl Message {
     }
 
     /// Formatted message text lines.
+    #[cfg(test)]
     pub fn text(&self, size_info: &SizeInfo) -> Vec<String> {
+        self.text_with_locale(size_info, Locale::En)
+    }
+
+    pub fn text_with_locale(&self, size_info: &SizeInfo, locale: Locale) -> Vec<String> {
         let num_cols = size_info.columns();
         let total_lines =
             (size_info.height() - 2. * size_info.padding_y()) / size_info.cell_height();
@@ -88,11 +93,12 @@ impl Message {
         lines.push(Self::pad_text(line, num_cols));
 
         // Truncate output if it's too long.
+        let truncated_message = locale.text(Text::TruncatedNotice);
         if lines.len() > max_lines {
             lines.truncate(max_lines);
-            if TRUNCATED_MESSAGE.len() <= num_cols {
+            if truncated_message.len() <= num_cols {
                 if let Some(line) = lines.iter_mut().last() {
-                    *line = Self::pad_text(TRUNCATED_MESSAGE.into(), num_cols);
+                    *line = Self::pad_text(truncated_message.into(), num_cols);
                 }
             }
         }
@@ -253,6 +259,17 @@ mod tests {
         let lines = message_buffer.message().unwrap().text(&size);
 
         assert_eq!(lines.len(), 0);
+    }
+
+    #[test]
+    fn truncation_notice_follows_locale_without_translating_original_text() {
+        let message = Message::new("original user content ".repeat(40), MessageType::Error);
+        let size = SizeInfo::new(30., (MIN_FREE_LINES + 2) as f32, 1., 1., 0., 0., false);
+        let english = message.text_with_locale(&size, Locale::En);
+        let portuguese = message.text_with_locale(&size, Locale::PtBr);
+        assert_eq!(english.first(), portuguese.first());
+        assert!(english.last().unwrap().contains("[MESSAGE TRUNCATED]"));
+        assert!(portuguese.last().unwrap().contains("[MENSAGEM TRUNCADA]"));
     }
 
     #[test]

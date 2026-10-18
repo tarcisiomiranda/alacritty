@@ -29,23 +29,35 @@ use alacritty_terminal::tty;
 
 mod cli;
 mod clipboard;
+mod close_confirmation;
 mod config;
+mod context_menu;
 mod daemon;
 mod display;
 mod event;
 mod input;
+mod language_settings;
+mod localization;
 mod logging;
 #[cfg(target_os = "macos")]
 mod macos;
 mod message_bar;
 mod migrate;
+mod panes;
 #[cfg(windows)]
 mod panic;
 #[cfg(unix)]
 mod polling;
+mod productivity;
 mod renderer;
 mod scheduler;
+mod session;
+mod settings;
+mod shell_integration;
 mod string;
+mod tab_ui;
+mod tabs;
+mod ui;
 mod window_context;
 
 mod gl {
