@@ -31,6 +31,15 @@ Join [`#alacritty`] on libera.chat if you have questions or looking for a quick 
 
 You can find an overview over the features available in Alacritty [here](./docs/features.md).
 
+See the [new tools and screenshots](./docs/terminal-tools.md) for this fork.
+
+This checkout also supports [terminal tabs](./docs/tabs.md) with independent
+sessions, a clickable tab bar, custom names, saved sessions, and configurable
+keyboard shortcuts. [Productivity controls](./docs/productivity.md) add visual
+preferences, named workspaces, recovery snapshots and tab organization.
+[Split panes](./docs/panes.md) add independent terminals within each tab, draggable
+dividers, directional focus, maximization and saved layouts.
+
 ## Further information
 
 - [Announcing Alacritty, a GPU-Accelerated Terminal Emulator](https://jwilm.io/blog/announcing-alacritty/) January 6, 2017

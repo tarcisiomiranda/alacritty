@@ -1,0 +1,35 @@
+plan: fork-publication
+title: Fork pull requests and screenshot review
+status: doing
+created: 2026-10-18
+updated: 2026-10-18
+goal: Make the terminal changes available for review in the personal fork.
+context:
+  - The user asks for fork and upstream PRs, policy review, duplicate checks and simple English.
+  - Upstream explicitly prohibits generated contributions and does not accept native tabs or splits.
+scope:
+  - Fork implementation PR, test PR based on implementation and documentation PR based on tests.
+  - Real screenshots, simple descriptions, author identity and verification evidence.
+  - A report of relevant upstream policy and issues.
+out_of_scope:
+  - Publishing generated contributions to upstream or making a false no-AI declaration.
+  - Merging PRs, replacing installed binaries or pushing to master.
+stages:
+  - id: research
+    desc: Contribution policy and related work
+    status: done
+  - id: prepare
+    desc: Commits, screenshots, descriptions and verification
+    status: done
+  - id: publish
+    desc: Fork branches, PRs and dependency links
+    status: doing
+risks:
+  - The implementation spans shared code and cannot be split safely into independent feature patches without a new implementation effort.
+  - Screenshots must avoid private session data and display actual controls.
+rollback:
+  - Keep upstream and master unchanged; any published work stays on separate fork branches.
+decisions:
+  - Continue the authorized fork work after reporting the upstream policy conflict.
+  - Use the configured human Git author with no AI coauthor trailer.
+  - Write the motivation as personal experience rather than a language performance claim.

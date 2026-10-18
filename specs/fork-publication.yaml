@@ -1,0 +1,60 @@
+spec: fork-publication
+title: Publish the terminal improvements in the personal fork
+status: in_progress
+created: 2026-10-18
+updated: 2026-10-18
+goal: Publish reviewable fork PRs with simple English, real screenshots and checks of upstream policy and related work.
+problem: The local terminal changes are not committed or available for review on GitHub.
+behavior:
+  - Publish the implementation in the personal fork and link separate test and documentation PRs.
+  - Use short English sentences and the user's experience moving from Terminator to a Rust terminal.
+  - Add real application screenshots with safe demonstration data.
+  - Preserve the user's Git author identity without adding AI coauthor trailers.
+constraints:
+  - The explicit PR request authorizes commits and pushes needed to publish branches in tarcisiomiranda/alacritty.
+  - Do not merge PRs or push to upstream or to master.
+  - Do not claim that no AI was used or submit generated contributions to the upstream project.
+  - Do not claim performance measurements that were not made.
+implemented:
+  - Checked current upstream CONTRIBUTING.md and PR template through GitHub.
+  - Checked open PRs and related open and closed issues.
+  - Prepared implementation and graphical-test commits and 13 real screenshots with a simple English gallery.
+  - Verified 408 workspace tests plus a doctest on stable and Rust 1.85.0, nightly formatting, Clippy and graphical session behavior.
+pending:
+  - Publish fork branches and PRs and verify their targets and links.
+steps:
+  - id: policy
+    desc: Verify contribution policy and related issues and PRs
+    status: done
+    verify: gh api repos/alacritty/alacritty --jq .full_name
+  - id: prepare
+    desc: Prepare implementation, tests and screenshot documentation commits
+    status: done
+    verify: git diff --check
+  - id: checks
+    desc: Verify the final source and screenshot artifacts
+    status: done
+    verify: mise exec -- cargo test --workspace --quiet
+    note: "Final source passed 408 workspace unit tests plus 1 doctest on Rust 1.85.0; stable tests also passed. Nightly rustfmt check, Clippy, seven graphical suites across this session and the prior UI verification, 13 decoded PNGs and gallery relative links passed."
+  - id: publish
+    desc: Push fork branches and open linked pull requests
+    status: doing
+    verify: gh pr list --repo tarcisiomiranda/alacritty --state open --json number,title,url,baseRefName,headRefName
+acceptance:
+  - id: policy
+    desc: Upstream rules and related work are documented without a false no-AI declaration
+    status: todo
+  - id: fork
+    desc: Fork PRs have clear scope, simple English, screenshots and correct dependency links
+    status: todo
+  - id: verification
+    desc: Code checks pass and all screenshot links display actual application captures
+    status: todo
+decisions:
+  - Upstream prohibits generated code, docs and PR text; its PR form requires a no-LLM declaration, so no upstream contribution is published.
+  - The user's fork request permits preparing and publishing fork-specific PRs with honest descriptions.
+  - Native tabs and splits are also outside upstream goals according to README and issues 3129 and 1360.
+  - Keep dependent source changes in one implementation PR and separate graphical scripts and user documentation into child PRs.
+risks:
+  - Child PRs depend on the implementation branch and should be retargeted after it is merged.
+  - Existing screenshots contain test commands, so use clean demonstration captures when possible.

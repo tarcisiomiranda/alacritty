@@ -1,0 +1,91 @@
+spec: terminal-ui
+title: Clear and consistent native menus and controls
+status: done
+created: 2026-10-18
+updated: 2026-10-18
+goal: Make native menus and preferences easy to scan, navigate and click during everyday terminal use.
+problem: Uniform crowded buttons obscure navigation and actions while compact panels hide controls unpredictably.
+behavior:
+  - Separate settings navigation from content and keep save and cancel actions anchored.
+  - Group context actions and expose overflow through predictable scrolling and visible controls.
+  - Use consistent surfaces, inputs, toggles, selection and focus styling across native dialogs.
+  - Preserve reversible previews, keyboard navigation, localization and live terminal processes.
+  - Present compact rounded tabs with themed active and hover states, readable titles and inset close controls.
+requirements_functional:
+  - Mouse targets match rendered controls and remain within the available viewport.
+  - Wheel scrolling belongs to the open menu or dialog and never reaches its terminal.
+  - English and Portuguese controls work at normal and compact window sizes.
+  - Closing, saved layouts and shortcut editing preserve their existing behavior.
+constraints:
+  - Use the existing native renderer without adding a GUI toolkit or runtime dependency.
+  - No installed binary replacement, commit or push.
+  - No mise.toml or tasks exist; use mise exec.
+implemented:
+  - Adaptive light and dark surfaces, rounded controls, bold titles, radio choices and distinct destructive actions.
+  - Sidebar and compact category navigation, stable scrolling and anchored action footers.
+  - Grouped context menus with stable overflow, wheel and arrow controls, Home and End navigation.
+  - Visual and hit-test geometry remain shared and disabled menu clicks preserve the menu.
+  - Updated documentation and graphical regressions for compact overflow, modal isolation and persistent preferences.
+  - All 406 workspace tests and Clippy passed; preferences, context menus, language, panes and closure graphical checks passed.
+  - Compact one-row tabs with normal-weight titles, ellipsis, a thin accent underline and inset close targets.
+  - Contextual close buttons with larger targets and separate colored command activity markers.
+  - Shared UI surfaces and text derive from primary terminal colors; accent and destructive actions use the configured blue and red slots.
+  - Compact theme follow-up passed 222 Alacritty tests, Clippy and six graphical suites; screenshots reviewed in dark, light and custom green themes.
+pending:
+  - None.
+steps:
+  - id: components
+    desc: Improve reusable styling and responsive menu and dialog geometry
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: graphical
+    desc: Verify clicks, scroll, focus, persistence and translated compact layouts
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-tab-ui.py
+  - id: regression
+    desc: Preserve pane, session and confirmation behavior and document controls
+    status: done
+    verify: mise exec -- cargo test --workspace
+  - id: tab-bar
+    desc: Style the native tab bar and preserve interaction and terminal geometry
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+    note: "Verified the final source with mise exec -- cargo test --workspace --quiet (406 unit tests and 1 doctest), cargo build -p alacritty, and Rust 1.89 Clippy with warnings denied."
+  - id: tab-bar-graphical
+    desc: Verify tab hover, closing, dragging, activity and translated dialogs
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-tabs.py && mise exec -- python3 -B scripts/test-tab-ui.py && mise exec -- python3 -B scripts/test-productivity.py
+    note: "Final build passed test-tabs.py, test-tab-ui.py, test-productivity.py, test-language.py, test-panes.py and test-close-confirmation.py on isolated Xvfb. Dark, light, compact, Unicode and close-hover screenshots reviewed. Commands already ran successfully; no repeat needed."
+  - id: compact-theme
+    desc: Reduce tab height, inset close targets and derive all UI colors from the terminal theme
+    status: done
+    verify: mise exec -- cargo test -p alacritty && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-language.py
+    note: "Already verified final source with 222 Alacritty tests, Rust 1.89 Clippy and all six graphical suites. Productivity confirms green accent pixels in tabs and menu; language confirms translated glyphs across theme reload. Final screenshots inspected. Avoiding redundant reruns."
+acceptance:
+  - id: clarity
+    desc: Navigation, editable controls and primary actions have distinct legible presentation
+    status: done
+  - id: input
+    desc: All actions remain reachable by mouse and keyboard without modal input reaching shells
+    status: done
+  - id: persistence
+    desc: Save, cancel, shortcuts, pane layouts and close confirmations retain their tested behavior
+    status: done
+  - id: tab-bar
+    desc: Attractive light and dark tabs retain precise hit targets and independent live sessions
+    status: done
+    note: "Verified dark and light screenshots, Unicode truncation, active and hover targets, drag order, separate PTYs and last terminal row visibility."
+  - id: terminal-theme
+    desc: Compact tabs have inset close targets and menus and tabs follow changes to the terminal palette
+    status: done
+    note: "One-row tabs, inset close target and harmless right margin verified graphically. Shared theme colors verified in dark and light layouts and through live accent changes."
+decisions:
+  - Improve the native shared component layer and existing dialogs rather than introduce another GUI runtime.
+  - Use a sidebar on wide settings panels and compact navigation when width is limited.
+  - Keep focus, hover, selected category and destructive actions visually distinct.
+  - Reserve one terminal cell row for compact tabs and inset the close icon and hit target from the right edge.
+  - Derive shared UI surfaces from the configured background and foreground, using the theme blue slot as accent and red slot for destructive actions.
+  - Display close buttons on the active or hovered tab and keep activity markers independent of custom titles.
+risks:
+  - Existing graphical fixtures encode old coordinates and must be updated to the actual visible layout.
+  - Clipping, Unicode text and compact navigation must use the same geometry as mouse hit testing.

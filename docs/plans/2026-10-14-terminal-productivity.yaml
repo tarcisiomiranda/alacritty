@@ -1,0 +1,47 @@
+plan: terminal-productivity
+title: Native terminal productivity improvements
+status: done
+created: 2026-10-14
+updated: 2026-10-14
+goal: Deliver useful native settings, named working environments and tab organization.
+context:
+  - Existing native tabs, language settings and private manual session snapshots provide the base.
+scope:
+  - Visual settings with preview and safe TOML persistence.
+  - Named workspace management and startup selection.
+  - Optional independent recovery snapshots.
+  - Duplicate, reopen and reorder tabs and background command indicators.
+  - Meaningful model and X11 regression coverage and documentation.
+  - Optional native tab close confirmation with Y and Enter or N and Escape.
+out_of_scope:
+  - Split panes, remote session multiplexing and embedded AI.
+  - Restoring process memory, terminal output or unsaved shell variables.
+  - Replacing the installed terminal or publishing source changes.
+stages:
+  - id: models
+    desc: Workspace storage, ordered tab movement and shell status
+    status: done
+  - id: native-controls
+    desc: Settings and workspace dialogs and event routing
+    status: done
+  - id: verification
+    desc: Unit, graphical and existing workflow regressions
+    status: done
+  - id: close-confirmation
+    desc: Confirmation dialog, persistent preference and stable close routing
+    status: done
+  - id: close-confirmation-verification
+    desc: Confirmation unit and isolated graphical regression checks
+    status: done
+risks:
+  - Autosave must preserve explicit layouts and suppress recovery replay.
+  - Config preview must revert and preserve unrelated overrides.
+rollback:
+  - Remove only new productivity changes while preserving prior tab and language implementations.
+decisions:
+  - Persist all choices in native TOML and private state files rather than shell locale variables.
+  - Use bounded lists and stable session identities across tab operations.
+  - Complete validation passed with 371 workspace tests, Rust 1.89 Clippy and six isolated X11 scripts.
+  - Inspect full English and Portuguese panels and compact 45 by 18 layouts.
+  - Preserve scoped startup changes and prevent removal when the startup preference cannot be persisted.
+  - Confirm tab closure by stable identity and consume decision keys, release events, file drops and clipboard paste while pending.

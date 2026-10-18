@@ -1,0 +1,140 @@
+spec: terminal-tabs
+title: Native terminal tabs
+status: done
+created: 2026-10-13
+updated: 2026-10-13
+goal: Run named terminal tabs and restore saved directories and opted-in recent commands.
+problem: Each window currently owns a single PTY and terminal session.
+behavior:
+  - Show a tab bar with session titles and a button to create a tab.
+  - Create a session with Ctrl+Shift+T and close it with Ctrl+Shift+W.
+  - Cycle sessions with Ctrl+PageUp and Ctrl+PageDown or select with the mouse.
+  - Keep background sessions running and route terminal replies to the originating PTY.
+  - Close only the exited session and close the window after the last session exits.
+  - Rename a tab using a visible tab settings dialog and keep custom names across shell title updates.
+  - Save the ordered tabs, active tab, working directories and recent executed shell commands.
+  - Persist a per-tab checkbox to execute its last saved command when restoring the session.
+  - Restore saved tabs on normal startup and allow reopening them from the tab settings dialog.
+requirements_functional:
+  - Separate PTY, terminal grid, selection, scrollback and search state for each tab.
+  - Resize every session when the shared window geometry changes.
+  - Support configurable tab actions through existing key bindings.
+constraints:
+  - Reuse the existing OpenGL renderer without adding UI dependencies.
+  - Keep existing window creation and IPC behavior.
+  - Leave changes in the working tree without commit or push.
+implemented:
+  - Independent PTYs, terminal grids, selection and search state.
+  - Stable terminal event routing and synchronous keyboard and mouse tab actions.
+  - Clickable bar with Unicode titles, active-tab visibility and close and create buttons.
+  - Asymmetric viewport padding, per-session hold and resizing of all sessions.
+  - Unit tests, headless graphical regression tests and usage documentation.
+  - Persistent custom names and a native tab settings dialog with a per-tab replay checkbox.
+  - Original shell profiles and bounded executed-command records captured through lifecycle hooks.
+  - Owner-only atomic snapshots and ordered startup and in-window restoration.
+  - Guarded replay from the original command directory through a private source script.
+  - Responsive settings panel with dimmed backdrop, explicit fields, graphical checkbox, grouped buttons and hover states.
+  - Context menus from right-click in terminal content and tabs or the toolbar, with clipboard and session actions.
+  - Stable inactive-tab targets and preserved application mouse reporting with Shift-right-click override.
+  - Shared drawing and mouse hit geometry, editable Unicode cursor and non-destructive rejected oversized paste.
+pending:
+steps:
+  - id: sessions
+    desc: Implement independent session lifecycle and tab routing
+    status: done
+    verify: mise exec -- cargo test -p alacritty tabs::tests
+  - id: controls
+    desc: Integrate tab rendering and configurable controls
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: validation
+    desc: Validate the workspace and document usage
+    status: done
+    verify: mise exec -- cargo test --workspace
+  - id: graphical
+    desc: Exercise native tabs on an isolated X11 display
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 scripts/test-tabs.py
+  - id: persistence
+    desc: Persist and validate ordered tab snapshots and replay preferences
+    status: done
+    verify: mise exec -- cargo test -p alacritty session::tests
+    note: "Atomic snapshots, permissions, validation and backward-compatible shell profiles verified."
+  - id: restore-ui
+    desc: Integrate renaming, command capture and session restoration
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+    note: "Names, shell hooks and guarded replay, including excluded-command readiness, validated."
+  - id: persistence-graphical
+    desc: Verify saved names, working directories, recent commands and selective replay
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 scripts/test-tab-sessions.py
+    note: "Isolated X11 verifies directories, commands, opt-in replay and pending replay cancellation."
+  - id: friendly-ui
+    desc: Implement responsive settings controls and a mouse-operated context menu
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+    note: "Responsive colored controls, shared hit geometry, context menu routing and clipboard actions verified."
+  - id: friendly-ui-graphical
+    desc: Verify right-click actions, mouse editing and responsive rendering on X11
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-tab-ui.py && mise exec -- python3 -B scripts/test-tab-sessions.py
+    note: "X11 menu, mouse editing, clipboard, inactive tabs, application mouse reporting and narrow layouts verified."
+acceptance:
+  - id: independent-sessions
+    desc: Multiple tabs preserve independent content and background activity
+    status: done
+  - id: controls
+    desc: Create, switch and close tabs using the keyboard and tab bar
+    status: done
+  - id: saved-sessions
+    desc: Renamed tabs and their directories and recent commands survive saving and reopening
+    status: done
+  - id: selective-replay
+    desc: Only a checked tab runs its last saved command and the preference survives reopening
+    status: done
+  - id: friendly-ui
+    desc: Right-click opens discoverable actions and the settings dialog uses clear visual controls
+    status: done
+decisions:
+  - Implement native tabs in the current source repository.
+  - Open a native context menu on right-click in the tab bar and terminal content; Shift-right-click retains access while an application uses terminal mouse reporting.
+  - Use a dimmed backdrop, colored panels, bordered inputs, hover states and grouped mouse-operated buttons without a new UI dependency.
+  - Keep existing keyboard shortcuts and shell replay behavior while using plain Portuguese labels and explicit session scope.
+  - Share the window and renderer while keeping session state independent.
+  - Use the configured shell for new tabs and inherit the active working directory when available.
+  - No mise.toml or existing specs or implementation plans were found; use mise exec for Rust checks.
+  - Preserve native macOS window tabs and enable the custom bar on other platforms.
+  - Cancel session timers on activation and ignore already-dispatched events belonging to another session.
+  - Apply tab commands synchronously before the next native input event.
+  - Store hold per session and keep whole-window close and Quit semantics.
+  - System installation is unchanged; use mise exec -- cargo run -p alacritty to run this checkout.
+  - Use a manually saved session snapshot so closing tabs does not overwrite the saved layout.
+  - Store session data atomically with owner-only permissions under the native user state directory.
+  - Capture executed commands using shell lifecycle hooks, without recording raw keyboard or password input.
+  - Keep at most 20 recent command records per tab including their original working directories.
+  - Execute only the final command of a tab whose replay checkbox was explicitly selected, after its shell is ready.
+  - Restore a command from its original directory so relative commands such as cd do not run twice from the final directory.
+  - A fresh normal startup restores the snapshot; explicit command, directory or title options keep their requested startup behavior.
+  - Reopening a session from the dialog adds its saved tabs without terminating current sessions.
+  - Persist only supported interactive Bash, Zsh and Fish profiles and leave custom and login-shell invocations untouched.
+  - Execute command bytes from an owner-only script after a successful directory change; do not inject raw control characters into the interactive editor.
+  - Poll shell readiness for at most 60 seconds and skip replay when its original directory is absent.
+  - Preserve unreadable snapshots or unavailable saved shell profiles and open a usable default terminal with a notice.
+risks:
+  - Terminal events must retain their session identity to avoid closing or writing to the wrong tab.
+  - Shared display state needs invalidation when switching tabs.
+  - Graphical validation covers Linux X11; Windows and native macOS behavior were not run locally.
+  - Bash hooks and replay have real PTY coverage; Zsh and Fish scripts were not run locally because those shells are unavailable.
+  - Snapshots intentionally contain executed command text; Bash history exclusions and disabled history are respected.
+  - Commands omitted from capture still mark the shell busy; disabling replay cancels pending execution.
+validation:
+  - All 306 workspace unit, integration and documentation tests passed with the active Rust toolchain.
+  - Headless X11 tests cover shell isolation, cwd, rapid input, PTY replies, resize, mouse and keyboard controls, session exit and hold.
+  - Session X11 regression covers custom names, ordered tabs, original working directories, persisted profiles and replay preferences, selected replay, CLI overrides, missing directories, unavailable shells and corrupt snapshots.
+  - Native Bash PTY tests verify busy state for history-excluded and history-disabled commands; a delayed-shell X11 regression verifies pending replay cancellation.
+  - Formatting checks for edited Rust files and git diff --check passed.
+  - UI X11 regression verifies mouse renaming, save and restore menus, inactive-tab actions, copy and paste, dismissal without PTY input, application mouse reporting and a 45-column compact layout.
+  - Full, menu and compact screenshots were visually inspected; Clippy passed with Rust 1.89 after the UI changes.
+  - Opening overlays cancels terminal selection drags and scrolling timers; inactive-tab selections remain available for copying.
+  - Rust 1.97 Clippy stops on preexisting question_mark lints in alacritty_terminal/src/tty/unix.rs; Clippy passed with supported Rust 1.89.
