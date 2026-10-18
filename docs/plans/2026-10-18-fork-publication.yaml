@@ -1,6 +1,6 @@
 plan: fork-publication
 title: Fork pull requests and screenshot review
-status: doing
+status: done
 created: 2026-10-18
 updated: 2026-10-18
 goal: Make the terminal changes available for review in the personal fork.
@@ -23,7 +23,7 @@ stages:
     status: done
   - id: publish
     desc: Fork branches, PRs and dependency links
-    status: doing
+    status: done
 risks:
   - The implementation spans shared code and cannot be split safely into independent feature patches without a new implementation effort.
   - Screenshots must avoid private session data and display actual controls.
@@ -33,3 +33,8 @@ decisions:
   - Continue the authorized fork work after reporting the upstream policy conflict.
   - Use the configured human Git author with no AI coauthor trailer.
   - Write the motivation as personal experience rather than a language performance claim.
+  - PR 1 targets master, PR 2 targets feature/terminal-workspace and PR 3 targets test/terminal-workspace.
+validation:
+  - The three fork PRs are open and point to the intended heads and bases.
+  - The 13 public screenshot files match the local file hashes.
+  - The fork exposes no GitHub Actions workflow runs, so local validation is reported separately from hosted CI.

@@ -108,11 +108,11 @@ usecases.
 
 **_Why isn't feature X implemented?_**
 
-Alacritty has many great features, but not every feature from every other
-terminal. This could be for a number of reasons, but sometimes it's just not a
-good fit for Alacritty. This means you won't find things like tabs or splits
-(which are best left to a window manager or [terminal multiplexer][tmux]) nor
-niceties like a GUI config editor.
+Upstream Alacritty leaves tabs and splits to a window manager or
+[terminal multiplexer][tmux] and does not include a GUI config editor.
+This fork adds native tabs, split panes and settings for a different daily
+workflow. See the [guide and screenshots](./docs/terminal-tools.md) and the
+[upstream policy review](./docs/upstream-review.md) for details.
 
 [tmux]: https://github.com/tmux/tmux
 
