@@ -31,6 +31,15 @@ Join [`#alacritty`] on libera.chat if you have questions or looking for a quick 
 
 You can find an overview over the features available in Alacritty [here](./docs/features.md).
 
+See the [new tools and screenshots](./docs/terminal-tools.md) for this fork.
+
+This checkout also supports [terminal tabs](./docs/tabs.md) with independent
+sessions, a clickable tab bar, custom names, saved sessions, and configurable
+keyboard shortcuts. [Productivity controls](./docs/productivity.md) add visual
+preferences, named workspaces, recovery snapshots and tab organization.
+[Split panes](./docs/panes.md) add independent terminals within each tab, draggable
+dividers, directional focus, maximization and saved layouts.
+
 ## Further information
 
 - [Announcing Alacritty, a GPU-Accelerated Terminal Emulator](https://jwilm.io/blog/announcing-alacritty/) January 6, 2017
@@ -99,11 +108,11 @@ usecases.
 
 **_Why isn't feature X implemented?_**
 
-Alacritty has many great features, but not every feature from every other
-terminal. This could be for a number of reasons, but sometimes it's just not a
-good fit for Alacritty. This means you won't find things like tabs or splits
-(which are best left to a window manager or [terminal multiplexer][tmux]) nor
-niceties like a GUI config editor.
+Upstream Alacritty leaves tabs and splits to a window manager or
+[terminal multiplexer][tmux] and does not include a GUI config editor.
+This fork adds native tabs, split panes and settings for a different daily
+workflow. See the [guide and screenshots](./docs/terminal-tools.md) and the
+[upstream policy review](./docs/upstream-review.md) for details.
 
 [tmux]: https://github.com/tmux/tmux
 

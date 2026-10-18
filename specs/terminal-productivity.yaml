@@ -1,0 +1,120 @@
+spec: terminal-productivity
+title: Everyday terminal productivity
+status: done
+created: 2026-10-14
+updated: 2026-10-14
+goal: Make terminal configuration and saved working environments accessible through native controls.
+problem: Settings cover only language and users have one saved layout with limited tab organization.
+behavior:
+  - Edit language, font, size, opacity, theme and startup behavior with native controls and a reversible preview.
+  - Save and reopen named workspaces without terminating existing sessions.
+  - Select a named startup workspace or the last saved session.
+  - Enable optional recovery snapshots without overwriting manually saved layouts.
+  - Duplicate tabs, reopen recently closed tabs and reorder them using mouse and keyboard.
+  - Indicate running commands and completed or failed commands in background tabs.
+  - Confirm user-requested tab closure with Y or Enter, cancel with N or Escape, and offer mouse buttons.
+  - Enable tab close confirmation by default and expose its persistent preference in native settings.
+requirements_functional:
+  - Preserve existing tab names, working directories, shell profiles and command replay preferences.
+  - Never replay commands when duplicating, reopening closed tabs or recovering automatically.
+  - Keep configuration imports, comments and unrelated values intact.
+  - Keep new controls available in English and Brazilian Portuguese.
+constraints:
+  - Reuse native renderer and existing dependencies.
+  - Keep the installed executable unchanged and do not commit or push.
+  - Use mise exec because this checkout has no mise.toml or tasks.
+implemented:
+  - Native appearance and startup panels with shared hit geometry, live preview, cancel and safe atomic TOML saves.
+  - Font family and point size, opacity, complete dark and light palettes and default preference restoration.
+  - Private bounded named workspace index with save, open, startup selection and confirmed removal.
+  - Scoped startup persistence preserves temporary font and opacity overrides and unrelated configuration.
+  - Opt-in independent recovery snapshots for the focused window with change deduplication and suppressed replay.
+  - Fresh-shell duplication and recently closed tab reopening with original names and directories.
+  - Drag and configurable keyboard reordering preserve terminal state and stable PTY identity.
+  - Supported shell completion sequence and status drive running, successful and failed background tab markers.
+  - English and Portuguese controls, Unicode editing, clipboard and IME input and responsive compact layouts.
+  - Model tests, Bash PTY tests, isolated X11 regressions and user documentation.
+  - Default-enabled tab close confirmation with Y and Enter, N and Escape, mouse buttons and safe settings persistence.
+  - Stable target identity and isolated modal input, releases and repeats across asynchronous tab exits.
+pending:
+steps:
+  - id: storage
+    desc: Add bounded private named workspace persistence
+    status: done
+    verify: mise exec -- cargo test -p alacritty session::tests
+  - id: tab-model
+    desc: Add ordered tab movement and command completion metadata
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: controls
+    desc: Integrate visual settings, workspace management, recovery and tab operations
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: graphical
+    desc: Exercise settings, workspace persistence, recovery and tab organization on isolated X11
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-productivity.py
+  - id: regression
+    desc: Validate existing terminal workflows and document the feature
+    status: done
+    verify: mise exec -- cargo test --workspace
+  - id: close-confirmation
+    desc: Add translated native confirmation and persistent tab close preference
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: close-confirmation-graphical
+    desc: Exercise keyboard and mouse closure, cancellation and preference persistence
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-close-confirmation.py
+acceptance:
+  - id: settings
+    desc: Native settings preview, cancel and save preserve unrelated configuration and running shells
+    status: done
+  - id: workspaces
+    desc: Named workspaces preserve ordered tabs and support startup selection
+    status: done
+  - id: recovery
+    desc: Optional automatic recovery preserves manual snapshots and does not replay commands
+    status: done
+  - id: tabs
+    desc: Duplicate, reopen and reorder keep session identity and original directories
+    status: done
+  - id: activity
+    desc: Background command activity and completion are visible without changing terminal output
+    status: done
+  - id: close-confirmation
+    desc: Closing a tab requires explicit confirmation while cancellation preserves its running process
+    status: done
+decisions:
+  - Start with everyday configuration and session usability; split panes are a separate future structural feature.
+  - Named sessions use one bounded private index rather than user-provided filenames.
+  - Recovery is opt-in and uses a separate snapshot; manual layouts remain stable.
+  - Duplicating and reopening create fresh shells and do not restore process memory or terminal output.
+  - Default startup behavior stays compatible with the existing manually saved layout.
+  - Preview applies to the current window; saving applies configuration globally through the existing event loop.
+  - Choosing a startup workspace saves only its name and restoration flag so unrelated CLI and IPC appearance overrides remain temporary.
+  - An explicit empty startup name overrides imported preferences when returning to the default saved session.
+  - Native settings accept 1 to 128 point fonts and 0 to 100 percent opacity to preserve existing useful appearance ranges.
+  - Recover only the focused window and retain the last tab layout before final closure; the manual snapshot remains independent.
+  - Confirm user tab closure by stable tab identity, including inactive tabs and the final tab; natural shell exits retain their existing behavior.
+  - Consume modal input and confirmation key releases so they do not reach another terminal session.
+  - Preserve whole-window close semantics and expose general.confirm_tab_close with default true.
+risks:
+  - Layout changes must share geometry with input hit testing on small windows.
+  - Reordering must preserve stable PTY identities and pending replay routing.
+  - Shell command activity is available for supported integrated interactive shells.
+  - Linux X11 can be exercised locally; Windows and macOS require separate platform validation.
+validation:
+  - All 371 workspace unit, integration and documentation tests passed.
+  - Clippy passed with supported Rust 1.89 across the workspace and all targets.
+  - All six isolated X11 regression scripts passed, including actual dragging, background command markers and close confirmation.
+  - Preferences preview and cancel preserve the running shell, primary TOML and global settings until saved.
+  - Startup selection preserves temporary per-window font and opacity overrides without persisting them.
+  - Removing a startup workspace with read-only configuration preserves both files and the startup preference.
+  - Recovery retains replay preferences but suppresses execution, preserves the manual snapshot and restores fresh shells after restart.
+  - English and Portuguese full panels and 45 by 18 compact layouts were visually inspected.
+  - Formatting, structural parsing and git diff checks passed; no commit, push or system binary replacement was performed.
+  - Close confirmation X11 covers all entrypoints, both letter cases, final tab, inactive targets, cancellation preserving PIDs and pending target or unrelated exits.
+  - Raw Kitty keyboard reporting proves decision key releases and held repeats do not reach surviving terminal sessions.
+  - Confirmation preference preview and cancellation preserve the shell; disable, re-enable, save, restart and defaults are verified.
+  - Modal handling consumes clipboard paste and file drops and retains IME inhibition when another tab becomes active.

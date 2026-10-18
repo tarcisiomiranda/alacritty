@@ -1,0 +1,65 @@
+spec: terminal-panes
+title: Split terminals and unified daily settings
+status: done
+created: 2026-10-18
+updated: 2026-10-18
+goal: Use independent resizable terminal panes inside saved tabs and access settings from one coherent dialog.
+problem: Each tab displays one terminal and settings are split between a language picker and secondary preferences.
+behavior:
+  - Split the focused terminal horizontally or vertically with independent shells and inherited working directory.
+  - Focus panes using mouse and keyboard, drag dividers and temporarily maximize the focused pane.
+  - Save and restore pane arrangement, proportions, focused pane and individual directories within existing workspaces and snapshots.
+  - Open unified preferences directly from Settings and Ctrl+comma with appearance, terminal, tabs, sessions, language and shortcuts pages.
+requirements_functional:
+  - Preserve existing shortcuts, tab operations, confirmation and legacy session files.
+  - Route keyboard, mouse, terminal replies, selection and search to the correct pane.
+  - Restore fresh shells and retain command replay as an explicit per-pane choice.
+  - Keep all new visible controls available in English and Brazilian Portuguese.
+  - Edit common shortcuts in native settings with capture, conflict feedback and safe persistence preserving imported custom bindings.
+constraints:
+  - Reuse native renderer and existing dependencies.
+  - No system executable replacement, commit or push.
+  - No mise.toml exists; build and test through mise exec.
+implemented:
+  - Bounded split trees, independent native rendering, focus, mouse resizing, search and maximization.
+  - Compatible pane layout snapshots and restoration with stable asynchronous closure targeting.
+  - Six unified settings pages and safe terminal controls with deferred scrollback changes.
+  - Native pane and legacy graphical regressions cover mouse protocols, asynchronous exits, clipping and persistence.
+  - Shortcut capture, conflict detection, disabling and restored defaults preserve existing custom bindings and imports.
+  - All 399 workspace tests, Clippy and seven isolated graphical suites passed.
+  - English and Portuguese settings are visually verified at normal and compact sizes.
+pending:
+  - None.
+steps:
+  - id: model
+    desc: Add bounded split tree and compatible saved pane layouts
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+  - id: integration
+    desc: Integrate independent panes, rendering, focus, resizing and restoration
+    status: done
+    verify: mise exec -- cargo test --workspace
+  - id: graphical
+    desc: Validate real terminal panes, preferences and existing workflows
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-panes.py
+acceptance:
+  - id: panes
+    desc: Multiple live panes resize and receive independent input without corrupting neighboring content
+    status: done
+  - id: persistence
+    desc: Saved layouts reopen with original topology, proportions and directories and old files remain readable
+    status: done
+  - id: settings
+    desc: One settings dialog previews, cancels and safely saves all available categories
+    status: done
+decisions:
+  - Limit each tab to sixteen panes and bound saved topology depth.
+  - Keep existing shortcuts and introduce distinct configurable pane actions.
+  - Saved layouts restore shells and explicit replay preferences rather than process memory.
+  - Shortcut overrides are action-specific entries under general.shortcuts and take effect only on Save.
+  - Scrollback capacity applies only on Save so canceled previews never discard history.
+risks:
+  - Renderer clipping and pointer coordinates must use identical pane geometry.
+  - Asynchronous exits must retain stable pane identities and close confirmations.
+  - Tiny windows must degrade without invalid geometry or crashes.

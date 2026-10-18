@@ -1,0 +1,43 @@
+plan: terminal-panes
+title: Native split panes and unified settings
+status: done
+created: 2026-10-18
+updated: 2026-10-18
+goal: Deliver resizable terminal panels, persistent layouts and unified settings.
+context:
+  - Existing tabs have independent terminal state and safe saved sessions.
+scope:
+  - Horizontal and vertical splits, focus navigation, divider dragging and pane maximization.
+  - Compatible session and workspace layout persistence.
+  - Unified native settings with translated controls, preserved preview behavior and editable shortcuts.
+  - Model, graphical regression and user documentation.
+out_of_scope:
+  - Broadcast input, SSH profiles, desktop installation and running-process restoration.
+stages:
+  - id: model
+    desc: Split tree and persistence contracts
+    status: done
+  - id: runtime
+    desc: Render, route, resize and manage panes
+    status: done
+  - id: settings
+    desc: Unify native settings categories and editable shortcuts
+    status: done
+  - id: validation
+    desc: Unit and graphical checks and documentation
+    status: done
+risks:
+  - Shared rendering and asynchronous events must preserve isolated terminal state.
+rollback:
+  - Revert only this delivery while preserving prior uncommitted terminal features.
+decisions:
+  - Keep old session files valid and preserve existing key bindings.
+  - Retain the installed executable while producing a validated local build.
+  - Save shortcut overrides per action without rewriting imported bindings.
+  - Apply scrollback and shortcut changes only when saved.
+validation:
+  - All 399 workspace tests passed.
+  - Rust 1.89 workspace Clippy with all targets and warnings denied passed.
+  - Seven isolated X11 suites passed for panes, tabs, sessions, context menus, languages, productivity and close confirmations.
+  - Editable shortcut capture, conflicts, cancellation, restart persistence, disabling and defaults passed graphical checks.
+  - English and Portuguese preference pages were inspected at normal and compact sizes.

@@ -1,0 +1,48 @@
+plan: terminal-ui
+title: Native menu and settings usability
+status: done
+created: 2026-10-18
+updated: 2026-10-18
+goal: Deliver clear native menus, settings navigation and consistent controls.
+context:
+  - User finds existing menu and option components difficult to use.
+  - Follow-up request asks for more attractive tabs consistent with the improved menus.
+scope:
+  - Compact one-row tabs, inset close controls and terminal-derived menu and tab colors.
+  - Shared visual treatment, grouped menus and overflow handling.
+  - Responsive settings navigation, spaced content and anchored actions.
+  - Mouse and keyboard regression checks and localized screenshots.
+  - Rounded tab bar with active, hover, activity and contextual close states.
+out_of_scope:
+  - New terminal features, desktop toolkit migration and system installation.
+stages:
+  - id: components
+    desc: Shared controls and layout
+    status: done
+  - id: verification
+    desc: Graphical interaction and existing workflows
+    status: done
+  - id: tab-bar
+    desc: Tab bar polish and geometry verification
+    status: done
+  - id: compact-theme
+    desc: Compact tabs and shared terminal colors
+    status: done
+risks:
+  - Viewport changes may invalidate old fixed-coordinate tests.
+rollback:
+  - Revert only this UI delivery while preserving prior uncommitted terminal features.
+decisions:
+  - Act on existing usability problems without adding unrelated features.
+validation:
+  - Unit tests cover grouped menu order, stable overflow, compact targets, sidebar layout and fixed footer.
+  - Graphical checks cover actual mouse clicks and wheel scrolling without PTY input leakage.
+  - English and Portuguese screenshots inspected at normal and compact sizes in light and dark palettes.
+  - Read-only geometry and input review found no further defects.
+  - All 406 workspace tests, Rust 1.89 Clippy and final graphical suites passed.
+  - Tab polish passed the workspace tests and Clippy plus tab drag, close hover, split pane and closure graphical checks.
+  - Light and dark tab captures reviewed with long Unicode titles and compact windows.
+  - Final productivity and language suites passed including activity markers, shell identity, saved workspaces and recovery.
+  - Compact one-row follow-up passed 222 Alacritty unit tests, Clippy and tab, pane and closure graphical regressions.
+  - Productivity verified inset targets and theme color propagation to active tabs and selected menu items using green accent pixels.
+  - Language checks passed with theme-independent glyph comparison and 0.1 percent tolerance for antialiasing.

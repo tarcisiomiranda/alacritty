@@ -1,0 +1,62 @@
+spec: interface-language
+title: Configurable interface languages
+status: done
+created: 2026-10-13
+updated: 2026-10-13
+goal: Select and persist the terminal interface language through configuration and native settings.
+problem: The new terminal menus and dialogs contain hardcoded Portuguese labels.
+behavior:
+  - Add general.language with auto, en and pt-BR choices.
+  - Resolve auto from the operating system locale and use English for unsupported languages.
+  - Expose a native Settings and Language dialog from the right-click menu.
+  - Save the language in the active TOML configuration and apply it without restarting terminal sessions.
+  - Translate menu labels, dialog fields, buttons, instructions and session notices through a central catalog.
+  - Keep user tab names, paths, command text and terminal application output intact.
+constraints:
+  - Use the existing configuration parser, OpenGL renderer and toml_edit dependency.
+  - Preserve existing TOML contents and comments when changing only general.language.
+  - Keep command replay, shell environment and keyboard shortcuts independent of interface language.
+  - No commit, push or replacement of the installed system executable.
+implemented:
+  - Typed language configuration, locale resolution and complete English and Portuguese catalogs.
+  - Native language settings with safe persistence and live application.
+  - Localized overlays, search bars and notices with graphical regression coverage.
+  - The productivity controls extend the same language catalogs and atomic configuration writer.
+pending:
+steps:
+  - id: catalog
+    desc: Add typed language configuration and complete translation catalogs
+    status: done
+    verify: mise exec -- cargo test -p alacritty localization::tests
+    note: "Typed configuration, locale precedence and exhaustive EN/PT catalog verified."
+  - id: settings
+    desc: Persist and apply language through native settings
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+    note: "TOML persistence, settings controls, translated overlays and language-only override clearing validated."
+  - id: graphical
+    desc: Verify locale detection, manual overrides, settings and restoration
+    status: done
+    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-language.py
+    note: "X11 validates live EN/PT menus, settings and search labels, preserved drafts and newly created config monitoring."
+acceptance:
+  - id: configuration
+    desc: Manual language selection and automatic system locale have an English fallback
+    status: done
+  - id: native-settings
+    desc: Language can be changed from settings and survives restarting the app
+    status: done
+  - id: localized-interface
+    desc: Menus, dialogs and notices use the chosen language without changing user content
+    status: done
+decisions:
+  - Initial translations cover English and Brazilian Portuguese and are extensible through typed message keys.
+  - Language is an optional native application setting, not a new environment variable or database service.
+  - Follow standard system locale signals for automatic detection, with native Windows locale fallback where available.
+  - Store GUI changes in the active root TOML file so manual and graphical settings share one source of truth.
+  - Safely reject unsupported or unwritable configuration formats rather than replacing a user's configuration.
+risks:
+  - Translated labels must fit responsive layouts and use the same geometry as mouse hit testing.
+  - Changing settings must preserve configuration comments, imports and existing unrelated values.
+  - Windows and macOS native locale APIs are not executable on the local Linux test host.
+validation:
