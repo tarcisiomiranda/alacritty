@@ -2,7 +2,7 @@ plan: binary-distribution
 title: Public B2 installer and local release build
 status: done
 created: 2026-10-20
-updated: 2026-11-01
+updated: 2026-11-18
 goal: Make the improved terminal installable with curl or mise and use it on this workstation.
 context:
   - The user prefers maintaining this fork after upstream declined the requested features.
@@ -42,6 +42,8 @@ stages:
     desc: Publish the Termust bucket and preserve historical downloads and the old curl command
     status: done
 validation:
+  - Icon release 0.18.0-termust.64a3a8d1.c9b8aad893e5 passed all six distro checks and exact portable-binary icon tests before publication and anonymous verification in all three buckets on 2026-11-18.
+  - The corresponding native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and common installer passed actual public install reinstall and --check plus strict bundle signature verification.
   - The same public install.sh command passed real installation on Linux x86_64 and macOS arm64; 52 Linux installer tests, 9 Mac release tests and 18 publisher tests passed.
   - Dedicated termust bucket now hosts project releases with no personal-name prefix in the canonical curl URL.
   - Release 0.18.0-termust.c14a29f6.ebee68120535 passed 52 installer tests 16 publisher tests and all six graphical distro checks before publication to three public locations.

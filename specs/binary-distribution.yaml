@@ -2,7 +2,7 @@ spec: binary-distribution
 title: Portable B2 packages and reliable installation updates
 status: in_progress
 created: 2026-10-20
-updated: 2026-11-09
+updated: 2026-11-18
 goal: Publish this fork in a dedicated B2 bucket and support curl installation and mise run install for local daily use.
 problem: The original Fedora-built package required glibc 2.43 and updates lacked downgrade protection rollback and launch-path diagnostics.
 behavior:
@@ -17,10 +17,12 @@ behavior:
 constraints:
   - Use the existing authorized B2 CLI credentials without printing or embedding secrets.
   - Use a new bucket dedicated to public application artifacts; do not change existing private buckets.
-  - Initial package targets Linux x86_64 and is built on Fedora 44; verify runtime compatibility before replacing a working binary.
+  - Public Linux binaries use the pinned Rust 1.89 Debian 11 builder and require glibc 2.31 or older; verify runtime compatibility before replacing a working binary.
   - Preserve the operating system package and all existing terminal settings and sessions.
-  - No commit, push, PR merge or installation of unrelated system dependencies.
+  - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
 implemented:
+  - Published icon personalization release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical bucket and both mirrors after six distro checks and portable icon tests passed; public Linux install reinstall receipt checksum and --check passed.
+  - Published native macOS archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e from the pushed source commit and verified public installation reinstall diagnostics and codesign on Apple Silicon without Rust in the client PATH.
   - macOS installation updates existing managed apps or migrates real app bundles into versioned storage, preserving the previous bundle and leaving identical reinstalls unchanged.
   - Published one install.sh that detects Linux x86_64 or macOS arm64; real public curl installations passed on both platforms.
   - macOS releases update their own manifest, and the common installer has an independent checksum while pinned Linux installers retain their original hashes.

@@ -1,6 +1,6 @@
 spec: icon-personalization
 title: Personal terminal icon presets
-status: in_progress
+status: done
 created: 2026-11-18
 updated: 2026-11-18
 goal: Let users choose a predefined terminal icon with preview save cancel and platform-specific desktop integration.
@@ -24,8 +24,11 @@ implemented:
   - Added per-user Linux launcher and Windows Start menu shortcut customization with original icon restoration.
   - Preserved personalized Linux launcher icons during reinstalls and included embedded icon assets in macOS source releases.
   - Validated graphical interaction on isolated X11 and native builds and workspace tests on Linux and macOS plus a Windows cross-check.
+  - Committed the complete buildable Termust checkout as 64a3a8d107856c11c0ecb9105943dae6d9dba441 and pushed the existing fork branch.
+  - Published Linux release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical B2 bucket and both legacy mirrors after all six distro checks and portable icon tests passed.
+  - Published the native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and updated the common installer and native source builder.
+  - Verified anonymous public install reinstall and --check on Linux and macOS using temporary destinations; macOS also passed strict codesign verification without Rust in PATH.
 pending:
-  - Publish verified Linux and macOS artifacts and commit and push the complete buildable Termust revision.
   - Photo import animation and graphical desktop-shell validation remain separate future work.
 steps:
   - id: feasibility
@@ -47,7 +50,7 @@ steps:
     verify: mise exec -- cargo test --locked --workspace
   - id: publication
     desc: Publish the verified Linux and macOS releases and commit and push their source and release evidence
-    status: doing
+    status: done
     verify: mise run release:verify
 acceptance:
   - id: matrix

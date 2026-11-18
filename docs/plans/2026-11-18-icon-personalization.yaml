@@ -1,6 +1,6 @@
 plan: icon-personalization
 title: Evaluate affectionate terminal personalization
-status: in_progress
+status: done
 created: 2026-11-18
 updated: 2026-11-18
 context:
@@ -31,7 +31,7 @@ stages:
     status: done
   - id: publication
     desc: Commit and push the buildable revision and publish verified Linux and macOS binaries through the common installer.
-    status: doing
+    status: done
 risks:
   - Runtime window icons and pinned launcher icons are different surfaces controlled by different components.
   - Arbitrary frame animation of system icons is not a portable desktop contract.
@@ -147,7 +147,7 @@ future_validation:
 result:
   - Static presets are implemented with portable gallery previews settings persistence and native platform adapters.
   - Optional animation inside Termust is the portable recommendation; universal animated system launcher icons are not a supportable promise.
-  - Native macOS and Linux builds and tests pass and the Windows target compiles; no release was published or installed during this implementation.
+  - Native macOS and Linux packages were published after the user authorized distribution; Windows has compile coverage and no new installer publication.
 implementation:
   settings: window.icon accepts termust cat dog fox and robot; previews are temporary and Save publishes the choice to all open windows.
   gallery: Settings Appearance Application icon supports keyboard and mouse and skips clipped cards rather than distorting their artwork in compact windows.
@@ -179,3 +179,26 @@ unverified:
   - Actual KDE GNOME Cinnamon and XFCE panels favorites caches and compositor-specific Wayland behavior require manual desktop-session testing.
   - Windows PowerShell shortcut updates and pinned-taskbar refresh have only been compiled and reviewed and need execution on Windows.
   - macOS Dock appearance has native API and build coverage but has not been visually validated in this turn.
+publication:
+  source_commit: 64a3a8d107856c11c0ecb9105943dae6d9dba441
+  source_url: https://github.com/tarcisiomiranda/alacritty/tree/64a3a8d107856c11c0ecb9105943dae6d9dba441
+  branch: docs/terminal-workspace
+  remote: https://github.com/tarcisiomiranda/alacritty
+  linux_version: 0.18.0-termust.64a3a8d1.c9b8aad893e5
+  linux_archive_sha256: 3523205b7954aeb95ee2c7c002d5ed32ae4dc797407d7f389d18c3a1f8080be2
+  linux_binary_sha256: 61ea59e440627759e47b338b51c25c0c6820130add8fb0f583cc978c70d84af0
+  linux_build: Debian 11 Rust 1.89.0 x86-64 baseline requiring glibc 2.29; clean committed source.
+  linux_report: https://f005.backblazeb2.com/file/termust/releases/0.18.0-termust.64a3a8d1.c9b8aad893e5/compatibility.json
+  linux_targets: Ubuntu 22.04 Ubuntu 24.04 Debian 12 Debian 13 Fedora 43 and Fedora 44 all passed installer version receipt check reinstall path desktop terminfo and graphical PTY checks.
+  linux_mirrors: termust tarcisiomiranda-termust and tarcisiomiranda-alacritty all verified through anonymous HTTPS.
+  macos_archive_sha256: e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e
+  macos_manifest: https://f005.backblazeb2.com/file/termust/latest-macos-arm64.json
+  macos_source_sha256: bcf156be56b396485134fbded4498660f5addf55e5059e8e0831383cd1388c6d
+  installer: https://f005.backblazeb2.com/file/termust/install.sh
+  installer_sha256: d5891ae5852570abc28fb033c739b375ef6a43cb69821fa4f00df49bc31fdfc2
+  checks:
+    - Portable release binary passed every icon preview save cancel restart and restore scenario.
+    - All 53 Linux installer tests 15 macOS release tests and 18 publication tests passed.
+    - The common public installer passed fresh installation reinstall diagnostics and installed executable or bundle validation on both actual operating systems in temporary destinations.
+    - Native macOS build signing public archive download and installation passed from a fresh clone of the pushed commit; the client installation worked with only the system PATH.
+    - The current user's installed applications settings and sessions were not changed by release validation.
