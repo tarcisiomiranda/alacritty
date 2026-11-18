@@ -1,6 +1,7 @@
 use winit::event::KeyEvent;
 use winit::keyboard::{Key, NamedKey};
 
+use crate::config::{Action, BindingKey, BindingMode, UiConfig};
 use crate::localization::{Locale, Message};
 use crate::tab_ui::{UiElement, UiKind, UiRect};
 use crate::tabs::TabId;
@@ -22,6 +23,40 @@ pub enum MenuAction {
     SplitHorizontal,
     PaneZoom,
     ClosePane,
+    Groups,
+    Agents,
+    #[cfg(target_os = "linux")]
+    OpenEditor,
+    #[cfg(target_os = "linux")]
+    OpenFileManager,
+}
+
+impl MenuAction {
+    fn name(self) -> &'static str {
+        match self {
+            MenuAction::NewTab => "CreateNewTab",
+            MenuAction::Rename => "RenameTab",
+            MenuAction::Save => "SaveSession",
+            MenuAction::Restore => "RestoreSession",
+            MenuAction::Copy => "Copy",
+            MenuAction::Paste => "Paste",
+            MenuAction::Close => "CloseTab",
+            MenuAction::Settings => "OpenSettings",
+            MenuAction::Duplicate => "DuplicateTab",
+            MenuAction::ReopenClosed => "ReopenClosedTab",
+            MenuAction::Workspaces => "OpenWorkspaces",
+            MenuAction::SplitVertical => "SplitVertical",
+            MenuAction::SplitHorizontal => "SplitHorizontal",
+            MenuAction::PaneZoom => "TogglePaneZoom",
+            MenuAction::ClosePane => "ClosePane",
+            MenuAction::Groups => "TabGroups",
+            MenuAction::Agents => "Agents",
+            #[cfg(target_os = "linux")]
+            MenuAction::OpenEditor => "OpenEditor",
+            #[cfg(target_os = "linux")]
+            MenuAction::OpenFileManager => "OpenFileManager",
+        }
+    }
 }
 
 pub struct MenuItem {
@@ -32,9 +67,13 @@ pub struct MenuItem {
     pub enabled: bool,
 }
 
-const MENU_ITEMS: [(MenuAction, Message, &str); 15] = [
+const MENU_ITEMS: &[(MenuAction, Message, &str)] = &[
+    #[cfg(target_os = "linux")]
+    (MenuAction::OpenEditor, Message::OpenEditor, ""),
+    #[cfg(target_os = "linux")]
+    (MenuAction::OpenFileManager, Message::OpenFolder, ""),
     (MenuAction::NewTab, Message::NewTab, "Ctrl+Shift+T"),
-    (MenuAction::Rename, Message::Rename, "Ctrl+Shift+R"),
+    (MenuAction::Rename, Message::Rename, "F2"),
     (MenuAction::Duplicate, Message::DuplicateTab, "Ctrl+Shift+D"),
     (MenuAction::ReopenClosed, Message::ReopenClosedTab, "Ctrl+Shift+Alt+T"),
     (MenuAction::SplitVertical, Message::SplitVertical, "Ctrl+Shift+E"),
@@ -46,30 +85,44 @@ const MENU_ITEMS: [(MenuAction, Message, &str); 15] = [
     (MenuAction::Restore, Message::Restore, "Ctrl+Shift+O"),
     (MenuAction::Workspaces, Message::Workspaces, "Ctrl+Shift+P"),
     (MenuAction::Settings, Message::Settings, "Ctrl+,"),
+    (MenuAction::Agents, Message::Agents, ""),
+    (MenuAction::Groups, Message::TabGroups, ""),
     (MenuAction::ClosePane, Message::ClosePane, "Ctrl+Alt+W"),
     (MenuAction::Close, Message::Close, "Ctrl+Shift+W"),
 ];
 
-const MENU_ROWS: [Option<usize>; 19] = [
+const fn menu_item_index(index: usize) -> usize {
+    if cfg!(target_os = "linux") { index + 2 } else { index }
+}
+
+const MENU_ROWS: &[Option<usize>] = &[
+    #[cfg(target_os = "linux")]
     Some(0),
+    #[cfg(target_os = "linux")]
     Some(1),
-    Some(2),
-    Some(3),
+    #[cfg(target_os = "linux")]
     None,
-    Some(4),
-    Some(5),
-    Some(6),
+    Some(menu_item_index(0)),
+    Some(menu_item_index(1)),
+    Some(menu_item_index(2)),
+    Some(menu_item_index(3)),
     None,
-    Some(7),
-    Some(8),
+    Some(menu_item_index(4)),
+    Some(menu_item_index(5)),
+    Some(menu_item_index(6)),
     None,
-    Some(9),
-    Some(10),
-    Some(11),
-    Some(12),
+    Some(menu_item_index(7)),
+    Some(menu_item_index(8)),
     None,
-    Some(13),
-    Some(14),
+    Some(menu_item_index(9)),
+    Some(menu_item_index(10)),
+    Some(menu_item_index(11)),
+    Some(menu_item_index(12)),
+    Some(menu_item_index(13)),
+    Some(menu_item_index(14)),
+    None,
+    Some(MENU_ITEMS.len() - 2),
+    Some(MENU_ITEMS.len() - 1),
 ];
 
 struct MenuViewport {
@@ -88,6 +141,14 @@ pub struct ContextMenu {
     pub selected: Option<MenuAction>,
     pub copy_enabled: bool,
     pub shortcuts: std::collections::BTreeMap<String, String>,
+    #[cfg(target_os = "linux")]
+    editor_name: Option<String>,
+    #[cfg(target_os = "linux")]
+    editor_icon: Option<std::sync::Arc<crate::app_icon::AppIcon>>,
+    #[cfg(target_os = "linux")]
+    file_manager_name: Option<String>,
+    #[cfg(target_os = "linux")]
+    file_manager_icon: Option<std::sync::Arc<crate::app_icon::AppIcon>>,
     column: usize,
     line: usize,
     scroll_offset: usize,
@@ -102,6 +163,14 @@ impl ContextMenu {
             selected: None,
             copy_enabled: false,
             shortcuts: Default::default(),
+            #[cfg(target_os = "linux")]
+            editor_name: None,
+            #[cfg(target_os = "linux")]
+            editor_icon: None,
+            #[cfg(target_os = "linux")]
+            file_manager_name: None,
+            #[cfg(target_os = "linux")]
+            file_manager_icon: None,
             column,
             line,
             scroll_offset: 0,
@@ -109,35 +178,82 @@ impl ContextMenu {
         }
     }
 
-    fn shortcut(&self, action: MenuAction, default: &str) -> String {
-        let name = match action {
-            MenuAction::NewTab => "CreateNewTab",
-            MenuAction::Rename => "RenameTab",
-            MenuAction::Save => "SaveSession",
-            MenuAction::Restore => "RestoreSession",
-            MenuAction::Copy => "Copy",
-            MenuAction::Paste => "Paste",
-            MenuAction::Close => "CloseTab",
-            MenuAction::Settings => "OpenSettings",
-            MenuAction::Duplicate => "DuplicateTab",
-            MenuAction::ReopenClosed => "ReopenClosedTab",
-            MenuAction::Workspaces => "OpenWorkspaces",
-            MenuAction::SplitVertical => "SplitVertical",
-            MenuAction::SplitHorizontal => "SplitHorizontal",
-            MenuAction::PaneZoom => "TogglePaneZoom",
-            MenuAction::ClosePane => "ClosePane",
+    #[cfg(target_os = "linux")]
+    pub fn update_applications(&mut self, config: &UiConfig) {
+        use crate::desktop_apps::{self, AppKind, InstalledApps};
+        let apps = InstalledApps::detect();
+        let label = |kind, preference: &str| {
+            apps.resolve(kind, preference)
+                .map(|app| app.name)
+                .filter(|name| !name.is_empty())
+                .or_else(|| desktop_apps::name(kind, preference))
+                .map(str::to_owned)
         };
-        self.shortcuts
-            .get(name)
-            .filter(|value| {
-                value.is_empty() || crate::settings::shortcut_binding(name, value).is_some()
-            })
-            .map_or_else(|| default.into(), Clone::clone)
+        self.editor_name = label(AppKind::Editor, &config.general.editor);
+        self.file_manager_name = label(AppKind::FileManager, &config.general.file_manager);
+        self.editor_icon = Some(crate::app_icon::AppIcon::load(
+            AppKind::Editor,
+            apps.resolve(AppKind::Editor, &config.general.editor)
+                .map_or(config.general.editor.as_str(), |app| app.id),
+        ));
+        self.file_manager_icon = Some(crate::app_icon::AppIcon::load(
+            AppKind::FileManager,
+            apps.resolve(AppKind::FileManager, &config.general.file_manager)
+                .map_or(config.general.file_manager.as_str(), |app| app.id),
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn app_icon(&self, action: MenuAction) -> Option<&crate::app_icon::AppIcon> {
+        match action {
+            MenuAction::OpenEditor => self.editor_icon.as_deref(),
+            MenuAction::OpenFileManager => self.file_manager_icon.as_deref(),
+            _ => None,
+        }
+    }
+
+    fn shortcut(&self, action: MenuAction, default: &str) -> String {
+        self.shortcuts.get(action.name()).map_or_else(|| default.into(), Clone::clone)
+    }
+
+    pub fn update_shortcuts(&mut self, config: &UiConfig, mode: BindingMode) {
+        let bindings = crate::settings::resolved_shortcuts(config, &config.general.shortcuts);
+        self.shortcuts.clear();
+        for &(item, _, default) in MENU_ITEMS {
+            let name = item.name();
+            let Ok(action) = toml::Value::String(name.into()).try_into::<Action>() else {
+                continue;
+            };
+            let labels: Vec<_> = bindings
+                .iter()
+                .filter_map(|binding| {
+                    if binding.action != action
+                        || !mode.contains(binding.mode)
+                        || mode.intersects(binding.notmode)
+                    {
+                        return None;
+                    }
+                    match &binding.trigger {
+                        BindingKey::Keycode { key, .. } => {
+                            crate::settings::shortcut_text(key, binding.mods)
+                        },
+                        BindingKey::Scancode(key) => Some(format!("{key:?}")),
+                    }
+                })
+                .collect();
+            let label = labels
+                .iter()
+                .find(|label| label.as_str() == default)
+                .or_else(|| labels.first())
+                .cloned()
+                .unwrap_or_default();
+            self.shortcuts.insert(name.into(), label);
+        }
     }
 
     pub fn layout(&self, columns: usize, lines: usize) -> UiRect {
         let width = columns.min(50);
-        let height = lines.min(23);
+        let height = lines.min(MENU_ROWS.len() + 4);
         UiRect {
             left: self.column.min(columns.saturating_sub(width)),
             top: self.line.min(lines.saturating_sub(height)),
@@ -158,8 +274,9 @@ impl ContextMenu {
 
     fn viewport(&self, columns: usize, lines: usize) -> MenuViewport {
         let layout = self.layout(columns, lines);
-        let header = if layout.height == 23 { 3 } else { usize::from(layout.height >= 8) };
-        let bottom = usize::from(layout.height == 23);
+        let header =
+            if layout.height == MENU_ROWS.len() + 4 { 3 } else { usize::from(layout.height >= 8) };
+        let bottom = usize::from(layout.height == MENU_ROWS.len() + 4);
         let available = layout.height.saturating_sub(header + bottom);
         let overflow = MENU_ROWS.len() > available;
         let arrows = overflow && layout.height >= 5 && layout.width != 0;
@@ -301,7 +418,20 @@ impl ContextMenu {
                 let (action, message, shortcut) = MENU_ITEMS[(*index)?];
                 Some(MenuItem {
                     rect: Self::row_rect(viewport.layout, viewport.body_top + row),
-                    text: self.locale.text(message).into(),
+                    text: {
+                        #[cfg(target_os = "linux")]
+                        let name = match action {
+                            MenuAction::OpenEditor => self.editor_name.as_deref(),
+                            MenuAction::OpenFileManager => self.file_manager_name.as_deref(),
+                            _ => None,
+                        };
+                        #[cfg(not(target_os = "linux"))]
+                        let name: Option<&str> = None;
+                        name.map_or_else(
+                            || self.locale.text(message).into(),
+                            |name| format!("{} {name}", self.locale.text(Message::OpenIn)),
+                        )
+                    },
                     shortcut: self.shortcut(action, shortcut),
                     action,
                     enabled: action != MenuAction::Copy || self.copy_enabled,
@@ -348,7 +478,7 @@ impl ContextMenu {
         match event.logical_key {
             Key::Named(NamedKey::ArrowDown) => self.move_selection(false, columns, lines),
             Key::Named(NamedKey::ArrowUp) => self.move_selection(true, columns, lines),
-            Key::Named(NamedKey::Home) => self.selected = Some(MenuAction::NewTab),
+            Key::Named(NamedKey::Home) => self.selected = Some(MENU_ITEMS[0].0),
             Key::Named(NamedKey::End) => self.selected = Some(MenuAction::Close),
             Key::Named(NamedKey::PageDown | NamedKey::PageUp) => {
                 let previous = event.logical_key == Key::Named(NamedKey::PageUp);
@@ -400,23 +530,74 @@ impl ContextMenu {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn desktop_actions_display_preferred_names_in_both_languages() {
+        let mut config = UiConfig::default();
+        config.general.editor = "zed".into();
+        config.general.file_manager = "dolphin".into();
+        let mut menu = ContextMenu::new(1, 0, 0);
+        menu.update_applications(&config);
+        for (locale, prefix) in [(Locale::En, "Open in"), (Locale::PtBr, "Abrir no")] {
+            menu.locale = locale;
+            let items = menu.items(100, 40);
+            for (action, name) in
+                [(MenuAction::OpenEditor, "Zed"), (MenuAction::OpenFileManager, "Dolphin")]
+            {
+                let item = items.iter().find(|item| item.action == action).unwrap();
+                assert_eq!(item.text, format!("{prefix} {name}"));
+                assert!(item.shortcut.is_empty());
+                assert!(item.enabled);
+            }
+        }
+    }
+
+    #[test]
+    fn menu_shortcuts_follow_bindings_modes_and_disabled_actions() {
+        let mut config: UiConfig = toml::from_str(
+            r#"
+[keyboard]
+bindings = [
+    { key = "F2", mode = "~Alt", action = "RenameTab" },
+    { key = "r", mods = "Control|Shift", action = "RenameTab" },
+    { key = "F8", mods = "Control", action = "RestoreSession" },
+    { key = "c", mods = "Control|Shift", action = "Copy" },
+]
+"#,
+        )
+        .unwrap();
+        let mut menu = ContextMenu::new(0, 0, 0);
+        menu.update_shortcuts(&config, BindingMode::empty());
+        assert_eq!(menu.shortcut(MenuAction::Rename, ""), "F2");
+        assert_eq!(menu.shortcut(MenuAction::Restore, ""), "Ctrl+F8");
+        assert_eq!(menu.shortcut(MenuAction::Copy, ""), "Ctrl+Shift+C");
+        menu.update_shortcuts(&config, BindingMode::ALT_SCREEN);
+        assert_eq!(menu.shortcut(MenuAction::Rename, ""), "Ctrl+Shift+R");
+        config.general.shortcuts.insert("RenameTab".into(), "Ctrl+F7".into());
+        menu.update_shortcuts(&config, BindingMode::empty());
+        assert_eq!(menu.shortcut(MenuAction::Rename, ""), "Ctrl+F7");
+        config.general.shortcuts.insert("RenameTab".into(), String::new());
+        menu.update_shortcuts(&config, BindingMode::empty());
+        assert_eq!(menu.shortcut(MenuAction::Rename, "F2"), "");
+    }
+
     #[test]
     fn menu_languages_keep_settings_actions_and_shortcuts_consistent() {
         let mut menu = ContextMenu::new(1, 0, 0);
         for locale in [Locale::En, Locale::PtBr] {
             menu.locale = locale;
-            let items = menu.items(80, 24);
+            let items = menu.items(80, 25);
             let settings = items.iter().find(|item| item.action == MenuAction::Settings).unwrap();
             assert_eq!(settings.text, locale.text(Message::Settings));
             assert_eq!(
-                menu.click(settings.rect.left, settings.rect.top, 80, 24),
+                menu.click(settings.rect.left, settings.rect.top, 80, 25),
                 Some(MenuAction::Settings)
             );
             let copy = items.iter().find(|item| item.action == MenuAction::Copy).unwrap();
             assert_eq!(copy.shortcut, "Ctrl+Shift+C");
         }
         menu.shortcuts.insert("SplitVertical".into(), "Ctrl+Alt+E".into());
-        let items = menu.items(80, 24);
+        let items = menu.items(80, 25);
         assert_eq!(
             items.iter().find(|item| item.action == MenuAction::SplitVertical).unwrap().shortcut,
             "Ctrl+Alt+E"
@@ -427,8 +608,12 @@ mod tests {
     fn menu_groups_follow_the_same_order_for_mouse_and_keyboard() {
         let mut menu = ContextMenu::new(1, 0, 0);
         menu.copy_enabled = true;
-        let items = menu.items(80, 24);
+        let items = menu.items(80, 32);
         let expected = vec![
+            #[cfg(target_os = "linux")]
+            MenuAction::OpenEditor,
+            #[cfg(target_os = "linux")]
+            MenuAction::OpenFileManager,
             MenuAction::NewTab,
             MenuAction::Rename,
             MenuAction::Duplicate,
@@ -442,22 +627,29 @@ mod tests {
             MenuAction::Restore,
             MenuAction::Workspaces,
             MenuAction::Settings,
+            MenuAction::Agents,
+            MenuAction::Groups,
             MenuAction::ClosePane,
             MenuAction::Close,
         ];
         assert_eq!(items.iter().map(|item| item.action).collect::<Vec<_>>(), expected);
         for action in expected {
-            menu.move_selection(false, 80, 24);
+            menu.move_selection(false, 80, 32);
             assert_eq!(menu.selected, Some(action));
         }
         let separators: Vec<_> = menu
-            .decorations(80, 24)
+            .decorations(80, 32)
             .into_iter()
             .filter(|element| element.kind == UiKind::Divider)
             .map(|element| element.rect.top)
             .collect();
-        assert_eq!(separators, vec![2, 7, 11, 14, 19]);
-        assert_eq!(menu.layout(80, 24).width, 50);
+        let expected_separators = if cfg!(target_os = "linux") {
+            vec![2, 5, 10, 14, 17, 24]
+        } else {
+            vec![2, 7, 11, 14, 21]
+        };
+        assert_eq!(separators, expected_separators);
+        assert_eq!(menu.layout(80, 25).width, 50);
     }
 
     #[test]
@@ -497,18 +689,18 @@ mod tests {
     fn copy_is_disabled_until_a_selection_exists() {
         let mut menu = ContextMenu::new(1, 0, 0);
         let copy = menu
-            .items(80, 24)
+            .items(80, 25)
             .into_iter()
             .find(|item| item.action == MenuAction::Copy)
             .unwrap()
             .rect;
-        assert_eq!(menu.click(copy.left, copy.top, 80, 24), None);
-        assert!(!menu.hover(copy.left, copy.top, 80, 24));
+        assert_eq!(menu.click(copy.left, copy.top, 80, 25), None);
+        assert!(!menu.hover(copy.left, copy.top, 80, 25));
         menu.copy_enabled = true;
-        assert!(menu.hover(copy.left, copy.top, 80, 24));
+        assert!(menu.hover(copy.left, copy.top, 80, 25));
         assert_eq!(menu.selected, Some(MenuAction::Copy));
         assert_eq!(
-            menu.click(copy.left + copy.width - 1, copy.top, 80, 24),
+            menu.click(copy.left + copy.width - 1, copy.top, 80, 25),
             Some(MenuAction::Copy)
         );
     }
@@ -516,26 +708,30 @@ mod tests {
     #[test]
     fn hovering_header_or_separator_clears_selection_without_moving_viewport() {
         let mut menu = ContextMenu::new(1, 0, 0);
-        assert!(menu.hover(2, 3, 80, 24));
-        assert!(menu.hover(2, 1, 80, 24));
+        assert!(menu.hover(2, 3, 80, 32));
+        assert!(menu.hover(2, 1, 80, 32));
         assert_eq!(menu.selected, None);
-        assert_eq!(menu.click(2, 1, 80, 24), None);
-        assert_eq!(menu.click(2, 7, 80, 24), None);
-        assert!(!menu.hit_scroll(2, 7, 80, 24));
+        assert_eq!(menu.click(2, 1, 80, 32), None);
+        let separator = if cfg!(target_os = "linux") { 5 } else { 7 };
+        assert_eq!(menu.click(2, separator, 80, 32), None);
+        assert!(!menu.hit_scroll(2, separator, 80, 32));
         assert_eq!(menu.scroll_offset, 0);
     }
 
     #[test]
     fn keyboard_skips_disabled_actions_and_wraps() {
         let mut menu = ContextMenu::new(1, 0, 0);
-        menu.move_selection(true, 80, 24);
+        menu.move_selection(true, 80, 25);
         assert_eq!(menu.selected, Some(MenuAction::Close));
-        menu.move_selection(false, 80, 24);
+        menu.move_selection(false, 80, 25);
+        #[cfg(target_os = "linux")]
+        assert_eq!(menu.selected, Some(MenuAction::OpenEditor));
+        #[cfg(not(target_os = "linux"))]
         assert_eq!(menu.selected, Some(MenuAction::NewTab));
         menu.selected = Some(MenuAction::PaneZoom);
-        menu.move_selection(false, 80, 24);
+        menu.move_selection(false, 80, 25);
         assert_eq!(menu.selected, Some(MenuAction::Paste));
-        menu.move_selection(true, 80, 24);
+        menu.move_selection(true, 80, 25);
         assert_eq!(menu.selected, Some(MenuAction::PaneZoom));
     }
 
@@ -599,9 +795,9 @@ mod tests {
         assert_eq!(menu.scroll_offset, offset);
         assert!(!menu.scroll(1, 40, 10));
         assert!(menu.scroll(isize::MIN, 40, 10));
-        assert_eq!(menu.items(40, 10).first().unwrap().action, MenuAction::NewTab);
+        assert_eq!(menu.items(40, 10).first().unwrap().action, MENU_ITEMS[0].0);
         assert!(menu.viewport(40, 4).up.is_none());
-        assert!(menu.viewport(40, 24).up.is_none());
+        assert!(menu.viewport(40, 25).up.is_none());
     }
 
     #[test]

@@ -101,7 +101,7 @@ fn system_locale() -> Option<String> {
 #[cfg(windows)]
 fn system_locale() -> Option<String> {
     #[link(name = "kernel32")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetUserDefaultLocaleName(locale_name: *mut u16, locale_name_count: i32) -> i32;
     }
 
@@ -112,6 +112,18 @@ fn system_locale() -> Option<String> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Message {
+    AgentChats,
+    Applications,
+    PreferredEditor,
+    PreferredFileManager,
+    AppAutomatic,
+    SystemDefault,
+    AppNotInstalled,
+    AppSettingsHint,
+    OpenIn,
+    OpenEditor,
+    OpenFolder,
+    DesktopOpenFailed,
     MenuHeading,
     NewTab,
     Rename,
@@ -169,6 +181,15 @@ pub enum Message {
     SearchBackward,
     TruncatedNotice,
     Appearance,
+    AppIcon,
+    IconOriginal,
+    IconCat,
+    IconDog,
+    IconFox,
+    IconRobot,
+    IconRestore,
+    IconHint,
+    IconIntegrationFailed,
     Startup,
     Shortcuts,
     FontFamily,
@@ -221,6 +242,8 @@ pub enum Message {
     SplitVertical,
     SplitHorizontal,
     FocusPane,
+    PreviousTab,
+    NextTab,
     TogglePaneZoom,
     ClosePane,
     PaneLimit,
@@ -238,11 +261,184 @@ pub enum Message {
     ShortcutCancelCapture,
     ShortcutCurrent,
     ShortcutsSubtitle,
+    ShortcutSearch,
+    ShortcutAction,
+    ShortcutKey,
+    ShortcutNoResults,
+    TabGroups,
+    GroupsHint,
+    GroupName,
+    NoGroups,
+    CreateGroup,
+    RenameGroup,
+    MoveToGroup,
+    ShowGroup,
+    UngroupTab,
+    AllTabs,
+    GroupInvalid,
+    GroupDuplicate,
+    Agents,
+    AgentOverviewHint,
+    AgentEmpty,
+    AgentStartHint,
+    AgentIntegration,
+    AgentNotifications,
+    AgentSettingsHint,
+    AgentNewTabsHint,
+    AgentCodexHint,
+    AgentLimited,
+    AgentStatus,
+    AgentClose,
+    AgentReady,
+    AgentWorking,
+    AgentInput,
+    AgentPermission,
+    AgentDone,
+    AgentError,
+    AgentUnknown,
+    AgentTabInput,
+    AgentTabPermission,
 }
 
 impl Locale {
     pub fn text(self, message: Message) -> &'static str {
         match (self, message) {
+            (Self::En, Message::AgentChats) => "Chats",
+            (Self::PtBr, Message::AgentChats) => "Conversas",
+            (Self::En, Message::Applications) => "Applications",
+            (Self::PtBr, Message::Applications) => "Aplicativos",
+            (Self::En, Message::PreferredEditor) => "IDE / editor",
+            (Self::PtBr, Message::PreferredEditor) => "IDE / editor de código",
+            (Self::En, Message::PreferredFileManager) => "File manager",
+            (Self::PtBr, Message::PreferredFileManager) => "Gerenciador de arquivos",
+            (Self::En, Message::AppAutomatic) => "Automatic (first installed)",
+            (Self::PtBr, Message::AppAutomatic) => "Automático (primeiro instalado)",
+            (Self::En, Message::SystemDefault) => "System default",
+            (Self::PtBr, Message::SystemDefault) => "Padrão do sistema",
+            (Self::En, Message::AppNotInstalled) => "not installed",
+            (Self::PtBr, Message::AppNotInstalled) => "não instalado",
+            (Self::En, Message::AppSettingsHint) => {
+                "Choose an installed app to open the terminal folder from its right-click menu. \
+                 Save to apply your choices."
+            },
+            (Self::PtBr, Message::AppSettingsHint) => {
+                "Escolha um aplicativo instalado para abrir a pasta do terminal pelo botão \
+                 direito. Salve para aplicar suas escolhas."
+            },
+            (Self::En, Message::OpenIn) => "Open in",
+            (Self::PtBr, Message::OpenIn) => "Abrir no",
+            (Self::En, Message::OpenEditor) => "Open in editor…",
+            (Self::PtBr, Message::OpenEditor) => "Abrir no editor…",
+            (Self::En, Message::OpenFolder) => "Open folder…",
+            (Self::PtBr, Message::OpenFolder) => "Abrir pasta…",
+            (Self::En, Message::DesktopOpenFailed) => {
+                "Could not open this folder. Check the app in Settings > Applications."
+            },
+            (Self::PtBr, Message::DesktopOpenFailed) => {
+                "Não foi possível abrir esta pasta. Verifique o aplicativo em Configurações > \
+                 Aplicativos."
+            },
+            (Self::En, Message::Agents) => "Agents",
+            (Self::PtBr, Message::Agents) => "Agentes",
+            (Self::En, Message::AgentOverviewHint) => "Select an agent to open its tab and pane.",
+            (Self::PtBr, Message::AgentOverviewHint) => {
+                "Selecione um agente para abrir sua aba e painel."
+            },
+            (Self::En, Message::AgentEmpty) => "No agents are connected in this window yet.",
+            (Self::PtBr, Message::AgentEmpty) => "Nenhum agente conectado nesta janela ainda.",
+            (Self::En, Message::AgentStartHint) => {
+                "Start claude, codex, agy or opencode in a new tab."
+            },
+            (Self::PtBr, Message::AgentStartHint) => {
+                "Inicie claude, codex, agy ou opencode em uma nova aba."
+            },
+            (Self::En, Message::AgentIntegration) => "Show agent status in tabs",
+            (Self::PtBr, Message::AgentIntegration) => "Mostrar estado dos agentes nas abas",
+            (Self::En, Message::AgentNotifications) => "Notify on waits and completion",
+            (Self::PtBr, Message::AgentNotifications) => "Avisar sobre espera e conclusão",
+            (Self::En, Message::AgentSettingsHint) => {
+                "See when an agent is working, needs a reply or permission, or has finished. \
+                 Permission decisions stay with you."
+            },
+            (Self::PtBr, Message::AgentSettingsHint) => {
+                "Veja quando um agente está trabalhando, precisa de resposta ou permissão, ou \
+                 terminou. Você continua decidindo as permissões."
+            },
+            (Self::En, Message::AgentNewTabsHint) => {
+                "Save changes, then open new tabs or panes to start the integration."
+            },
+            (Self::PtBr, Message::AgentNewTabsHint) => {
+                "Salve as mudanças e abra novas abas ou painéis para iniciar a integração."
+            },
+            (Self::En, Message::AgentCodexHint) => {
+                "Compatible Codex versions connect automatically; no extra setup is needed."
+            },
+            (Self::PtBr, Message::AgentCodexHint) => {
+                "Versões compatíveis do Codex se integram automaticamente, sem configuração \
+                 adicional."
+            },
+            (Self::En, Message::AgentLimited) => "Limited status",
+            (Self::PtBr, Message::AgentLimited) => "Estado limitado",
+            (Self::En, Message::AgentStatus) => "Status",
+            (Self::PtBr, Message::AgentStatus) => "Estado",
+            (Self::En, Message::AgentClose) => "Close",
+            (Self::PtBr, Message::AgentClose) => "Fechar",
+            (Self::En, Message::AgentTabInput) => "Reply",
+            (Self::PtBr, Message::AgentTabInput) => "Resposta",
+            (Self::En, Message::AgentTabPermission) => "Permission",
+            (Self::PtBr, Message::AgentTabPermission) => "Permissão",
+            (Self::En, Message::AgentReady) => "Ready",
+            (Self::PtBr, Message::AgentReady) => "Pronto",
+            (Self::En, Message::AgentWorking) => "Working",
+            (Self::PtBr, Message::AgentWorking) => "Trabalhando",
+            (Self::En, Message::AgentInput) => "Needs a reply",
+            (Self::PtBr, Message::AgentInput) => "Aguardando resposta",
+            (Self::En, Message::AgentPermission) => "Needs permission",
+            (Self::PtBr, Message::AgentPermission) => "Aguardando permissão",
+            (Self::En, Message::AgentDone) => "Finished",
+            (Self::PtBr, Message::AgentDone) => "Concluído",
+            (Self::En, Message::AgentError) => "Failed",
+            (Self::PtBr, Message::AgentError) => "Falhou",
+            (Self::En, Message::AgentUnknown) => "Status unavailable",
+            (Self::PtBr, Message::AgentUnknown) => "Estado indisponível",
+
+            (Self::En, Message::TabGroups) => "Tab groups",
+            (Self::PtBr, Message::TabGroups) => "Grupos de abas",
+            (Self::En, Message::GroupsHint) => {
+                "Organize tabs by project. Running terminals keep working."
+            },
+            (Self::PtBr, Message::GroupsHint) => {
+                "Organize abas por projeto. Os terminais continuam funcionando."
+            },
+            (Self::En, Message::GroupName) => "Group name",
+            (Self::PtBr, Message::GroupName) => "Nome do grupo",
+            (Self::En, Message::NoGroups) => "No groups yet. Create one for this tab.",
+            (Self::PtBr, Message::NoGroups) => "Nenhum grupo. Crie um para esta aba.",
+            (Self::En, Message::CreateGroup) => "Create group",
+            (Self::PtBr, Message::CreateGroup) => "Criar grupo",
+            (Self::En, Message::RenameGroup) => "Rename group",
+            (Self::PtBr, Message::RenameGroup) => "Renomear grupo",
+            (Self::En, Message::MoveToGroup) => "Move tab here",
+            (Self::PtBr, Message::MoveToGroup) => "Mover aba para cá",
+            (Self::En, Message::ShowGroup) => "Show group",
+            (Self::PtBr, Message::ShowGroup) => "Mostrar grupo",
+            (Self::En, Message::UngroupTab) => "Remove from group",
+            (Self::PtBr, Message::UngroupTab) => "Tirar do grupo",
+            (Self::En, Message::AllTabs) => "All tabs",
+            (Self::PtBr, Message::AllTabs) => "Todas as abas",
+            (Self::En, Message::GroupInvalid) => "Use a name with 1 to 64 characters.",
+            (Self::PtBr, Message::GroupInvalid) => "Use um nome de 1 a 64 caracteres.",
+            (Self::En, Message::GroupDuplicate) => "A group already has this name.",
+            (Self::PtBr, Message::GroupDuplicate) => "Já existe um grupo com esse nome.",
+
+            (Self::En, Message::ShortcutSearch) => "Search actions or keys…",
+            (Self::PtBr, Message::ShortcutSearch) => "Buscar ação ou tecla…",
+            (Self::En, Message::ShortcutAction) => "Action",
+            (Self::PtBr, Message::ShortcutAction) => "Ação",
+            (Self::En, Message::ShortcutKey) => "Shortcut",
+            (Self::PtBr, Message::ShortcutKey) => "Atalho",
+            (Self::En, Message::ShortcutNoResults) => "No matching shortcuts.",
+            (Self::PtBr, Message::ShortcutNoResults) => "Nenhum atalho encontrado.",
             (Self::En, Message::ShortcutEditHint) => "Select an action to change its shortcut.",
             (Self::PtBr, Message::ShortcutEditHint) => "Selecione a ação para alterar o atalho.",
             (Self::En, Message::ShortcutCapture) => "Press a shortcut; Esc cancels.",
@@ -295,6 +491,10 @@ impl Locale {
             (Self::PtBr, Message::SplitVertical) => "Dividir à direita",
             (Self::En, Message::SplitHorizontal) => "Split below",
             (Self::PtBr, Message::SplitHorizontal) => "Dividir abaixo",
+            (Self::En, Message::PreviousTab) => "Previous tab",
+            (Self::PtBr, Message::PreviousTab) => "Aba anterior",
+            (Self::En, Message::NextTab) => "Next tab",
+            (Self::PtBr, Message::NextTab) => "Próxima aba",
             (Self::En, Message::FocusPane) => "Focus pane",
             (Self::PtBr, Message::FocusPane) => "Alternar painel",
             (Self::En, Message::TogglePaneZoom) => "Maximize / restore pane",
@@ -310,6 +510,50 @@ impl Locale {
 
             (Self::En, Message::Appearance) => "Appearance",
             (Self::PtBr, Message::Appearance) => "Aparência",
+            (Self::En, Message::AppIcon) => "Application icon",
+            (Self::PtBr, Message::AppIcon) => "Ícone do aplicativo",
+            (Self::En, Message::IconOriginal) => "Termust · Default",
+            (Self::PtBr, Message::IconOriginal) => "Termust · Original",
+            (Self::En, Message::IconCat) => "Cat",
+            (Self::PtBr, Message::IconCat) => "Gato",
+            (Self::En, Message::IconDog) => "Dog",
+            (Self::PtBr, Message::IconDog) => "Cachorro",
+            (Self::En, Message::IconFox) => "Fox",
+            (Self::PtBr, Message::IconFox) => "Raposa",
+            (Self::En, Message::IconRobot) => "Robot",
+            (Self::PtBr, Message::IconRobot) => "Robô",
+            (Self::En, Message::IconRestore) => "Restore original icon",
+            (Self::PtBr, Message::IconRestore) => "Restaurar ícone original",
+            #[cfg(target_os = "macos")]
+            (Self::En, Message::IconHint) => {
+                "Preview your Dock icon. Your choice applies while Termust is open; the Finder icon stays original."
+            },
+            #[cfg(target_os = "macos")]
+            (Self::PtBr, Message::IconHint) => {
+                "Veja a prévia no Dock. A escolha vale enquanto o Termust está aberto; o Finder mantém o ícone original."
+            },
+            #[cfg(windows)]
+            (Self::En, Message::IconHint) => {
+                "Preview your window icon. Save to update the shortcut; pinned icons may need to be pinned again."
+            },
+            #[cfg(windows)]
+            (Self::PtBr, Message::IconHint) => {
+                "Veja a prévia na janela. Salve para atualizar o atalho; ícones fixados podem precisar ser fixados novamente."
+            },
+            #[cfg(not(any(windows, target_os = "macos")))]
+            (Self::En, Message::IconHint) => {
+                "Make Termust your own. Save to update the launcher; pinned icons may need to be pinned again."
+            },
+            #[cfg(not(any(windows, target_os = "macos")))]
+            (Self::PtBr, Message::IconHint) => {
+                "Deixe o Termust com a sua cara. Salve para mudar o lançador; ícones fixados podem precisar ser fixados novamente."
+            },
+            (Self::En, Message::IconIntegrationFailed) => {
+                "Settings saved. The launcher icon could not be updated; check its permissions."
+            },
+            (Self::PtBr, Message::IconIntegrationFailed) => {
+                "Configurações salvas. Não foi possível mudar o ícone do lançador; verifique suas permissões."
+            },
             (Self::En, Message::Startup) => "Startup",
             (Self::PtBr, Message::Startup) => "Inicialização",
             (Self::En, Message::Shortcuts) => "Shortcuts",
@@ -332,17 +576,19 @@ impl Locale {
             (Self::PtBr, Message::Defaults) => "Restaurar padrões",
             (Self::En, Message::RestoreAtStartup) => "Restore tabs at startup",
             (Self::PtBr, Message::RestoreAtStartup) => "Restaurar abas ao iniciar",
-            (Self::En, Message::AutoRecovery) => "Automatically save recovery snapshots",
-            (Self::PtBr, Message::AutoRecovery) => "Salvar recuperação automaticamente",
+            (Self::En, Message::AutoRecovery) => "Save terminal state automatically",
+            (Self::PtBr, Message::AutoRecovery) => "Salvar estado do terminal automaticamente",
             (Self::En, Message::StartupWorkspace) => "Startup workspace",
             (Self::PtBr, Message::StartupWorkspace) => "Ambiente inicial",
             (Self::En, Message::LastSavedSession) => "Last saved session",
             (Self::PtBr, Message::LastSavedSession) => "Última sessão salva",
             (Self::En, Message::RecoveryHint) => {
-                "Recovery uses fresh shells; commands are not replayed."
+                "Saves tabs, groups, folders, last commands and recent output. Recovery starts \
+                 fresh shells without running commands again."
             },
             (Self::PtBr, Message::RecoveryHint) => {
-                "Recuperação abre shells novos sem reexecutar comandos."
+                "Salva abas, grupos, pastas, últimos comandos e saída recente. A recuperação abre \
+                 novos shells sem executar comandos novamente."
             },
             (Self::En, Message::DefaultShortcuts) => {
                 "Default shortcuts; custom bindings use the config file."
@@ -509,8 +755,8 @@ impl Locale {
             (Self::PtBr, Message::KeyboardHelp) => {
                 "Tab: próximo campo   Enter: confirmar   Esc: fechar"
             },
-            (Self::En, Message::KeyboardHelpCompact) => "Tab: next  Enter: confirm",
-            (Self::PtBr, Message::KeyboardHelpCompact) => "Tab: próximo  Enter: confirmar",
+            (Self::En, Message::KeyboardHelpCompact) => "Tab: next  Enter: OK  Esc: close",
+            (Self::PtBr, Message::KeyboardHelpCompact) => "Tab: próximo  Enter: OK  Esc: fechar",
             (Self::En, Message::SavedShellFailed) => "Could not start the saved session's shell.",
             (Self::PtBr, Message::SavedShellFailed) => {
                 "Não foi possível iniciar o shell da sessão salva."
@@ -585,7 +831,52 @@ impl Locale {
 
 #[cfg(test)]
 impl Message {
-    const ALL: [Self; 126] = [
+    const ALL: [Self; 186] = [
+        Self::AgentChats,
+        Self::Applications,
+        Self::PreferredEditor,
+        Self::PreferredFileManager,
+        Self::AppAutomatic,
+        Self::SystemDefault,
+        Self::AppNotInstalled,
+        Self::AppSettingsHint,
+        Self::OpenIn,
+        Self::OpenEditor,
+        Self::OpenFolder,
+        Self::DesktopOpenFailed,
+        Self::Agents,
+        Self::AgentOverviewHint,
+        Self::AgentEmpty,
+        Self::AgentStartHint,
+        Self::AgentIntegration,
+        Self::AgentNotifications,
+        Self::AgentSettingsHint,
+        Self::AgentNewTabsHint,
+        Self::AgentCodexHint,
+        Self::AgentLimited,
+        Self::AgentStatus,
+        Self::AgentClose,
+        Self::AgentReady,
+        Self::AgentWorking,
+        Self::AgentInput,
+        Self::AgentPermission,
+        Self::AgentDone,
+        Self::AgentError,
+        Self::AgentUnknown,
+        Self::AgentTabInput,
+        Self::AgentTabPermission,
+        Self::TabGroups,
+        Self::GroupsHint,
+        Self::GroupName,
+        Self::NoGroups,
+        Self::CreateGroup,
+        Self::RenameGroup,
+        Self::MoveToGroup,
+        Self::ShowGroup,
+        Self::UngroupTab,
+        Self::AllTabs,
+        Self::GroupInvalid,
+        Self::GroupDuplicate,
         Self::MenuHeading,
         Self::NewTab,
         Self::Rename,
@@ -643,6 +934,15 @@ impl Message {
         Self::SearchBackward,
         Self::TruncatedNotice,
         Self::Appearance,
+        Self::AppIcon,
+        Self::IconOriginal,
+        Self::IconCat,
+        Self::IconDog,
+        Self::IconFox,
+        Self::IconRobot,
+        Self::IconRestore,
+        Self::IconHint,
+        Self::IconIntegrationFailed,
         Self::Startup,
         Self::Shortcuts,
         Self::FontFamily,
@@ -695,6 +995,8 @@ impl Message {
         Self::SplitVertical,
         Self::SplitHorizontal,
         Self::FocusPane,
+        Self::PreviousTab,
+        Self::NextTab,
         Self::TogglePaneZoom,
         Self::ClosePane,
         Self::PaneLimit,
@@ -712,6 +1014,10 @@ impl Message {
         Self::ShortcutCancelCapture,
         Self::ShortcutCurrent,
         Self::ShortcutsSubtitle,
+        Self::ShortcutSearch,
+        Self::ShortcutAction,
+        Self::ShortcutKey,
+        Self::ShortcutNoResults,
     ];
 }
 

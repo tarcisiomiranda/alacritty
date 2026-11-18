@@ -651,6 +651,123 @@ impl<T> Term<T> {
         &mut self.grid
     }
 
+    pub fn session_text(&self, max_lines: usize, max_bytes: usize) -> String {
+        if max_lines == 0 || max_bytes == 0 {
+            return String::new();
+        }
+        let grid =
+            if self.mode.contains(TermMode::ALT_SCREEN) { &self.inactive_grid } else { &self.grid };
+        let mut last = grid.bottommost_line();
+        let trailing_limit = max_lines.max(grid.screen_lines()).saturating_sub(1);
+        let trailing_limit = trailing_limit.min(i32::MAX as usize) as i32;
+        let oldest = grid.topmost_line().0.max(last.0.saturating_sub(trailing_limit));
+        while last.0 >= oldest
+            && !grid[last][..].iter().any(|cell| {
+                !cell.flags.intersects(
+                    Flags::HIDDEN | Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER,
+                ) && ((!cell.c.is_control() && cell.c != ' ')
+                    || cell.zerowidth().is_some_and(|chars| !chars.is_empty()))
+            })
+        {
+            last -= 1;
+        }
+        if last.0 < oldest {
+            return String::new();
+        }
+        let count = max_lines.saturating_sub(1).min(i32::MAX as usize) as i32;
+        let first = grid.topmost_line().0.max(last.0.saturating_sub(count));
+        let mut rows = Vec::new();
+        let mut bytes = 0;
+        for line in (first..=last.0).rev().map(Line::from) {
+            let row = &grid[line];
+            let mut text = String::new();
+            for cell in &row[..row.line_length()] {
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                {
+                    continue;
+                }
+                if cell.flags.contains(Flags::HIDDEN) {
+                    text.push(' ');
+                    if cell.flags.contains(Flags::WIDE_CHAR) {
+                        text.push(' ');
+                    }
+                } else if cell.c.is_control() {
+                    text.push(' ');
+                } else {
+                    text.push(cell.c);
+                    for character in cell.zerowidth().into_iter().flatten() {
+                        if !character.is_control() {
+                            text.push(*character);
+                        }
+                    }
+                }
+            }
+            let wrapped = row[grid.last_column()].flags.contains(Flags::WRAPLINE);
+            if !wrapped {
+                text.truncate(text.trim_end_matches(' ').len());
+            }
+            if !wrapped || line == last {
+                text.push('\n');
+            }
+            bytes += text.len();
+            rows.push(text);
+            if bytes >= max_bytes {
+                break;
+            }
+        }
+        let mut text = String::with_capacity(bytes);
+        for row in rows.into_iter().rev() {
+            text.push_str(&row);
+        }
+        if text.len() > max_bytes {
+            let mut start = text.len() - max_bytes;
+            while !text.is_char_boundary(start) {
+                start += 1;
+            }
+            while let Some(character) = text[start..].chars().next() {
+                if character.width() != Some(0) {
+                    break;
+                }
+                start += character.len_utf8();
+            }
+            text.drain(..start);
+        }
+        text
+    }
+
+    pub fn restore_session_text(&mut self, text: &str)
+    where
+        T: EventListener,
+    {
+        if self.mode.contains(TermMode::ALT_SCREEN) {
+            return;
+        }
+        let mut line_complete = true;
+        for character in text.chars() {
+            match character {
+                '\n' => {
+                    self.carriage_return();
+                    self.linefeed();
+                    line_complete = true;
+                },
+                '\t' => {
+                    self.put_tab(1);
+                    line_complete = false;
+                },
+                character if !character.is_control() => {
+                    self.input(character);
+                    line_complete = false;
+                },
+                _ => (),
+            }
+        }
+        if !line_complete {
+            self.carriage_return();
+            self.linefeed();
+        }
+        self.mark_fully_damaged();
+    }
+
     /// Resize terminal to new dimensions.
     pub fn resize<S: Dimensions>(&mut self, size: S) {
         let old_cols = self.columns();
@@ -3289,6 +3406,101 @@ mod tests {
         term.title = Some("Test".into());
         term.set_title(None);
         assert_eq!(term.title, None);
+    }
+
+    #[test]
+    fn session_text_roundtrips_unicode_and_logical_wraps() {
+        let mut term = Term::new(Config::default(), &TermSize::new(6, 5), VoidListener);
+        let content = "ab界e\u{301}Zfoo\nabcde界\n下一行";
+        term.restore_session_text(content);
+        assert_eq!(term.session_text(100, 4096), format!("{content}\n"));
+        let mut restored = Term::new(Config::default(), &TermSize::new(40, 5), VoidListener);
+        restored.restore_session_text(&term.session_text(100, 4096));
+        assert_eq!(restored.session_text(100, 4096), format!("{content}\n"));
+        assert_eq!(restored.grid.cursor.point.column, Column(0));
+        restored.input('$');
+        assert!(restored.session_text(100, 4096).ends_with("下一行\n$\n"));
+    }
+
+    #[test]
+    fn session_text_uses_primary_screen_and_omits_hidden_cells() {
+        let mut term = Term::new(Config::default(), &TermSize::new(30, 4), VoidListener);
+        term.restore_session_text("safe secret tail");
+        for column in 5..11 {
+            term.grid[Line(0)][Column(column)].flags.insert(Flags::HIDDEN);
+        }
+        let primary = term.session_text(100, 4096);
+        assert!(!primary.contains("secret"));
+        assert!(primary.starts_with("safe "));
+        assert!(primary.ends_with(" tail\n"));
+        term.swap_alt();
+        for character in "alternate screen".chars() {
+            term.input(character);
+        }
+        assert_eq!(term.session_text(100, 4096), primary);
+        term.restore_session_text("should stay absent");
+        assert_eq!(term.session_text(100, 4096), primary);
+    }
+
+    #[test]
+    fn session_text_limits_recent_lines_and_utf8_bytes() {
+        let mut term = Term::new(Config::default(), &TermSize::new(30, 2), VoidListener);
+        term.restore_session_text("old\nsecond\nthird\n界aé");
+        assert!(term.history_size() > 0);
+        assert_eq!(term.session_text(2, 4096), "third\n界aé\n");
+        assert_eq!(term.session_text(100, 5), "aé\n");
+        assert_eq!(term.session_text(100, 3), "é\n");
+        assert_eq!(term.session_text(100, 2), "\n");
+        assert!(term.session_text(0, 100).is_empty());
+        assert!(term.session_text(100, 0).is_empty());
+    }
+
+    #[test]
+    fn session_text_clipping_drops_orphan_combining_characters() {
+        let mut term = Term::new(Config::default(), &TermSize::new(10, 2), VoidListener);
+        term.restore_session_text("ae\u{301}z");
+        assert_eq!(term.session_text(10, 4), "z\n");
+    }
+
+    #[test]
+    fn session_text_ignores_content_behind_a_large_blank_tail() {
+        let config = Config { scrolling_history: 100_000, ..Config::default() };
+        let mut term = Term::new(config, &TermSize::new(10, 2), VoidListener);
+        term.restore_session_text("retained");
+        for _ in 0..10_000 {
+            term.linefeed();
+        }
+        assert_eq!(term.grid[term.grid.topmost_line()][Column(0)].c, 'r');
+        assert!(term.session_text(5, 1024).is_empty());
+        let mut viewport = Term::new(Config::default(), &TermSize::new(10, 20), VoidListener);
+        viewport.restore_session_text("visible");
+        assert_eq!(viewport.session_text(1, 1024), "visible\n");
+    }
+
+    #[test]
+    fn session_text_restores_control_sequences_as_inert_text() {
+        struct RejectEvents;
+        impl EventListener for RejectEvents {
+            fn send_event(&self, event: Event) {
+                panic!("Restored text emitted event {event:?}");
+            }
+        }
+        let mut term = Term::new(Config::default(), &TermSize::new(80, 4), RejectEvents);
+        term.restore_session_text("safe\x1b]52;c;c2VjcmV0\x07\x1b[?1049h\x1b[6n\n");
+        assert_eq!(term.session_text(100, 4096), "safe]52;c;c2VjcmV0[?1049h[6n\n");
+        assert!(!term.mode.contains(TermMode::ALT_SCREEN));
+        assert_eq!(term.title, None);
+        assert_eq!(term.grid.cursor.point, Point::new(Line(1), Column(0)));
+    }
+
+    #[test]
+    fn session_text_drops_empty_viewport_and_respects_history_capacity() {
+        let config = Config { scrolling_history: 2, ..Config::default() };
+        let mut term = Term::new(config, &TermSize::new(10, 2), VoidListener);
+        assert!(term.session_text(100, 4096).is_empty());
+        term.restore_session_text("one\ntwo\nthree\nfour\nfive");
+        assert_eq!(term.history_size(), 2);
+        assert_eq!(term.session_text(100, 4096), "three\nfour\nfive\n");
     }
 
     #[test]

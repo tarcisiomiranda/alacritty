@@ -79,7 +79,7 @@ const MAX_SEARCH_HISTORY_SIZE: usize = 255;
 const TOUCH_ZOOM_FACTOR: f32 = 0.01;
 
 /// Cooldown between invocations of the bell command.
-const BELL_CMD_COOLDOWN: Duration = Duration::from_millis(100);
+pub(crate) const BELL_CMD_COOLDOWN: Duration = Duration::from_millis(100);
 
 /// The event processor.
 ///
@@ -158,7 +158,7 @@ impl Processor {
                 .or_else(|| home::home_dir().map(|home| home.join(".config")));
             #[cfg(windows)]
             let directory = dirs::config_dir();
-            directory.map(|path| path.join("alacritty/alacritty.toml"))
+            directory.map(|path| path.join("termust/termust.toml"))
         })
     }
 
@@ -248,12 +248,20 @@ impl Processor {
         let mut config = (*self.config).clone();
         let saved = values.apply(&mut config).is_ok()
             && path.as_ref().is_some_and(|path| values.save(path).is_ok());
+        let mut icon_failed = false;
         if saved {
+            if let Err(error) = crate::personalization::sync_launcher(config.window.icon) {
+                log::warn!("Could not update the launcher icon: {error}");
+                icon_failed = true;
+            }
             let paths: Vec<_> = values.changes().into_iter().map(|(path, _)| path).collect();
             self.publish_settings(config, path.unwrap(), &paths);
         }
         if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
             window.settings_saved(saved);
+            if icon_failed {
+                window.settings_icon_failed();
+            }
         }
     }
 
@@ -731,6 +739,7 @@ pub enum EventType {
     OpenWorkspaces,
     OpenWorkspace(crate::session::SavedSession),
     SessionActivity,
+    AgentAnimation,
     ClipboardCopy,
     ClipboardPaste,
     ConfigReload(PathBuf),
@@ -864,6 +873,8 @@ pub struct ActionContext<'a, N, T> {
     pub config: &'a UiConfig,
     pub cursor_blink_timed_out: &'a mut bool,
     pub prev_bell_cmd: &'a mut Option<Instant>,
+    pub pending_replay: &'a mut Option<crate::session::CommandRecord>,
+    pub replay_started: &'a mut Option<Instant>,
     #[cfg(target_os = "macos")]
     pub event_loop: &'a ActiveEventLoop,
     pub event_proxy: &'a EventLoopProxy<Event>,
@@ -1118,7 +1129,13 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     fn select_tab(&mut self, action: TabAction) {
-        self.tab_actions.push(EventType::SelectTab(action));
+        if let Some(bar) = &self.display.tab_bar {
+            if let Some(index) = bar.target(action) {
+                self.tab_actions.push(EventType::SelectTab(TabAction::Index(index)));
+            }
+        } else {
+            self.tab_actions.push(EventType::SelectTab(action));
+        }
     }
 
     fn rename_tab(&mut self) {
@@ -1623,6 +1640,8 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
 
     /// Handle beginning of terminal text input.
     fn on_terminal_input_start(&mut self) {
+        *self.pending_replay = None;
+        *self.replay_started = None;
         self.on_typing_start();
         self.clear_selection();
 
@@ -2199,7 +2218,10 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                     TerminalEvent::PtyWrite(text) => self.ctx.write_to_pty(text.into_bytes()),
                     TerminalEvent::MouseCursorDirty => self.reset_mouse_cursor(),
                     TerminalEvent::CursorBlinkingChange => self.ctx.update_cursor_blinking(),
-                    TerminalEvent::Exit | TerminalEvent::ChildExit(_) | TerminalEvent::Wakeup => (),
+                    TerminalEvent::Exit
+                    | TerminalEvent::ChildExit(_)
+                    | TerminalEvent::Wakeup
+                    | TerminalEvent::AgentState { .. } => (),
                 },
                 #[cfg(unix)]
                 EventType::IpcConfig(_) | EventType::IpcGetConfig(..) | EventType::Shutdown => (),
@@ -2226,7 +2248,8 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 | EventType::MoveTab(_)
                 | EventType::OpenWorkspaces
                 | EventType::OpenWorkspace(_)
-                | EventType::SessionActivity => (),
+                | EventType::SessionActivity
+                | EventType::AgentAnimation => (),
             },
             WinitEvent::WindowEvent { event, .. } => {
                 match event {

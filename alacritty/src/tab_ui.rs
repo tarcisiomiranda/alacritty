@@ -73,6 +73,8 @@ pub enum UiKind {
     SelectedItem,
     Scrollbar,
     Shortcut,
+    AgentStatus(crate::agent::AgentState, bool),
+    IconCard(crate::personalization::IconPreset, bool),
 }
 
 pub struct UiElement {

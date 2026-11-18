@@ -54,8 +54,10 @@ args = ["--noprofile", "--norc"]
                 XDG_STATE_HOME=str(work / "state"), HOME=str(home))
             env.pop("WAYLAND_DISPLAY", None)
             env.pop("BASH_ENV", None)
+            for name in ["ALACRITTY_SOCKET", "ALACRITTY_WINDOW_ID", "TERMUST_SOCKET", "TERMUST_WINDOW_ID"]:
+                env.pop(name, None)
             x11 = smoke.X11(display)
-            state_file = work / "state" / "alacritty" / "tabs.json"
+            state_file = work / "state" / "termust" / "tabs.json"
 
             def start(title, *options):
                 nonlocal app
@@ -247,5 +249,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1"],
             check=True, capture_output=True, text=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

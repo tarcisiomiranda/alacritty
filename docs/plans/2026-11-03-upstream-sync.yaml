@@ -1,0 +1,30 @@
+plan: upstream-sync
+title: Pull upstream master into the active branch
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+goal: Integrate the fetched upstream updates without losing local work.
+context:
+  - Active branch is docs/terminal-workspace at c14a29f6.
+  - Upstream target is aecf0f60 and includes three commits absent from the active branch.
+scope:
+  - Back up staged and unstaged changes.
+  - Merge upstream master and restore the local changes.
+  - Verify the upstream changes and run workspace tests.
+out_of_scope:
+  - Push changes or publish a release.
+  - Commit unrelated local work.
+stages:
+  - id: integrate
+    desc: Preserve local work and merge upstream
+    status: done
+  - id: verify
+    desc: Validate the restored working tree
+    status: done
+risks:
+  - The contribution guide has a local replacement that may require conflict resolution.
+rollback:
+  - Retain the original HEAD and local patches outside the working tree until verification passes.
+  - Retain the stash if restoration requires manual recovery.
+decisions:
+  - Restore the original staging state and leave unrelated untracked files in place.

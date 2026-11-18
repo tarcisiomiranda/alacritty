@@ -1,0 +1,52 @@
+plan: desktop-apps
+title: Add desktop application actions to the terminal
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+goal: Open the terminal folder in the preferred IDE or file manager from the right-click menu.
+context:
+  - ContextMenu renders native scrolling menu items and routes them through WindowContext.
+  - PreferencesDialog supports localized pages with draft values and explicit save.
+  - Pane snapshots already discover current working directories on Unix.
+scope:
+  - Application discovery and separate-argument launching on Linux.
+  - Preferred editor and file manager settings with detected choices.
+  - Localized context actions and failures.
+  - Unit tests and isolated graphical launch tests.
+out_of_scope:
+  - Installing editors or file managers.
+  - Changing desktop defaults.
+  - Publishing releases or committing local work.
+stages:
+  - id: applications
+    desc: Implement the installed application catalogue and safe launch paths
+    status: done
+  - id: interface
+    desc: Add persistent preferences, localized settings and menu actions
+    status: done
+  - id: verification
+    desc: Test real UI workflows using stub applications in isolated sessions
+    status: done
+  - id: local-install
+    desc: Build and install the optimized checkout for the current user
+    status: done
+  - id: icons
+    desc: Render system application icons, verify layout and update the local installation
+    status: done
+  - id: menu-order
+    desc: Move app actions above tabs, verify keyboard and mouse order and install locally
+    status: done
+risks:
+  - Application names and paths may differ between distributions and packaging methods.
+  - A menu can target an inactive tab or a newly focused split pane.
+rollback:
+  - Revert only the desktop application additions while retaining all previous local changes.
+decisions:
+  - Use a fixed catalogue of known programs and registered desktop launchers.
+  - Use the existing daemon launcher rather than executing commands in the PTY.
+  - User explicitly requested local installation after implementation was verified.
+  - Moved both app actions to the top, verified menu order and eight graphical workflows and installed 0.18.0-termust.709cae5e.ed899318b20a.
+  - Added and visually verified native VS Code and Nautilus menu icons, passed eight graphical cases and installed icon update 0.18.0-termust.709cae5e.7db62872d875.
+  - Installed optimized package 0.18.0-termust.709cae5e.b9c069eaedbc and verified shell and desktop selection plus installed UI workflows in both languages.
+  - Verified 469 workspace tests and one doctest, seven graphical cases, the existing tab/menu regression suite, Clippy and formatting.
+  - Visually inspected normal and compact application settings and context menus in English and Portuguese.

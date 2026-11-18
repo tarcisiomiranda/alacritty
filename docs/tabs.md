@@ -9,7 +9,7 @@ native window tabs.
 | --- | --- |
 | Ctrl+Shift+T | Create a tab |
 | Ctrl+Shift+W | Close the active tab |
-| Ctrl+Shift+R | Rename the active tab and open its settings |
+| F2 / Ctrl+Shift+R | Rename the active tab and open its settings |
 | Ctrl+Shift+S | Save all tabs in the current window |
 | Ctrl+Shift+O | Reopen the saved tabs in the current window |
 | Ctrl+Shift+D | Duplicate the active tab |
@@ -17,10 +17,16 @@ native window tabs.
 | Ctrl+Shift+PageUp / PageDown | Move the active tab |
 | Ctrl+Shift+P | Manage named workspaces |
 | Ctrl+, | Open settings |
-| Ctrl+PageUp | Select the previous tab |
-| Ctrl+PageDown | Select the next tab |
+| Ctrl+Shift+Tab / Ctrl+PageUp | Select the previous tab |
+| Ctrl+Tab / Ctrl+PageDown | Select the next tab |
 | Alt+1 through Alt+8 | Select a numbered tab |
 | Alt+9 | Select the last tab |
+
+F2 opens tab settings at the shell prompt. Applications using the alternate
+screen, such as terminal editors and process monitors, keep their F2 key;
+use Ctrl+Shift+R to rename while they are open. The old shortcuts still work.
+Change or disable tab shortcuts in **Settings → Shortcuts**. Context menus show
+the effective shortcut, including custom bindings and the terminal's current mode.
 
 Click a tab to select it, `+` to create one, or `×` to close one. Middle-clicking
 a tab also requests closure. By default, a confirmation shows the tab name:
@@ -64,6 +70,25 @@ The actions `CreateNewTab`, `CloseTab`, `SelectNextTab`, `SelectPreviousTab`,
 and `RestoreSession` can be assigned through
 the existing `keyboard.bindings` configuration.
 
+## Tab groups
+
+Choose **Tab groups / Grupos de abas** in the right-click menu. Enter a name
+and choose **Create group** to put that tab in a new group. The group selector
+then appears at the left of the tab bar, without adding another row.
+
+Click the selector to show one group or **All tabs / Todas as abas**. The group
+dialog also lets you rename a group, move the target tab into another group,
+or remove it from its group. Groups have unique names of up to 64 characters.
+An empty group disappears; its other tabs keep running when you switch views.
+
+New tabs inherit the active group. When one group is shown, next/previous tab,
+Alt+number and keyboard reordering apply to that group's tabs. Showing all tabs
+restores navigation across the whole window. Dragging keeps each tab's group.
+Saved sessions, workspaces and automatic recovery keep membership and the
+selected group together with tab order and the active tab.
+
+![Compact group controls in Portuguese](images/terminal-tools/state-groups.groups-pt-BR-737.png)
+
 ## Interface language
 
 Choose **Settings… / Configurações…** in the context menu, then open **Language /
@@ -90,9 +115,9 @@ locale when no environment preference is available.
 Saving persists the selected preferences in the active primary TOML file with an
 atomic write; comments, imports, unrelated settings and file permissions are
 preserved. If no configuration exists, the dialog creates
-`$XDG_CONFIG_HOME/alacritty/alacritty.toml` on Unix, falling back to
-`~/.config/alacritty/alacritty.toml`, or
-`%APPDATA%\alacritty\alacritty.toml` on Windows. An unwritable file or legacy YAML
+`$XDG_CONFIG_HOME/termust/termust.toml` on Unix, falling back to
+`~/.config/termust/termust.toml`, or
+`%APPDATA%\termust\termust.toml` on Windows. An unwritable file or legacy YAML
 configuration shows an error and keeps the previous language and file.
 
 An explicit saved choice replaces the current language override from
@@ -140,9 +165,9 @@ history exclusions and disabled history are respected. The dialog shows the
 last three captured commands. Process state, scrollback and unsaved shell
 variables are not restored.
 
-The snapshot is written atomically to `$XDG_STATE_HOME/alacritty/tabs.json`,
-falling back to `~/.local/state/alacritty/tabs.json` on Unix, and to
-`%LOCALAPPDATA%\alacritty\tabs.json` on Windows. Unix files are private to the
+The snapshot is written atomically to `$XDG_STATE_HOME/termust/tabs.json`,
+falling back to `~/.local/state/termust/tabs.json` on Unix, and to
+`%LOCALAPPDATA%\termust\tabs.json` on Windows. Unix files are private to the
 current user (0600); newly created state directories and temporary shell
 metadata directories use 0700. The saved file contains command text; shell
 history exclusions can prevent selected commands from being captured.
@@ -152,7 +177,7 @@ history exclusions can prevent selected commands from being captured.
 To build and open this checkout:
 
 ```sh
-mise exec -- cargo run -p alacritty
+mise exec -- cargo run -p termust
 ```
 
 The installed system binary is separate from this checkout.
@@ -161,7 +186,7 @@ The installed system binary is separate from this checkout.
 
 ```sh
 mise exec -- cargo test --workspace
-mise exec -- cargo build -p alacritty
+mise exec -- cargo build -p termust
 mise exec -- python3 scripts/test-tabs.py
 mise exec -- python3 -B scripts/test-tab-sessions.py
 mise exec -- python3 -B scripts/test-tab-ui.py

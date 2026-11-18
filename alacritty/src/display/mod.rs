@@ -274,20 +274,30 @@ impl SizeInfo<f32> {
         self.reserve_lines(count);
     }
 
-    pub fn pane(&self, x: usize, y: usize, columns: usize, lines: usize) -> Self {
-        let padding_x = self.padding_x + x as f32 * self.cell_width;
-        let padding_y = self.padding_y + y as f32 * self.cell_height;
-        let right_padding_x = (self.width - padding_x - columns as f32 * self.cell_width).max(0.);
-        let bottom_padding_y = (self.height - padding_y - lines as f32 * self.cell_height).max(0.);
-        let columns = columns.max(MIN_COLUMNS);
-        let screen_lines = lines.max(MIN_SCREEN_LINES);
+    pub fn pane_extent(&self) -> (usize, usize) {
+        (
+            (self.columns as f32 * self.cell_width) as usize,
+            (self.screen_lines as f32 * self.cell_height) as usize,
+        )
+    }
+
+    pub fn pane_minimum(&self) -> (usize, usize) {
+        (
+            (MIN_COLUMNS as f32 * self.cell_width).ceil() as usize,
+            (MIN_SCREEN_LINES as f32 * self.cell_height).ceil() as usize,
+        )
+    }
+
+    pub fn pane_pixels(&self, rect: crate::panes::PaneRect) -> Self {
+        let padding_x = self.padding_x + rect.x as f32;
+        let padding_y = self.padding_y + rect.y as f32;
         Self {
             padding_x,
             padding_y,
-            right_padding_x,
-            bottom_padding_y,
-            columns,
-            screen_lines,
+            right_padding_x: (self.width - padding_x - rect.width as f32).max(0.),
+            bottom_padding_y: (self.height - padding_y - rect.height as f32).max(0.),
+            columns: ((rect.width as f32 / self.cell_width) as usize).max(MIN_COLUMNS),
+            screen_lines: ((rect.height as f32 / self.cell_height) as usize).max(MIN_SCREEN_LINES),
             ..*self
         }
     }
@@ -389,6 +399,7 @@ pub struct Display {
 
     pub size_info: SizeInfo,
     pub split_active: bool,
+    pub pane_overlays: Vec<RenderRect>,
 
     /// Hint highlighted by the mouse.
     pub highlighted_hint: Option<HintMatch>,
@@ -442,6 +453,8 @@ pub struct Display {
     context: ManuallyDrop<PossiblyCurrentContext>,
 
     glyph_cache: GlyphCache,
+    ui_glyph_cache: GlyphCache,
+    ui_scale_factor: f32,
     meter: Meter,
 }
 
@@ -461,6 +474,8 @@ impl Display {
         debug!("Loading \"{}\" font", &config.font.normal().family);
         let font = config.font.clone().with_size(font_size);
         let mut glyph_cache = GlyphCache::new(rasterizer, &font)?;
+        let mut ui_glyph_cache =
+            GlyphCache::new(Rasterizer::new()?, &crate::ui::font(scale_factor))?;
 
         let metrics = glyph_cache.font_metrics();
         let (cell_width, cell_height) = compute_cell_size(config, &metrics);
@@ -488,6 +503,7 @@ impl Display {
         debug!("Filling glyph cache with common glyphs");
         renderer.with_loader(|mut api| {
             glyph_cache.reset_glyph_cache(&mut api);
+            ui_glyph_cache.load_common_glyphs(&mut api);
         });
 
         let padding = config.window.padding(window.scale_factor as f32);
@@ -576,10 +592,13 @@ impl Display {
             language_dialog: None,
             productivity_dialog: None,
             close_confirmation: None,
+            pane_overlays: Vec::new(),
             frame_timer: FrameTimer::new(),
             raw_window_handle,
             damage_tracker,
             glyph_cache,
+            ui_glyph_cache,
+            ui_scale_factor: scale_factor,
             hint_state,
             size_info,
             split_active: false,
@@ -695,9 +714,21 @@ impl Display {
     /// Reset glyph cache.
     fn reset_glyph_cache(&mut self) {
         let cache = &mut self.glyph_cache;
+        let ui_cache = &mut self.ui_glyph_cache;
         self.renderer.with_loader(|mut api| {
             cache.reset_glyph_cache(&mut api);
+            ui_cache.clear_cached_glyphs();
+            ui_cache.load_common_glyphs(&mut api);
         });
+    }
+
+    pub fn dialog_size_info(&self) -> SizeInfo {
+        let metrics = self.ui_glyph_cache.font_metrics();
+        let cell = (
+            metrics.average_advance.floor().max(1.) as f32,
+            metrics.line_height.floor().max(1.) as f32,
+        );
+        crate::ui::dialog_size(self.size_info, cell, self.ui_scale_factor)
     }
 
     // XXX: this function must not call to any `OpenGL` related tasks. Renderer updates are
@@ -726,6 +757,11 @@ impl Display {
 
         // Update font size and cell dimensions.
         if let Some(font) = pending_update.font() {
+            let scale_factor = self.window.scale_factor as f32;
+            if self.ui_scale_factor != scale_factor {
+                let _ = self.ui_glyph_cache.update_font_size(&crate::ui::font(scale_factor));
+                self.ui_scale_factor = scale_factor;
+            }
             let cell_dimensions = Self::update_font_size(&mut self.glyph_cache, config, font);
             cell_width = cell_dimensions.0;
             cell_height = cell_dimensions.1;
@@ -1162,6 +1198,9 @@ impl Display {
 
     fn finish_frame(&mut self, scheduler: &mut Scheduler, config: &UiConfig) {
         let metrics = self.glyph_cache.font_metrics();
+        if !self.pane_overlays.is_empty() {
+            self.renderer.draw_rects(&self.size_info, &metrics, mem::take(&mut self.pane_overlays));
+        }
         self.draw_tab_bar(config);
         self.draw_render_timer(config);
 
@@ -1552,6 +1591,51 @@ impl Display {
             let width = rect.width as f32 * size.cell_width();
             let height = rect.height as f32 * size.cell_height();
             let active = (element.focused || element.hovered) && !element.disabled;
+            if let UiKind::IconCard(preset, selected) = element.kind {
+                let border = if selected || active { p.accent } else { p.border };
+                let mut rects =
+                    rounded(RenderRect::new(x, y + 1., width, height - 2., border, 1.), 7.);
+                rects.extend(rounded(
+                    RenderRect::new(
+                        x + 2.,
+                        y + 3.,
+                        (width - 4.).max(0.),
+                        (height - 6.).max(0.),
+                        if active { p.hover } else { p.panel },
+                        1.,
+                    ),
+                    5.,
+                ));
+                let side = (height - size.cell_height() - 12.).min(width - 12.).max(1.);
+                rects.extend(preset.rects(x + (width - side) / 2., y + 6., side));
+                self.renderer.draw_rects(&size, &metrics, rects);
+                let text = format!("{}{}", if selected { "✓ " } else { "" }, element.text);
+                let text: String = crate::string::StrShortener::new(
+                    &text,
+                    rect.width.saturating_sub(2),
+                    crate::string::ShortenDirection::Right,
+                    Some('…'),
+                )
+                .collect();
+                let text_width = unicode_width::UnicodeWidthStr::width(text.as_str());
+                let mut label_size = size;
+                label_size.padding_y -= 3.;
+                label_size.bottom_padding_y += 3.;
+                self.renderer.set_viewport(&label_size);
+                self.renderer.draw_string(
+                    Point::new(
+                        rect.top + rect.height - 1,
+                        Column(rect.left + rect.width.saturating_sub(text_width) / 2),
+                    ),
+                    p.text,
+                    if active { p.hover } else { p.panel },
+                    text.chars(),
+                    &label_size,
+                    &mut self.glyph_cache,
+                );
+                self.renderer.set_viewport(&size);
+                continue;
+            }
             let selected =
                 matches!(element.kind, UiKind::SelectedNavigation | UiKind::SelectedItem);
             let button = matches!(
@@ -1587,6 +1671,16 @@ impl Display {
                 | UiKind::MenuItem
                 | UiKind::Scrollbar => (p.text, if active { p.hover } else { p.panel }),
                 UiKind::Shortcut => (p.muted, if active { p.hover } else { p.panel }),
+                UiKind::AgentStatus(state, selected) => (
+                    crate::ui::agent_color(state, &self.colors, crate::agent::animation_frame()),
+                    if selected {
+                        p.selected
+                    } else if active {
+                        p.hover
+                    } else {
+                        p.panel
+                    },
+                ),
                 UiKind::Link => (p.accent, if active { p.hover } else { p.panel }),
                 _ => (p.text, p.panel),
             };
@@ -1771,19 +1865,23 @@ impl Display {
             if element.focused && !element.disabled && interactive {
                 let top = y + 1.;
                 let bottom = y + height - 2.;
-                self.renderer.draw_rects(&size, &metrics, vec![
-                    RenderRect::new(x + 5., top, (width - 10.).max(0.), 1., p.accent, 1.),
-                    RenderRect::new(x + 5., bottom, (width - 10.).max(0.), 1., p.accent, 1.),
-                    RenderRect::new(x, top + 4., 1., (height - 10.).max(0.), p.accent, 1.),
-                    RenderRect::new(
-                        x + width - 1.,
-                        top + 4.,
-                        1.,
-                        (height - 10.).max(0.),
-                        p.accent,
-                        1.,
-                    ),
-                ]);
+                self.renderer.draw_rects(
+                    &size,
+                    &metrics,
+                    vec![
+                        RenderRect::new(x + 5., top, (width - 10.).max(0.), 1., p.accent, 1.),
+                        RenderRect::new(x + 5., bottom, (width - 10.).max(0.), 1., p.accent, 1.),
+                        RenderRect::new(x, top + 4., 1., (height - 10.).max(0.), p.accent, 1.),
+                        RenderRect::new(
+                            x + width - 1.,
+                            top + 4.,
+                            1.,
+                            (height - 10.).max(0.),
+                            p.accent,
+                            1.,
+                        ),
+                    ],
+                );
             }
         }
     }
@@ -1808,11 +1906,18 @@ impl Display {
 
     fn draw_productivity_dialog(&mut self) {
         let Some(dialog) = &self.productivity_dialog else { return };
-        let size = self.size_info;
+        let size = self.dialog_size_info();
         let layout = dialog.layout(size.columns(), size.screen_lines());
         let elements = dialog.elements(size.columns(), size.screen_lines());
-        self.draw_ui_panel(layout, true);
+        let modal = !matches!(dialog, crate::productivity::ProductivityDialog::Agents(_));
+        let terminal_size = mem::replace(&mut self.size_info, size);
+        mem::swap(&mut self.glyph_cache, &mut self.ui_glyph_cache);
+        self.renderer.resize(&size);
+        self.draw_ui_panel(layout, modal);
         self.draw_ui_elements(elements);
+        self.size_info = terminal_size;
+        mem::swap(&mut self.glyph_cache, &mut self.ui_glyph_cache);
+        self.renderer.resize(&self.size_info);
     }
 
     fn draw_context_menu(&mut self) {
@@ -1824,14 +1929,32 @@ impl Display {
         menu.ensure_visible(size.columns(), size.screen_lines());
         let layout = menu.layout(size.columns(), size.screen_lines());
         let mut elements = menu.decorations(size.columns(), size.screen_lines());
+        #[cfg(target_os = "linux")]
+        let mut app_icons = Vec::new();
         for item in menu.items(size.columns(), size.screen_lines()) {
+            #[cfg(target_os = "linux")]
+            let mut label = item.text.clone();
+            #[cfg(not(target_os = "linux"))]
+            let label = item.text.clone();
+            #[cfg(target_os = "linux")]
+            if let Some(icon) = menu.app_icon(item.action).filter(|_| item.rect.width >= 8) {
+                let side = (size.cell_height() - 4.).max(0.).min(size.cell_width() * 2.);
+                if side >= 4. {
+                    let x = size.padding_x() + (item.rect.left + 1) as f32 * size.cell_width();
+                    let y = size.padding_y()
+                        + item.rect.top as f32 * size.cell_height()
+                        + (size.cell_height() - side) / 2.;
+                    app_icons.extend(icon.rects(x, y, side));
+                    label.insert_str(0, "   ");
+                }
+            }
             let selected = menu.selected == Some(item.action);
             let shortcut_width = unicode_width::UnicodeWidthStr::width(item.shortcut.as_str());
             let show_shortcut = shortcut_width > 0 && item.rect.width >= shortcut_width + 14;
             let available =
                 item.rect.width.saturating_sub(if show_shortcut { shortcut_width + 4 } else { 2 });
-            let text = StrShortener::new(&item.text, available, ShortenDirection::Right, Some('…'))
-                .collect();
+            let text =
+                StrShortener::new(&label, available, ShortenDirection::Right, Some('…')).collect();
             elements.push(UiElement {
                 rect: item.rect,
                 kind: if matches!(item.action, MenuAction::Close | MenuAction::ClosePane) {
@@ -1861,6 +1984,8 @@ impl Display {
         }
         self.draw_ui_panel(layout, false);
         self.draw_ui_elements(elements);
+        #[cfg(target_os = "linux")]
+        self.renderer.draw_rects(&size, &self.glyph_cache.font_metrics(), app_icons);
     }
 
     fn draw_tab_dialog(&mut self, _config: &UiConfig) {
@@ -1890,10 +2015,11 @@ impl Display {
             RenderRect::new(0., top + height - 1., size.width(), 1., p.border, 0.55),
         ];
         for slot in 0..layout.visible {
-            let index = layout.first + slot;
+            let index = layout.indices[slot];
             let active = index == bar.active;
             let hovered = matches!(bar.hovered, Some(TabButton::Select(i) | TabButton::Close(i)) if i == index);
-            let x = size.padding_x() + (slot * layout.width) as f32 * size.cell_width();
+            let x = size.padding_x()
+                + (layout.tab_start + slot * layout.width) as f32 * size.cell_width();
             let width = layout.width as f32 * size.cell_width();
             let background = if active {
                 p.selected
@@ -1911,10 +2037,48 @@ impl Display {
                 rects.push(RenderRect::new(x, top + height * 0.3, 1., height * 0.4, p.border, 0.6));
             }
         }
+        if layout.tab_start > 0 {
+            let width = layout.tab_start as f32 * size.cell_width();
+            let hovered = bar.hovered == Some(TabButton::Groups);
+            if hovered {
+                rects.extend(rounded(
+                    RenderRect::new(
+                        size.padding_x() + 2.,
+                        top,
+                        (width - 4.).max(0.),
+                        height,
+                        p.hover,
+                        1.,
+                    ),
+                    4.,
+                ));
+            }
+            rects.push(RenderRect::new(
+                size.padding_x() + width - 1.,
+                top + height * 0.25,
+                1.,
+                height * 0.5,
+                p.border,
+                0.7,
+            ));
+        }
         self.renderer.draw_rects(&size, &metrics, rects);
         let text_size = size;
+        if layout.tab_start > 0 {
+            let hovered = bar.hovered == Some(TabButton::Groups);
+            let bg = if hovered { p.hover } else { p.panel };
+            let label = bar.group_title(layout.tab_start);
+            self.renderer.set_viewport(&text_size);
+            self.renderer.draw_string_styled(
+                Point::new(0, Column(0)),
+                (p.text, bg, false),
+                label.chars(),
+                &text_size,
+                &mut self.glyph_cache,
+            );
+        }
         for slot in 0..layout.visible {
-            let index = layout.first + slot;
+            let index = layout.indices[slot];
             let active = index == bar.active;
             let hovered = matches!(bar.hovered, Some(TabButton::Select(i) | TabButton::Close(i)) if i == index);
             let bg = if active {
@@ -1924,19 +2088,35 @@ impl Display {
             } else {
                 p.panel
             };
-            let column = slot * layout.width;
+            let column = layout.tab_start + slot * layout.width;
             let marker = bar.marker(index);
-            let badge = if marker.is_empty() { (index + 1).to_string() } else { marker.into() };
+            let badge = if marker.is_empty() {
+                (layout.first + slot + 1).to_string()
+            } else {
+                marker.into()
+            };
             let show_badge = layout.width >= 12 || !marker.is_empty();
             let prefix = if show_badge { badge.len().min(3) + 2 } else { 1 };
             let prefix = if !marker.is_empty() && show_badge { 3 } else { prefix };
             self.renderer.set_viewport(&text_size);
             if show_badge {
-                let color = match bar.activities.get(index).copied().unwrap_or_default() {
-                    TabActivity::Running => p.accent,
-                    TabActivity::Success => config.colors.normal.green,
-                    TabActivity::Failed => p.danger,
-                    TabActivity::Idle => p.muted,
+                let color = if let Some(Some(state)) = bar.agent_states.get(index) {
+                    match state {
+                        crate::agent::AgentState::Permission | crate::agent::AgentState::Input => {
+                            config.colors.normal.yellow
+                        },
+                        crate::agent::AgentState::Error => p.danger,
+                        crate::agent::AgentState::Done => config.colors.normal.green,
+                        crate::agent::AgentState::Working => p.accent,
+                        _ => p.muted,
+                    }
+                } else {
+                    match bar.activities.get(index).copied().unwrap_or_default() {
+                        TabActivity::Running => p.accent,
+                        TabActivity::Success => config.colors.normal.green,
+                        TabActivity::Failed => p.danger,
+                        TabActivity::Idle => p.muted,
+                    }
                 };
                 self.renderer.draw_string_styled(
                     Point::new(0, Column(column + 1)),
@@ -1958,14 +2138,18 @@ impl Display {
             self.renderer.set_viewport(&size);
             if active {
                 let x = size.padding_x() + column as f32 * size.cell_width();
-                self.renderer.draw_rects(&size, &metrics, vec![RenderRect::new(
-                    x + 8.,
-                    top + height - 1.,
-                    (layout.width as f32 * size.cell_width() - 16.).max(1.),
-                    1.,
-                    p.accent,
-                    1.,
-                )]);
+                self.renderer.draw_rects(
+                    &size,
+                    &metrics,
+                    vec![RenderRect::new(
+                        x + 8.,
+                        top + height - 1.,
+                        (layout.width as f32 * size.cell_width() - 16.).max(1.),
+                        1.,
+                        p.accent,
+                        1.,
+                    )],
+                );
             }
             if bar.close_visible(index) && layout.width >= 5 {
                 let close_x =
@@ -2012,7 +2196,12 @@ impl Display {
                 self.renderer.draw_rects(&size, &metrics, icon);
             }
         }
-        for (offset, action) in [(0, TabButton::Create), (3, TabButton::Menu)] {
+        for (offset, action) in
+            [(0, TabButton::Create), (3, TabButton::Menu), (6, TabButton::Agents)]
+        {
+            if action == TabButton::Agents && !bar.agent_states.iter().any(Option::is_some) {
+                continue;
+            }
             let column = layout.button_start + offset;
             if column >= size.columns() {
                 continue;
@@ -2036,6 +2225,25 @@ impl Display {
                     RenderRect::new(center_x - radius, center_y - 1., radius * 2., 2., color, 1.),
                     RenderRect::new(center_x - 1., center_y - radius, 2., radius * 2., color, 1.),
                 ]);
+            } else if action == TabButton::Agents {
+                self.renderer.set_viewport(&text_size);
+                let state = bar.agent_indicator.unwrap_or(crate::agent::AgentState::Ready);
+                let frame = crate::agent::animation_frame();
+                let count = bar.agent_count.max(bar.agent_states.iter().flatten().count());
+                let text = format!(
+                    "{}{}{}",
+                    state.animated_marker(frame),
+                    count.min(9),
+                    if count > 9 { "+" } else { "" }
+                );
+                self.renderer.draw_string_styled(
+                    Point::new(0, Column(column)),
+                    (crate::ui::agent_color(state, &self.colors, frame), p.panel, false),
+                    text.chars(),
+                    &text_size,
+                    &mut self.glyph_cache,
+                );
+                self.renderer.set_viewport(&size);
             } else {
                 for offset in [-1., 0., 1.] {
                     icon.extend(rounded(
@@ -2398,7 +2606,8 @@ mod pane_size_tests {
     fn pane_coordinates_preserve_window_projection_and_asymmetric_padding() {
         let mut window = SizeInfo::new(1000., 800., 10., 20., 10., 10., false);
         window.reserve_top_lines(crate::tabs::TabBar::ROWS);
-        let pane = window.pane(40, 5, 20, 10);
+        let pane =
+            window.pane_pixels(crate::panes::PaneRect { x: 400, y: 100, width: 200, height: 200 });
         assert_eq!((pane.width(), pane.height()), (1000., 800.));
         assert_eq!((pane.padding_x(), pane.padding_y()), (410., 130.));
         assert_eq!((pane.right_padding_x(), pane.bottom_padding_y()), (390., 470.));
@@ -2413,15 +2622,38 @@ mod pane_size_tests {
     }
 
     #[test]
+    fn pixel_panes_have_a_single_pixel_gap_and_use_all_fitting_terminal_cells() {
+        let mut window = SizeInfo::new(1013., 740., 10., 20., 4., 6., false);
+        window.reserve_top_lines(1);
+        let (width, height) = window.pane_extent();
+        assert_eq!((width, height), (1000, 700));
+        let mut tree = crate::panes::PaneNode::Leaf(1);
+        assert!(tree.split(1, 2, crate::panes::Axis::Vertical));
+        let layout = tree.layout(width, height, window.pane_minimum());
+        let left = window.pane_pixels(layout.panes[0].1);
+        let right = window.pane_pixels(layout.panes[1].1);
+        assert_eq!(right.padding_x() - (window.width() - left.right_padding_x()), 1.);
+        assert_eq!(left.columns() + right.columns(), window.columns() - 1);
+        assert_eq!(left.screen_lines(), window.screen_lines());
+        assert_eq!(right.screen_lines(), window.screen_lines());
+        assert_eq!((right.padding_x(), right.padding_y()), (505., 26.));
+        assert_eq!((right.columns(), right.screen_lines()), (49, 35));
+        let physical: SizeInfo<u32> = right.into();
+        assert_eq!(physical.padding_x(), 505);
+        assert_eq!(physical.right_padding_x(), 9);
+    }
+
+    #[test]
     fn pane_search_reserves_its_own_row_without_changing_clip_region() {
         let window = SizeInfo::new(1000., 800., 10., 20., 10., 10., false);
-        let mut pane = window.pane(3, 4, 20, 10);
+        let mut pane =
+            window.pane_pixels(crate::panes::PaneRect { x: 30, y: 80, width: 200, height: 200 });
         let bottom = pane.bottom_padding_y();
         pane.reserve_lines(1);
         assert_eq!(pane.screen_lines(), 9);
         assert_eq!(pane.bottom_padding_y(), bottom);
         assert_eq!(window.screen_lines(), 39);
-        let minimum = window.pane(0, 0, 0, 0);
+        let minimum = window.pane_pixels(crate::panes::PaneRect::default());
         assert_eq!((minimum.columns(), minimum.screen_lines()), (MIN_COLUMNS, MIN_SCREEN_LINES));
     }
 }

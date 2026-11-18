@@ -17,7 +17,7 @@ pub fn attach_handler() {
             MessageBoxW(
                 ptr::null_mut(),
                 win32_string(&msg).as_ptr(),
-                win32_string("Alacritty: Runtime Error").as_ptr(),
+                win32_string("Termust: Runtime Error").as_ptr(),
                 MB_ICONERROR | MB_OK | MB_SETFOREGROUND | MB_TASKMODAL,
             );
         }

@@ -16,6 +16,9 @@ scope:
 out_of_scope:
   - New terminal features, desktop toolkit migration and system installation.
 stages:
+  - id: independent-ui-font
+    desc: Separate settings glyphs and layout from terminal font zoom and verify matching mouse targets
+    status: done
   - id: components
     desc: Shared controls and layout
     status: done
@@ -33,8 +36,11 @@ risks:
 rollback:
   - Revert only this UI delivery while preserving prior uncommitted terminal features.
 decisions:
+  - Use an independent DPI-aware font for settings and shared productivity dialogs with no new configuration requirement.
   - Act on existing usability problems without adding unrelated features.
 validation:
+  - Native Mac release was published and installed; Linux portable release passed all six distro graphical checks before publication to the canonical bucket and both historical mirrors.
+  - Independent UI font passed workspace tests on Linux and Apple Silicon, Rust 1.89 Clippy, and debug and portable graphical tests at 11, 22 and 36 terminal points with 1x and 2x DPI.
   - Unit tests cover grouped menu order, stable overflow, compact targets, sidebar layout and fixed footer.
   - Graphical checks cover actual mouse clicks and wheel scrolling without PTY input leakage.
   - English and Portuguese screenshots inspected at normal and compact sizes in light and dark palettes.

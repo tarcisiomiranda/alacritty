@@ -144,12 +144,55 @@ def alive(pid):
         return False
 
 
-def pane_rectangles(left, upper, lower):
-    return {
-        "a": (0, 0, left["columns"], left["rows"]),
-        "b": (left["columns"] + 1, 0, upper["columns"], upper["rows"]),
-        "c": (left["columns"] + 1, upper["rows"] + 1, lower["columns"], lower["rows"]),
-    }
+def layout_rectangles(fixture, snapshot=None):
+    saved = snapshot or fixture.snapshot()
+    tab = saved["tabs"][saved["active"]]
+    records = saved_panes(tab)
+    columns, rows, cw, ch = fixture.dimensions()
+    result = {}
+
+    def minimum(node):
+        if "leaf" in node:
+            return round(cw * 2), round(ch)
+        split = node["split"]
+        a, b = minimum(split["first"]), minimum(split["second"])
+        if split["axis"] == "vertical":
+            return a[0] + b[0] + 1, max(a[1], b[1])
+        return max(a[0], b[0]), a[1] + b[1] + 1
+
+    def visit(node, x, y, width, height):
+        if "leaf" in node:
+            name = Path(records[node["leaf"]]["working_directory"]).name
+            result[name] = (x / cw, y / ch, int(width / cw), int(height / ch))
+            return
+        split = node["split"]
+        vertical = split["axis"] == "vertical"
+        extent = width if vertical else height
+        separator = int(extent >= 3)
+        first = ((extent - separator) * split["ratio"] + 500) // 1000
+        available = extent - separator
+        a, b = minimum(split["first"]), minimum(split["second"])
+        axis = 0 if vertical else 1
+        if available >= a[axis] + b[axis]:
+            first = max(a[axis], min(first, available - b[axis]))
+        elif available >= 2:
+            first = max(1, min(first, available - 1))
+        else:
+            first = available
+        second = available - first
+        if vertical:
+            visit(split["first"], x, y, first, height)
+            visit(split["second"], x + first + separator, y, second, height)
+        else:
+            visit(split["first"], x, y, width, first)
+            visit(split["second"], x, y + first + separator, width, second)
+
+    visit(tab.get("layout", {"leaf": 0}), 0, 0, round(columns * cw), round(rows * ch))
+    return result
+
+
+def pane_rectangles(fixture):
+    return {name.removeprefix("project-"): rect for name, rect in layout_rectangles(fixture).items()}
 
 
 def saved_panes(tab):
@@ -184,12 +227,48 @@ def check_initial_panes(fixture, directories):
     assert upper["columns"] == c["columns"]
     fixture.focus("Down")
     assert fixture.probe("lower-focus")["pid"] == c["pid"]
-    rectangles = pane_rectangles(left, upper, c)
+    rectangles = pane_rectangles(fixture)
     fixture.focus_rect(rectangles["a"])
     assert fixture.probe("mouse-left")["pid"] == a["pid"]
     fixture.focus_rect(rectangles["c"])
     assert fixture.probe("mouse-bottom")["pid"] == c["pid"]
     return {"a": left, "b": upper, "c": c}, rectangles
+
+
+def check_slim_dividers(fixture, panes, rectangles):
+    columns, rows, cw, ch = fixture.dimensions()
+    width, height = round(columns * cw), round(rows * ch)
+    vertical = width // 2
+    horizontal = height // 2
+    image = fixture.capture("slim-dividers")
+
+    def stripe(x, y, width, height):
+        geometry = f"{width}x{height}+{x}+{y + round(ch)}"
+        data = subprocess.run(["convert", str(image), "-crop", geometry, "+repage", "-depth", "8",
+            "rgb:-"], capture_output=True, check=True, timeout=5).stdout
+        return [data[index:index + 3] for index in range(0, len(data), 3)]
+
+    vertical_colors = stripe(vertical - 4, height - round(ch * 3), 9, 1)
+    assert vertical_colors.count(vertical_colors[4]) == 1, "Vertical divider is thicker than one pixel"
+    horizontal_colors = stripe(width - round(cw * 4), horizontal - 4, 1, 9)
+    assert horizontal_colors.count(horizontal_colors[4]) == 1, "Horizontal divider is thicker than one pixel"
+    assert horizontal_colors[4] != bytes.fromhex("dddddd"), "Divider still uses the bright footer color"
+
+    def point(x, y):
+        return x / cw - 0.5, y / ch - 0.5
+
+    y = round(ch * 4)
+    target = vertical + round(cw * 8)
+    fixture.drag(point(vertical + 3, y), point(target, y))
+    fixture.focus("Left")
+    left = fixture.probe("slim-invisible-resize-target")
+    assert left["pid"] == panes["a"]["pid"]
+    assert left["columns"] > panes["a"]["columns"], "Invisible resize tolerance did not capture the drag"
+    fixture.drag(point(target, y), point(vertical, y))
+    assert fixture.probe("slim-original-size-restored") == panes["a"]
+    fixture.focus_rect(rectangles["c"])
+    assert fixture.probe("slim-focused-shell-preserved") == panes["c"]
+    print("ok: one-pixel split dividers and invisible resize tolerance", flush=True)
 
 
 def check_protocol_routing(fixture, panes, rectangles):
@@ -268,8 +347,10 @@ def check_rendering(fixture, panes, rectangles):
 
 
 def check_resize_zoom(fixture, panes, rectangles):
-    columns, rows, _, _ = fixture.dimensions()
-    fixture.move(panes["a"]["columns"], 3)
+    columns, rows, cw, ch = fixture.dimensions()
+    divider_column = rectangles["b"][0] - 0.5 - 1 / cw
+    divider_row = rectangles["c"][1] - 0.5 - 1 / ch
+    fixture.move(divider_column, 3)
     fixture.button(True)
     fixture.x11.chord("Control_L", "comma")
     fixture.button(False)
@@ -283,7 +364,7 @@ def check_resize_zoom(fixture, panes, rectangles):
     fixture.capture("maximized-pane")
     fixture.x11.chord("Control_L", "Shift_L", "z")
     assert fixture.probe("unmaximized") == panes["c"]
-    fixture.drag((panes["a"]["columns"], 3), (panes["a"]["columns"] + 8, 3))
+    fixture.drag((divider_column, 3), (divider_column + 8, 3))
     fixture.focus("Left")
     left = fixture.probe("drag-left")
     assert left["pid"] == panes["a"]["pid"]
@@ -292,7 +373,7 @@ def check_resize_zoom(fixture, panes, rectangles):
     upper = fixture.probe("drag-upper")
     assert upper["pid"] == panes["b"]["pid"]
     assert upper["columns"] < panes["b"]["columns"]
-    fixture.drag((columns - 5, upper["rows"]), (columns - 5, upper["rows"] + 3))
+    fixture.drag((columns - 5, divider_row), (columns - 5, divider_row + 3))
     upper = fixture.probe("drag-horizontal")
     assert upper["rows"] > panes["b"]["rows"]
     fixture.focus("Down")
@@ -308,7 +389,7 @@ def check_resize_zoom(fixture, panes, rectangles):
     fixture.capture("compact-panes")
     fixture.resize(columns, rows)
     assert fixture.probe("resized-window") == lower
-    return {"a": left, "b": upper, "c": lower}, pane_rectangles(left, upper, lower)
+    return {"a": left, "b": upper, "c": lower}, pane_rectangles(fixture)
 
 
 def check_persistence(fixture, panes, rectangles, directories):
@@ -472,6 +553,7 @@ def run(binary, screenshot):
                 directory.mkdir()
             fixture.start()
             panes, rectangles = check_initial_panes(fixture, directories)
+            check_slim_dividers(fixture, panes, rectangles)
             check_protocol_routing(fixture, panes, rectangles)
             check_rendering(fixture, panes, rectangles)
             panes, rectangles = check_resize_zoom(fixture, panes, rectangles)
@@ -499,5 +581,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["mise", "exec", "--", "cargo", "metadata",
             "--no-deps", "--format-version", "1"], capture_output=True, text=True, check=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

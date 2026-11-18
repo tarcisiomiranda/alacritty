@@ -119,11 +119,7 @@ impl From<YamlError> for Error {
 
 /// Load the configuration file.
 pub fn load(options: &mut Options) -> UiConfig {
-    let config_path = options
-        .config_file
-        .clone()
-        .or_else(|| installed_config("toml"))
-        .or_else(|| installed_config("yml"));
+    let config_path = options.config_file.clone().or_else(installed_config);
 
     // Load the config using the following fallback behavior:
     //  - Config path + CLI overrides
@@ -219,9 +215,7 @@ pub fn deserialize_config(path: &Path, warn_pruned: bool) -> Result<Value> {
     // Convert YAML to TOML as a transitionary fallback mechanism.
     let extension = path.extension().unwrap_or_default();
     if (extension == "yaml" || extension == "yml") && !contents.trim().is_empty() {
-        warn!(
-            "YAML config {path:?} is deprecated, please migrate to TOML using `alacritty migrate`"
-        );
+        warn!("YAML config {path:?} is deprecated, please migrate to TOML using `termust migrate`");
 
         let mut value: serde_yaml::Value = serde_yaml::from_str(&contents)?;
         prune_yaml_nulls(&mut value, warn_pruned);
@@ -364,48 +358,90 @@ fn prune_yaml_nulls(value: &mut serde_yaml::Value, warn_pruned: bool) {
 /// Get the location of the first found default config file paths
 /// according to the following order:
 ///
-/// 1. $XDG_CONFIG_HOME/alacritty/alacritty.toml
-/// 2. $XDG_CONFIG_HOME/alacritty.toml
-/// 3. $HOME/.config/alacritty/alacritty.toml
-/// 4. $HOME/.alacritty.toml
-/// 5. /etc/alacritty/alacritty.toml
-#[cfg(not(windows))]
-pub fn installed_config(suffix: &str) -> Option<PathBuf> {
-    let file_name = format!("alacritty.{suffix}");
+/// 1. $XDG_CONFIG_HOME/termust/termust.toml
+/// 2. $XDG_CONFIG_HOME/termust.toml
+/// 3. $HOME/.config/termust/termust.toml
+/// 4. $HOME/.termust.toml
+/// 5. /etc/termust/termust.toml
+pub fn installed_config() -> Option<PathBuf> {
+    find_default_config(installed_config_for)
+}
 
-    // Try using XDG location by default.
-    xdg::BaseDirectories::with_prefix("alacritty")
+fn find_default_config(mut find: impl FnMut(&str, &str) -> Option<PathBuf>) -> Option<PathBuf> {
+    ["termust", "alacritty"]
+        .into_iter()
+        .find_map(|name| ["toml", "yml"].into_iter().find_map(|suffix| find(name, suffix)))
+}
+
+#[cfg(not(windows))]
+fn installed_config_for(name: &str, suffix: &str) -> Option<PathBuf> {
+    let file_name = format!("{name}.{suffix}");
+    xdg::BaseDirectories::with_prefix(name)
         .find_config_file(&file_name)
         .or_else(|| xdg::BaseDirectories::new().find_config_file(&file_name))
         .or_else(|| {
             if let Ok(home) = env::var("HOME") {
-                // Fallback path: $HOME/.config/alacritty/alacritty.toml.
-                let fallback = PathBuf::from(&home).join(".config/alacritty").join(&file_name);
+                let fallback = PathBuf::from(&home).join(".config").join(name).join(&file_name);
                 if fallback.exists() {
                     return Some(fallback);
                 }
-                // Fallback path: $HOME/.alacritty.toml.
-                let hidden_name = format!(".{file_name}");
-                let fallback = PathBuf::from(&home).join(hidden_name);
+                let fallback = PathBuf::from(&home).join(format!(".{file_name}"));
                 if fallback.exists() {
                     return Some(fallback);
                 }
             }
-
-            let fallback = PathBuf::from("/etc/alacritty").join(&file_name);
+            let fallback = PathBuf::from("/etc").join(name).join(&file_name);
             fallback.exists().then_some(fallback)
         })
 }
 
 #[cfg(windows)]
-pub fn installed_config(suffix: &str) -> Option<PathBuf> {
-    let file_name = format!("alacritty.{suffix}");
-    dirs::config_dir().map(|path| path.join("alacritty").join(file_name)).filter(|new| new.exists())
+fn installed_config_for(name: &str, suffix: &str) -> Option<PathBuf> {
+    let path = dirs::config_dir()?.join(name).join(format!("{name}.{suffix}"));
+    path.exists().then_some(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_yaml_precedes_legacy_toml_and_native_toml_is_preferred() {
+        let directory = tempfile::tempdir().unwrap();
+        let native_yaml = directory.path().join("termust.yml");
+        let native_toml = directory.path().join("termust.toml");
+        let legacy_toml = directory.path().join("alacritty.toml");
+        let legacy_yaml = directory.path().join("alacritty.yml");
+        let find = || {
+            find_default_config(|name, suffix| {
+                let path = directory.path().join(format!("{name}.{suffix}"));
+                path.exists().then_some(path)
+            })
+        };
+        std::fs::write(&legacy_toml, "[window]\ntitle='Legacy'").unwrap();
+        std::fs::write(&native_yaml, "window:\n  title: Native YAML\n").unwrap();
+        assert_eq!(find(), Some(native_yaml.clone()));
+        std::fs::write(&native_toml, "[window]\ntitle='Native TOML'").unwrap();
+        assert_eq!(find(), Some(native_toml.clone()));
+        std::fs::remove_file(native_toml).unwrap();
+        std::fs::remove_file(native_yaml).unwrap();
+        assert_eq!(find(), Some(legacy_toml.clone()));
+        std::fs::remove_file(legacy_toml).unwrap();
+        std::fs::write(&legacy_yaml, "window:\n  title: Legacy YAML\n").unwrap();
+        assert_eq!(find(), Some(legacy_yaml));
+    }
+
+    #[test]
+    fn explicit_config_is_loaded_without_default_discovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("explicit.toml");
+        std::fs::write(&path, "[window]\ntitle='Explicit config'").unwrap();
+        let mut options = Options::default();
+        options.config_file = Some(path.clone());
+        let config = load(&mut options);
+        assert_eq!(config.window.identity.title, "Explicit config");
+        assert_eq!(config.config_paths.first(), Some(&path));
+    }
 
     #[test]
     fn empty_config() {

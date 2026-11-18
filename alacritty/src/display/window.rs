@@ -43,12 +43,12 @@ use alacritty_terminal::index::Point;
 
 use crate::cli::WindowOptions;
 use crate::config::UiConfig;
-use crate::config::window::{Decorations, Identity, WindowConfig};
+use crate::config::window::{DEFAULT_NAME, Decorations, Identity, WindowConfig};
 use crate::display::SizeInfo;
 
 /// Window icon for `_NET_WM_ICON` property.
 #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
-const WINDOW_ICON: &[u8] = include_bytes!("../../extra/logo/compat/alacritty-term.png");
+const WINDOW_ICON: &[u8] = include_bytes!("../../extra/logo/termust.png");
 
 /// This should match the definition of IDI_ICON from `alacritty.rc`.
 #[cfg(windows)]
@@ -174,7 +174,7 @@ impl Window {
         }
 
         window_attributes = window_attributes
-            .with_title(&identity.title)
+            .with_title(branded_title(&identity.title))
             .with_theme(config.window.theme())
             .with_visible(false)
             .with_transparent(true)
@@ -184,6 +184,7 @@ impl Window {
             .with_window_level(config.window.level.into());
 
         let window = event_loop.create_window(window_attributes)?;
+        crate::personalization::set_window_icon(&window, config.window.icon);
 
         // Text cursor.
         let current_mouse_cursor = CursorIcon::Text;
@@ -247,13 +248,17 @@ impl Window {
     #[inline]
     pub fn set_title(&mut self, title: String) {
         self.title = title;
-        self.window.set_title(&self.title);
+        self.window.set_title(&branded_title(&self.title));
     }
 
     /// Get the window title.
     #[inline]
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn set_icon(&self, preset: crate::personalization::IconPreset) {
+        crate::personalization::set_window_icon(&self.window, preset);
     }
 
     #[inline]
@@ -534,4 +539,28 @@ fn use_srgb_color_space(window: &WinitWindow) {
     };
 
     view.window().unwrap().setColorSpace(Some(&NSColorSpace::sRGBColorSpace()));
+}
+
+fn branded_title(title: &str) -> String {
+    if title.is_empty() {
+        DEFAULT_NAME.into()
+    } else if title == DEFAULT_NAME || title.ends_with(&format!(" — {DEFAULT_NAME}")) {
+        title.into()
+    } else {
+        format!("{title} — {DEFAULT_NAME}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::branded_title;
+
+    #[test]
+    fn desktop_caption_identifies_the_app_without_renaming_user_content() {
+        assert_eq!(branded_title(""), "Termust");
+        assert_eq!(branded_title("Termust"), "Termust");
+        assert_eq!(branded_title("Launcher UNGddd"), "Launcher UNGddd — Termust");
+        assert_eq!(branded_title("Produção 日本語"), "Produção 日本語 — Termust");
+        assert_eq!(branded_title("KNS — Termust"), "KNS — Termust");
+    }
 }

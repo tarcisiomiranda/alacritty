@@ -2,12 +2,13 @@ spec: terminal-panes
 title: Split terminals and unified daily settings
 status: done
 created: 2026-10-18
-updated: 2026-10-18
-goal: Use independent resizable terminal panes inside saved tabs and access settings from one coherent dialog.
-problem: Each tab displays one terminal and settings are split between a language picker and secondary preferences.
+updated: 2026-11-06
+goal: Use independent resizable and movable terminal panes inside saved tabs and access settings from one coherent dialog.
+problem: Full-cell split gutters waste terminal space and must stay thin while preserving accurate pane input and resizing.
 behavior:
   - Split the focused terminal horizontally or vertically with independent shells and inherited working directory.
   - Focus panes using mouse and keyboard, drag dividers and temporarily maximize the focused pane.
+  - Move live panes with a compact circular handle within a tab, into another tab or into a new tab.
   - Save and restore pane arrangement, proportions, focused pane and individual directories within existing workspaces and snapshots.
   - Open unified preferences directly from Settings and Ctrl+comma with appearance, terminal, tabs, sessions, language and shortcuts pages.
 requirements_functional:
@@ -19,17 +20,30 @@ requirements_functional:
 constraints:
   - Reuse native renderer and existing dependencies.
   - No system executable replacement, commit or push.
-  - No mise.toml exists; build and test through mise exec.
+  - Use mise tasks for installation and distribution, and mise exec for other checks.
 implemented:
   - Bounded split trees, independent native rendering, focus, mouse resizing, search and maximization.
   - Compatible pane layout snapshots and restoration with stable asynchronous closure targeting.
   - Six unified settings pages and safe terminal controls with deferred scrollback changes.
   - Native pane and legacy graphical regressions cover mouse protocols, asynchronous exits, clipping and persistence.
   - Shortcut capture, conflict detection, disabling and restored defaults preserve existing custom bindings and imports.
-  - All 399 workspace tests, Clippy and seven isolated graphical suites passed.
+  - All 416 workspace tests, one doctest, Clippy and the shortcut, productivity, context-menu and prior-regression graphical suites passed.
   - English and Portuguese settings are visually verified at normal and compact sizes.
+  - F2 renames tabs outside alternate-screen applications; Ctrl Tab and Ctrl Shift Tab navigate with existing aliases preserved.
+  - Twenty editable actions and mode-aware menu labels honor customized and disabled shortcuts.
+  - Shortcut release 0.18.0-workspace.c14a29f6.66afacc21311 is installed locally and published to the existing B2 distribution.
+  - Compact circular pane handles use native grab and grabbing cursors with directional docking previews.
+  - Live pane transfers, new-tab detachment and final-pane tab removal preserve PTYs, programs, output and search.
+  - Atomic bounded relocation, ownership-preserving extraction and seven isolated graphical cases passed.
+  - Existing pane regressions, the complete workspace tests and Rust 1.89 Clippy passed.
+  - Pane movement is installed locally as 0.18.0-termust.709cae5e.078dba1a4c07 and its launcher and package were verified.
+  - One-pixel split separators replace full text-cell gutters and use the native palette border color.
+  - Pixel pane bounds preserve independent terminal input, search, clipping and minimum cell dimensions.
+  - Invisible scaled resize tolerance keeps thin dividers easy to grab.
+  - All 284 terminal tests, Rust 1.89 Clippy, split regression checks and seven pane movement cases passed.
+  - Optimized local installation 0.18.0-termust.709cae5e.bcd79cea92d9 passed pixel-thickness and resize tests.
 pending:
-  - None.
+  - None in the current compact pane scope.
 steps:
   - id: model
     desc: Add bounded split tree and compatible saved pane layouts
@@ -43,6 +57,49 @@ steps:
     desc: Validate real terminal panes, preferences and existing workflows
     status: done
     verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-panes.py
+  - id: familiar-shortcuts
+    desc: Add F2 rename, Ctrl Tab navigation and configurable menu actions while preserving custom bindings
+    status: done
+    verify: mise exec -- cargo test -p alacritty
+    note: "Validated by cargo test --workspace: 416 tests plus one doctest; Clippy 1.89 and nightly rustfmt passed."
+  - id: familiar-shortcuts-graphical
+    desc: Verify real keyboard routing, alternate-screen F2 and customized bindings
+    status: done
+    verify: mise run test:shortcuts
+    note: "mise run test:shortcuts passed all four Xvfb cases; default menu screenshot inspected."
+  - id: familiar-shortcuts-release
+    desc: Install and publish the validated shortcut update through the existing distribution
+    status: done
+    verify: mise run release:verify
+    note: "Installed and published 0.18.0-workspace.c14a29f6.66afacc21311; installed binary and desktop launcher verified."
+  - id: pane-drag-model
+    desc: Move pane identities atomically and extract terminal contexts without dropping their PTYs
+    status: done
+    verify: mise exec -- cargo test -p termust panes::tests && mise exec -- cargo test -p termust tabs::tests
+  - id: pane-drag-ui
+    desc: Add compact corner handles, directional previews and captured movement across tabs
+    status: done
+    verify: mise exec -- cargo check --locked -p termust
+  - id: pane-drag-graphical
+    desc: Verify real shells survive repositioning, transfer and cancellation with persistent layouts
+    status: done
+    verify: mise run test:pane-drag
+  - id: pane-drag-local
+    desc: Update and verify the local user installation for new Termust instances
+    status: done
+    verify: mise run install:verify
+  - id: slim-dividers
+    desc: Use pixel pane geometry and a one-pixel separator with a comfortable invisible resize target
+    status: done
+    verify: mise exec -- cargo test --locked -p termust
+  - id: slim-dividers-graphical
+    desc: Verify divider thickness, live pane geometry, mouse resizing and movement regressions
+    status: done
+    verify: mise run test:slim-dividers && mise run test:pane-drag
+  - id: slim-dividers-local
+    desc: Update and verify the local user installation with slim pane separators
+    status: done
+    verify: mise run install:verify
 acceptance:
   - id: panes
     desc: Multiple live panes resize and receive independent input without corrupting neighboring content
@@ -50,10 +107,29 @@ acceptance:
   - id: persistence
     desc: Saved layouts reopen with original topology, proportions and directories and old files remain readable
     status: done
+  - id: pane-movement
+    desc: Drag the compact handle to rearrange panes and move them across tabs without restarting programs
+    status: done
   - id: settings
     desc: One settings dialog previews, cancels and safely saves all available categories
     status: done
+  - id: slim-dividers
+    desc: Pane separators are one pixel wide and high while resizing and terminal routing remain accurate
+    status: done
 decisions:
+  - Resolve pane layouts in physical pixels so dividers do not reserve a whole terminal row or column.
+  - Draw a subtle one-pixel separator and retain an invisible tolerance of three logical pixels per side for resizing.
+  - Keep saved split topology and ratios compatible with existing workspaces.
+  - Move live terminal contexts using stable pane IDs and preserve existing processes and connections.
+  - A small circular handle overlays the top-right corner without reserving a terminal row.
+  - Dock to the nearest edge; hover tabs to reveal destinations and drop on plus to detach.
+  - Escape, loss of focus and invalid destinations cancel the drag without changing layout.
+  - F2 renames in the normal screen; alternate-screen applications retain F2 and Ctrl Shift R remains the universal rename alias.
+  - Ctrl Tab and Ctrl Shift Tab navigate tabs while existing Ctrl PageUp and Ctrl PageDown remain available.
+  - Extend the shortcut editor with rename, tab closure, and previous and next tabs.
+  - Keep clipboard and session restoration bindings outside the simplified editor to preserve existing composite actions and hint bindings.
+  - Retain aliases when selecting an existing shortcut; remapping or disabling rename returns the legacy F2 sequence to applications.
+  - Resolve menu labels from effective keyboard bindings and the target terminal mode, including customized and disabled actions.
   - Limit each tab to sixteen panes and bound saved topology depth.
   - Keep existing shortcuts and introduce distinct configurable pane actions.
   - Saved layouts restore shells and explicit replay preferences rather than process memory.

@@ -1,0 +1,181 @@
+plan: icon-personalization
+title: Evaluate affectionate terminal personalization
+status: in_progress
+created: 2026-11-18
+updated: 2026-11-18
+context:
+  - The user wants selectable icons such as cats and dogs and later personal photos and possibly animation.
+  - The product must cover KDE GNOME Cinnamon XFCE Windows and macOS where possible.
+goal: Deliver the first preset icon picker with persistent settings and supported platform integrations.
+scope:
+  - Review existing window icons native resources desktop identity settings persistence and installer overwrite behavior.
+  - Verify official icon and launcher APIs and the distinction between X11 and Wayland.
+  - Propose presets local photo import animation placement and validation on each target.
+out_of_scope:
+  - Importing personal photos animated companions and universal system icon animation.
+stages:
+  - id: feasibility
+    desc: Inspect code and primary platform sources and document the capability matrix
+    status: done
+  - id: recommendation
+    desc: Define a phased UX and architecture with explicit platform limitations
+    status: done
+  - id: presets
+    desc: Add original cat dog fox and robot assets with a portable decoder and settings controls.
+    status: done
+  - id: integration
+    desc: Connect preview restore and saved preferences to window Dock and launcher adapters without mutating installed bundles.
+    status: done
+  - id: validation
+    desc: Verify persistence cancellation compact layouts and installer updates and check native builds where tooling is available.
+    status: done
+  - id: publication
+    desc: Commit and push the buildable revision and publish verified Linux and macOS binaries through the common installer.
+    status: doing
+risks:
+  - Runtime window icons and pinned launcher icons are different surfaces controlled by different components.
+  - Arbitrary frame animation of system icons is not a portable desktop contract.
+rollback:
+  - Restore the default selection from settings and retain the original packaged artwork as the fallback.
+  - Keep any launcher customization limited to the current user and preserve its original desktop entry fields.
+decisions:
+  - Keep the Termust application identity stable and store personalized assets per user outside installed binaries and signed bundles.
+  - Prefer static system icons and an optional animated companion inside the application for consistent behavior across platforms.
+  - Start with one per-user selection applied to all windows because docks and pinned launchers commonly represent the application as a group.
+  - Do not update dependencies or add native integrations during this investigation.
+  - The user authorized implementation after the investigation; the active phase covers static presets with future photos and animation deferred.
+  - The user subsequently requested build publication commit and push; publish the current complete Termust checkout to the existing fork branch and retain a release evidence commit.
+feasibility_evidence:
+  date: 2026-11-18
+  method: Source and API review before implementation; the initial findings below describe the baseline rather than the completed preset phase.
+  initial_code:
+    - Cargo.lock pins winit 0.30.13.
+    - alacritty/src/display/window.rs embeds termust.png for X11 and loads the executable icon resource for Windows at window creation.
+    - The Windows window attributes already distinguish window_icon and taskbar_icon.
+    - The macOS window creation path does not set an application icon dynamically.
+    - extra/linux/Termust.desktop uses Icon=Termust and install.sh replaces that desktop entry and the shipped Termust.svg on update.
+    - extra/osx/Termust.app/Contents/Info.plist identifies termust.icns and the com.tarcisiomiranda.termust bundle.
+    - alacritty/src/app_icon.rs renders installed application icons in menus and is Linux-specific; it is not a portable terminal identity backend.
+    - The existing settings draft save and cancel flow can host a future icon picker; a portable bitmap preview renderer still needs implementation.
+  sources:
+    - id: desktop-entry-icon
+      url: https://specifications.freedesktop.org/desktop-entry/latest/recognized-keys.html
+      finding: The Icon key accepts an absolute image path or an icon theme name for application launchers.
+    - id: desktop-entry-identity
+      url: https://specifications.freedesktop.org/desktop-entry/latest/file-naming.html
+      finding: Desktop file identity derives from its filename and duplicate identities follow data-directory precedence.
+    - id: winit-03013
+      url: https://docs.rs/winit/0.30.13/winit/window/struct.Window.html#method.set_window_icon
+      finding: Runtime window icon changes support Windows and X11; the generic method is unsupported on Wayland and macOS in this version.
+    - id: kwin-wayland-icon
+      url: https://github.com/KDE/kwin/blob/master/src/wayland/xdgtoplevelicon_v1.cpp
+      finding: Current upstream KWin implements xdg_toplevel_icon_manager_v1; this does not establish support in every deployed Plasma version or in the current Termust client.
+    - id: cinnamon-window-icon
+      url: https://github.com/linuxmint/Cinnamon/blob/master/src/cinnamon-app.c
+      finding: Current upstream Cinnamon explicitly handles window pixel icons from X11 and Wayland xdg-toplevel-icon; released versions still need testing.
+    - id: windows-window-icon
+      url: https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-seticon
+      finding: WM_SETICON replaces large and small window icons used for Alt-Tab and the window caption.
+    - id: windows-pinned-icon
+      url: https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchiconresource
+      finding: RelaunchIconResource defines the pinned shortcut and taskbar group icon and requires an explicit window AppUserModelID.
+    - id: macos-running-dock-icon
+      url: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
+      finding: Assigning an image temporarily changes the running application Dock tile; assigning nil restores the original.
+    - id: macos-custom-dock
+      url: https://developer.apple.com/documentation/appkit/nsdocktile
+      finding: NSDockTile supports custom content and explicit display updates; a macOS-specific animation experiment is possible but not a portable feature contract.
+platform_matrix:
+  - target: KDE Plasma
+    static_launcher: Feasible through a per-user Termust.desktop Icon value while preserving the desktop identity.
+    running_window: X11 can use the current winit setter; Wayland requires a client backend change and a compositor implementing xdg-toplevel-icon.
+    limitation: Upstream KWin implements the protocol but installed versions grouping and pinned launcher refresh must be checked.
+    sources: desktop-entry-icon desktop-entry-identity winit-03013 kwin-wayland-icon
+  - target: GNOME
+    static_launcher: Feasible through the same desktop entry mechanism.
+    running_window: GNOME Shell may prefer the application desktop entry; do not assume a window bitmap overrides the grouped application icon.
+    limitation: Current Termust has no Wayland window icon setter; shell caching favorites and application matching require graphical validation.
+    sources: desktop-entry-icon desktop-entry-identity winit-03013
+  - target: Cinnamon
+    static_launcher: Feasible through the same desktop entry mechanism.
+    running_window: X11 can use the current winit setter; upstream Cinnamon also consumes Wayland window icons but Termust needs client support.
+    limitation: Treat Wayland support as version-dependent and test grouped launchers independently of window icons.
+    sources: desktop-entry-icon desktop-entry-identity winit-03013 cinnamon-window-icon
+  - target: XFCE
+    static_launcher: Feasible through the same desktop entry mechanism.
+    running_window: The X11 path can use the current winit setter; no general claim is made for Wayland sessions or their chosen compositor.
+    limitation: Existing panel launchers may contain independent desktop entry copies and require their own refresh or re-pin.
+    sources: desktop-entry-icon desktop-entry-identity winit-03013
+  - target: Windows
+    static_launcher: Feasible with a per-user shortcut and generated multi-resolution ICO file.
+    running_window: Use the window icon and taskbar icon setters; manage pinned relaunch properties separately with a stable explicit AppUserModelID.
+    limitation: Replacing runtime window icons does not guarantee that an existing pinned shortcut updates immediately; do not patch the signed executable resource.
+    sources: windows-window-icon windows-pinned-icon winit-03013
+  - target: macOS
+    static_launcher: The distributed application keeps its original bundle and Finder icon in the first version.
+    running_window: A native AppKit bridge can apply the selected NSImage to NSApplication.applicationIconImage on the main thread and restore the original with nil.
+    limitation: Reapply on launch; the runtime Dock icon is not a promise to replace Finder or the Dock icon while the app is closed. Do not modify the signed app bundle.
+    sources: macos-running-dock-icon macos-custom-dock
+recommended_phases:
+  - id: presets
+    scope: Add Settings Appearance Icon with the original icon and a small coherent set such as cat dog fox and robot.
+    interaction: Show large previews and names with preview save cancel and restore-default; include a subtle Termust mark so the application remains recognizable.
+    delivery: Provide the static launcher and runtime integrations supported by each backend and explain any required launcher refresh only when applicable.
+  - id: local-photos
+    scope: Import a local PNG or JPEG with square crop padding and previews at actual icon sizes.
+    persistence: Copy and normalize the image into user data so the choice survives moving the original photo and updating Termust.
+    processing: Bound file bytes and decoded pixels strip metadata and generate small and large icon variants with a portable decoder.
+  - id: optional-companion
+    scope: Add a small optional in-app character with restrained idle and sleep animation and a user-supplied name.
+    interaction: Keep it outside terminal cells and allow hiding it or disabling animation; its size uses UI metrics rather than the terminal font.
+    rendering: Reuse scheduled redraws with a low frame rate pause animation while hidden and support reduced motion.
+    system_icon: Keep a static representative frame for launchers; native animated Dock experiments are optional platform-specific follow-up work.
+architecture:
+  settings: Persist a stable preset identifier or a normalized local asset identifier and an independent optional animation preference through the existing settings flow.
+  assets: Store generated images in a per-user data directory with content-based filenames; do not depend on temporary files or versioned release directories.
+  native_adapters: Separate X11 window icons Linux desktop entry generation Windows window and shortcut handling and macOS AppKit integration.
+  application_identity: Keep Termust.desktop app_id WM_CLASS Windows AppUserModelID and macOS bundle ID stable across icon changes.
+  linux_installation: Integrate saved personalization with installer updates so copying the default desktop entry cannot silently reset a user's selection.
+  settings_transaction: Keep launcher changes on Save; Cancel restores temporary window and Dock previews without persisting the choice.
+  fallback: If a native icon change is unavailable retain the chosen icon in the in-app interface and preserve the saved preference without claiming a system-wide update.
+future_validation:
+  - Check menu launcher task switcher panel or Dock pinned entry running state closed state restart and restore-default separately.
+  - Exercise KDE GNOME Cinnamon and XFCE in X11 and available Wayland sessions and record exact desktop compositor and OS versions.
+  - Exercise Windows 10 and 11 with pinned and unpinned shortcuts and macOS Apple Silicon with the actual packaged application.
+  - Check multiple windows existing user-edited launchers non-default XDG locations installation updates and rollback without losing user data.
+  - Verify DPI scaling transparency small icon legibility image import limits and idle rendering cost before shipping.
+result:
+  - Static presets are implemented with portable gallery previews settings persistence and native platform adapters.
+  - Optional animation inside Termust is the portable recommendation; universal animated system launcher icons are not a supportable promise.
+  - Native macOS and Linux builds and tests pass and the Windows target compiles; no release was published or installed during this implementation.
+implementation:
+  settings: window.icon accepts termust cat dog fox and robot; previews are temporary and Save publishes the choice to all open windows.
+  gallery: Settings Appearance Application icon supports keyboard and mouse and skips clipped cards rather than distorting their artwork in compact windows.
+  linux: Save changes only the main Desktop Entry icon fields preserving commands actions identity and custom labels; generated images are outside release directories.
+  linux_update: The installer retains valid managed icon fields during reinstall and updates the rest of the launcher normally.
+  windows: Runtime small and taskbar icons use winit and a per-user Start Menu Programs Termust Termust.lnk override is updated through WScript.Shell; the original shortcut icon is saved and restored.
+  macos: NSApplication.applicationIconImage uses embedded PNG data on the main thread; restoring the original uses nil and leaves the signed bundle unchanged.
+  packaging: The macOS source archive includes the PNG assets referenced by the portable module and a regression test checks their bytes.
+validation:
+  - command: mise run test:icon-personalization
+    result: Passed preview of every preset native X11 icon changes mouse selection cancel save restart and original launcher restoration for English wide Portuguese compact and Portuguese DPI 2 scenarios.
+  - command: mise run test:ui-font
+    result: Passed independent Settings geometry text and mouse targets for terminal font sizes 11 22 and 36 on compact wide and DPI 2 windows.
+  - command: mise exec -- cargo test --locked --workspace
+    result: All Linux workspace unit integration and documentation tests passed including 292 Termust tests.
+  - command: mise run test:install
+    result: All 53 tests passed including personalized launcher retention during reinstall.
+  - command: mise run test:macos-release
+    result: All 15 mocked release and installer tests passed including actual source archive contents; no publication occurred.
+  - command: mise exec rust@1.89.0 -- cargo clippy --locked -p termust --all-targets
+    result: Passed the supported release-toolchain Clippy checks.
+  - command: mise exec -- cargo check --locked -p termust --target x86_64-pc-windows-gnu
+    result: Passed; fixed an existing Windows unsafe extern declaration required by Rust 2024 and retained unrelated warnings.
+  - command: mise exec -- cargo check --locked -p termust --no-default-features --features wayland
+    result: Passed with the Wayland-only feature selection.
+  - command: Native macOS SSH workspace tests and optimized build with mise exec rust@1.89.0
+    result: Passed the entire workspace including 278 Termust tests and produced target/release/termust on Apple Silicon.
+unverified:
+  - Actual KDE GNOME Cinnamon and XFCE panels favorites caches and compositor-specific Wayland behavior require manual desktop-session testing.
+  - Windows PowerShell shortcut updates and pinned-taskbar refresh have only been compiled and reviewed and need execution on Windows.
+  - macOS Dock appearance has native API and build coverage but has not been visually validated in this turn.

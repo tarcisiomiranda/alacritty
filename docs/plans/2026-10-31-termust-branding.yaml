@@ -1,0 +1,48 @@
+plan: termust-branding
+title: Rename the fork to Termust
+status: done
+created: 2026-10-31
+updated: 2026-10-31
+context:
+  - The user chose an independent name because upstream does not accept AI-assisted contributions.
+goal: Deliver Termust with a gear logo and a consistent installed identity.
+scope:
+  - Runtime identity and compatible configuration and state discovery.
+  - SVG and PNG artwork, README, launcher and completion assets.
+  - Installer, release packaging, local install and B2 delivery.
+out_of_scope:
+  - Renaming the remote GitHub repository or active workspace directory.
+  - Changing terminal emulation protocols or removing upstream attribution.
+  - Staging, commits and pushes.
+stages:
+  - id: prepare
+    desc: Map identity surfaces and record compatibility choices
+    status: done
+  - id: implement
+    desc: Rename runtime and distribution and create artwork
+    status: done
+  - id: verify
+    desc: Validate artwork, native execution and installation
+    status: done
+  - id: deliver
+    desc: Install and publish the checked package
+    status: done
+risks:
+  - User data and desktop integration may still use the former product name.
+rollback:
+  - Keep previous release artifacts, original assets and legacy user data.
+decisions:
+  - Original copper gear and terminal prompt artwork is the new visual identity.
+  - Existing user settings and sessions receive compatibility discovery instead of destructive migration.
+  - Termust configuration wins across file formats before legacy Alacritty discovery; explicit paths keep priority.
+validation:
+  - All 421 workspace tests and one doctest passed.
+  - Clippy 1.89 and nightly rustfmt passed.
+  - Original SVG, RGBA8 PNG, ICO and ICNS assets passed structural checks and visual inspection.
+  - Desktop entry validation passed.
+  - Branding, shortcuts, prior regressions, productivity, language and session graphical suites passed.
+  - Optimized release repeated all three identity and four shortcut scenarios successfully.
+  - All 23 installer regressions passed.
+  - Termust 0.18.0-termust.c14a29f6.e07015affb51 was installed locally and verified through its launcher and receipt.
+  - Public installer, package bytes, checksums and latest pointer were verified over HTTPS after B2 publication.
+  - Native execution was tested on Linux X11 using Xvfb; Windows and macOS assets were checked statically.

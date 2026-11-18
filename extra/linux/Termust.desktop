@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+TryExec=termust
+Exec=termust
+Icon=Termust
+Terminal=false
+Categories=System;TerminalEmulator;
+Name=Termust
+GenericName=Terminal
+Comment=A Rust terminal with tabs, split panes and saved workspaces
+StartupNotify=true
+StartupWMClass=Termust
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[pt_BR]=Nova janela
+Exec=termust

@@ -1,7 +1,18 @@
 use alacritty_terminal::vte::ansi::NamedColor;
 
+use crate::config::font::Font;
+use crate::display::SizeInfo;
 use crate::display::color::{List, Rgb};
 use crate::renderer::rects::RenderRect;
+
+pub fn font(scale_factor: f32) -> Font {
+    Font::default().with_size(crossfont::Size::new(11.).scale(scale_factor))
+}
+
+pub fn dialog_size(terminal: SizeInfo, cell: (f32, f32), scale_factor: f32) -> SizeInfo {
+    let padding = (8. * scale_factor).round();
+    SizeInfo::new(terminal.width(), terminal.height(), cell.0, cell.1, padding, padding, false)
+}
 
 #[derive(Clone, Copy)]
 pub struct Palette {
@@ -56,6 +67,30 @@ impl Palette {
     }
 }
 
+pub fn agent_color(state: crate::agent::AgentState, colors: &List, frame: usize) -> Rgb {
+    use crate::agent::AgentState;
+    let palette = Palette::new(colors);
+    let color = match state {
+        AgentState::Input | AgentState::Permission => colors[NamedColor::Yellow],
+        AgentState::Working => palette.accent,
+        AgentState::Error => palette.danger,
+        AgentState::Done => colors[NamedColor::Green],
+        AgentState::Ready | AgentState::Unknown => palette.muted,
+    };
+    if !matches!(state, AgentState::Input | AgentState::Permission) {
+        return color;
+    }
+    let amount = [0.55, 0.7, 0.85, 1., 1., 0.85, 0.7, 0.55][frame % 8];
+    let channel = |base: u8, target: u8| {
+        (f32::from(base) * (1. - amount) + f32::from(target) * amount).round() as u8
+    };
+    Rgb::new(
+        channel(palette.panel.r, color.r),
+        channel(palette.panel.g, color.g),
+        channel(palette.panel.b, color.b),
+    )
+}
+
 pub fn rounded(rect: RenderRect, radius: f32) -> Vec<RenderRect> {
     if rect.width <= 0. || rect.height <= 0. {
         return Vec::new();
@@ -90,6 +125,48 @@ pub fn rounded(rect: RenderRect, radius: f32) -> Vec<RenderRect> {
 mod tests {
     use super::*;
     use crate::config::color::Colors;
+    use alacritty_terminal::grid::Dimensions;
+
+    #[test]
+    fn dialog_geometry_ignores_terminal_font_and_spacing() {
+        let small = SizeInfo::new(900., 700., 8., 16., 0., 16., false);
+        let large = SizeInfo::new(900., 700., 28., 55., 40., 80., true);
+        let left = dialog_size(small, (8., 17.), 1.);
+        let right = dialog_size(large, (8., 17.), 1.);
+        assert_eq!(left.columns(), right.columns());
+        assert_eq!(left.screen_lines(), right.screen_lines());
+        assert_eq!(left.padding_x(), right.padding_x());
+        assert_eq!(left.padding_y(), right.padding_y());
+        assert_eq!(left.cell_width(), right.cell_width());
+        assert_eq!(left.cell_height(), right.cell_height());
+    }
+
+    #[test]
+    fn dialog_font_and_layout_follow_display_dpi() {
+        let normal = dialog_size(SizeInfo::new(900., 700., 8., 16., 0., 0., false), (8., 17.), 1.);
+        let retina =
+            dialog_size(SizeInfo::new(1800., 1400., 8., 16., 0., 0., false), (16., 34.), 2.);
+        assert_eq!(normal.columns(), retina.columns());
+        assert_eq!(normal.screen_lines(), retina.screen_lines());
+        assert_eq!(font(2.).size(), font(1.).size().scale(2.));
+    }
+
+    #[test]
+    fn waiting_agents_pulse_while_finished_agents_remain_still() {
+        use crate::agent::AgentState;
+        let colors = List::from(&Colors::default());
+        for state in [AgentState::Input, AgentState::Permission] {
+            assert!(state.animated());
+            assert_eq!(state.animated_marker(0), "?");
+            assert_ne!(agent_color(state, &colors, 0), agent_color(state, &colors, 3));
+        }
+        assert_ne!(AgentState::Working.animated_marker(0), AgentState::Working.animated_marker(2));
+        for state in [AgentState::Ready, AgentState::Unknown, AgentState::Done, AgentState::Error] {
+            assert!(!state.animated());
+            assert_eq!(state.animated_marker(0), state.animated_marker(4));
+            assert_eq!(agent_color(state, &colors, 0), agent_color(state, &colors, 3));
+        }
+    }
 
     #[test]
     fn custom_terminal_colors_reach_all_ui_surfaces() {

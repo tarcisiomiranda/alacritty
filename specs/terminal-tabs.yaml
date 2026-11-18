@@ -2,8 +2,8 @@ spec: terminal-tabs
 title: Native terminal tabs
 status: done
 created: 2026-10-13
-updated: 2026-10-13
-goal: Run named terminal tabs and restore saved directories and opted-in recent commands.
+updated: 2026-11-02
+goal: Run grouped terminal tabs and restore saved directories, recent text and opted-in commands.
 problem: Each window currently owns a single PTY and terminal session.
 behavior:
   - Show a tab bar with session titles and a button to create a tab.
@@ -24,6 +24,9 @@ constraints:
   - Keep existing window creation and IPC behavior.
   - Leave changes in the working tree without commit or push.
 implemented:
+  - Named tab groups with creation, renaming, moving and ungrouping through translated native controls.
+  - Compact group filter and real tab identity for mouse actions, numbered shortcuts, navigation and reordering.
+  - Group membership and selected filter saved with sessions, workspaces, closed tabs and recovery.
   - Independent PTYs, terminal grids, selection and search state.
   - Stable terminal event routing and synchronous keyboard and mouse tab actions.
   - Clickable bar with Unicode titles, active-tab visibility and close and create buttons.
@@ -38,7 +41,17 @@ implemented:
   - Stable inactive-tab targets and preserved application mouse reporting with Shift-right-click override.
   - Shared drawing and mouse hit geometry, editable Unicode cursor and non-destructive rejected oversized paste.
 pending:
+  - None.
 steps:
+  - id: named-groups
+    desc: Add named groups and filtered tab navigation with persistent membership
+    status: done
+    verify: mise exec -- cargo test -p termust
+  - id: named-groups-graphical
+    desc: Validate group operations and session restoration on isolated X11
+    status: done
+    verify: mise exec -- python3 -B scripts/test-state-groups.py
+    note: "Four isolated X11 cases passed on debug and portable .586b456f7269, including mouse, filtered closure and stable shell identities; logs /tmp/termust-state-groups-final.log and /tmp/termust-state-groups-portable.log."
   - id: sessions
     desc: Implement independent session lifecycle and tab routing
     status: done
@@ -97,6 +110,9 @@ acceptance:
     desc: Right-click opens discoverable actions and the settings dialog uses clear visual controls
     status: done
 decisions:
+  - Groups use unique names derived from their member tabs and retain the existing one-row tab bar.
+  - The group selector shows all tabs or one named group; new tabs inherit the current group.
+  - Switching groups preserves running shells; moving or removing membership never terminates a terminal.
   - Implement native tabs in the current source repository.
   - Open a native context menu on right-click in the tab bar and terminal content; Shift-right-click retains access while an application uses terminal mouse reporting.
   - Use a dimmed backdrop, colored panels, bordered inputs, hover states and grouped mouse-operated buttons without a new UI dependency.
@@ -129,6 +145,8 @@ risks:
   - Snapshots intentionally contain executed command text; Bash history exclusions and disabled history are respected.
   - Commands omitted from capture still mark the shell busy; disabling replay cancels pending execution.
 validation:
+  - Four isolated X11 state and group workflows pass with real keyboard and mouse actions and live shell identity checks.
+  - Group controls and compact bar screenshots were visually inspected in English and Portuguese.
   - All 306 workspace unit, integration and documentation tests passed with the active Rust toolchain.
   - Headless X11 tests cover shell isolation, cwd, rapid input, PTY replies, resize, mouse and keyboard controls, session exit and hold.
   - Session X11 regression covers custom names, ordered tabs, original working directories, persisted profiles and replay preferences, selected replay, CLI overrides, missing directories, unavailable shells and corrupt snapshots.

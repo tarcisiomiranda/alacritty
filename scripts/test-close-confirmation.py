@@ -410,5 +410,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["mise", "exec", "--", "cargo", "metadata",
             "--no-deps", "--format-version", "1"], capture_output=True, text=True, check=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

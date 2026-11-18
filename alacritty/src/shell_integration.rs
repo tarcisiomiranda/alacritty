@@ -371,7 +371,12 @@ fn bash_script(directory: &str, source_user_rc: bool) -> String {
     } else {
         ""
     };
-    format!("{source_rc}__alacritty_session_dir={directory}\n{BASH_HOOKS}")
+    format!(
+        "{source_rc}if [[ -n ${{TERMUST_AGENT_BIN-}} ]]; then \"$TERMUST_AGENT_PYTHON\" \
+         \"$TERMUST_AGENT_BRIDGE\" setup >/dev/null 2>&1; if [[ $PATH != \"$TERMUST_AGENT_BIN\":* \
+         ]]; then export PATH=\"$TERMUST_AGENT_BIN:$PATH\"; fi; \
+         fi\n__alacritty_session_dir={directory}\n{BASH_HOOKS}"
+    )
 }
 
 const BASH_HOOKS: &str = r#"
@@ -434,7 +439,12 @@ fi
 "#;
 
 fn fish_script(directory: &str) -> String {
-    format!("set -g __alacritty_session_dir {directory}\n{FISH_HOOKS}")
+    format!(
+        "if set -q TERMUST_AGENT_BIN; and test -n \"$TERMUST_AGENT_BIN\"; \
+         \"$TERMUST_AGENT_PYTHON\" \"$TERMUST_AGENT_BRIDGE\" setup >/dev/null 2>&1; if not \
+         contains -- \"$TERMUST_AGENT_BIN\" $PATH; set -gx PATH \"$TERMUST_AGENT_BIN\" $PATH; \
+         end; end\nset -g __alacritty_session_dir {directory}\n{FISH_HOOKS}"
+    )
 }
 
 fn zsh_env_script(directory: &str, original_zdotdir: Option<&str>) -> String {
@@ -467,6 +477,7 @@ unset __alacritty_zdotdir_set __alacritty_zdotdir_value __alacritty_zdotdir_expo
 if [[ -f "${ZDOTDIR-$HOME}/.zshrc" ]]; then
     builtin source "${ZDOTDIR-$HOME}/.zshrc"
 fi
+if [[ -n ${TERMUST_AGENT_BIN-} ]]; then "$TERMUST_AGENT_PYTHON" "$TERMUST_AGENT_BRIDGE" setup >/dev/null 2>&1; if [[ $PATH != "$TERMUST_AGENT_BIN":* ]]; then export PATH="$TERMUST_AGENT_BIN:$PATH"; fi; fi
 __alacritty_session_preexec() {
     builtin printf '0\n' > "$__alacritty_session_dir/ready"
     local __alacritty_execution
@@ -817,9 +828,13 @@ mod tests {
             }
         }
 
-        fn wait_for_busy(integration: &ShellIntegration) {
+        fn wait_for_busy(integration: &ShellIntegration, master: &mut File, pending: &mut Vec<u8>) {
             let deadline = Instant::now() + Duration::from_millis(400);
             while integration.snapshot().unwrap().ready {
+                let mut output = [0; 4096];
+                if let Ok(length) = master.read(&mut output) {
+                    pending.extend_from_slice(&output[..length]);
+                }
                 assert!(
                     Instant::now() < deadline,
                     "Running command did not clear prompt readiness"
@@ -828,8 +843,15 @@ mod tests {
             }
         }
 
-        let Some(bash) =
-            ["/bin/bash", "/usr/bin/bash"].into_iter().find(|path| Path::new(path).is_file())
+        let Some(bash) = ["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/bin/bash", "/usr/bin/bash"]
+            .into_iter()
+            .find(|path| {
+                Path::new(path).is_file()
+                    && Command::new(path)
+                        .args(["--noprofile", "--norc", "-c", "(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) ))"])
+                        .status()
+                        .is_ok_and(|status| status.success())
+            })
         else {
             return;
         };
@@ -852,8 +874,8 @@ mod tests {
                 &mut master_fd,
                 &mut slave_fd,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(result, 0);
@@ -928,7 +950,7 @@ mod tests {
         assert_eq!(snapshot.working_directory, Some(home.path().to_owned()));
         assert_eq!(fs::read(integration.directory.path().join("replay-marker")).unwrap(), b"0\n");
 
-        master.write_all(b"read -s -p 'PRIVATE_INPUT> ' reply; printf '\\n'\n").unwrap();
+        master.write_all(b"read -s -p 'PRIVATE_''INPUT> ' reply; printf '\\n'\n").unwrap();
         wait_for(&mut master, &mut pending, b"PRIVATE_INPUT> ");
         master.write_all(b"synthetic-password-value\n").unwrap();
         wait_for(&mut master, &mut pending, prompt);
@@ -945,6 +967,10 @@ mod tests {
         master.write_all(b"sleep 0.5\n").unwrap();
         let deadline = Instant::now() + Duration::from_millis(400);
         loop {
+            let mut output = [0; 4096];
+            if let Ok(length) = master.read(&mut output) {
+                pending.extend_from_slice(&output[..length]);
+            }
             let snapshot = integration.snapshot().unwrap();
             if snapshot.commands.last().is_some_and(|record| record.command == "sleep 0.5") {
                 assert!(!snapshot.ready);
@@ -965,7 +991,7 @@ mod tests {
         let count = integration.snapshot().unwrap().commands.len();
         let completed = integration.snapshot().unwrap().completion.unwrap();
         master.write_all(b" sleep 0.5; false\n").unwrap();
-        wait_for_busy(&integration);
+        wait_for_busy(&integration, &mut master, &mut pending);
         assert_eq!(integration.snapshot().unwrap().commands.len(), count);
         assert_eq!(integration.snapshot().unwrap().completion, Some(completed));
         wait_for(&mut master, &mut pending, prompt);
@@ -977,7 +1003,7 @@ mod tests {
         let count = integration.snapshot().unwrap().commands.len();
         let completed = integration.snapshot().unwrap().completion.unwrap();
         master.write_all(b"sleep 0.5; false\n").unwrap();
-        wait_for_busy(&integration);
+        wait_for_busy(&integration, &mut master, &mut pending);
         assert_eq!(integration.snapshot().unwrap().commands.len(), count);
         assert_eq!(integration.snapshot().unwrap().completion, Some(completed));
         wait_for(&mut master, &mut pending, prompt);

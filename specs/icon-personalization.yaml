@@ -1,0 +1,73 @@
+spec: icon-personalization
+title: Personal terminal icon presets
+status: in_progress
+created: 2026-11-18
+updated: 2026-11-18
+goal: Let users choose a predefined terminal icon with preview save cancel and platform-specific desktop integration.
+problem: The fixed application icon does not let people give their terminal a personal visual identity.
+behavior:
+  - Begin with a curated set of static pets and characters with a live preview and an explicit restore-default action.
+  - Distinguish the application launcher icon the running window icon and a companion drawn inside Termust.
+  - Keep local photo import and optional animation as later phases.
+constraints:
+  - The user authorized implementation and subsequently requested release publication commit and push to the existing fork branch.
+  - Use primary platform documentation and inspect the current windowing and installer code.
+  - Do not promise identical live dock or taskbar behavior across compositors and operating systems.
+  - Preserve application identity existing launchers user settings and signed macOS bundles.
+implemented:
+  - Reviewed fixed window icons desktop entries Windows resources macOS bundle metadata and installer replacement behavior.
+  - Recorded the platform capability matrix primary sources proposed architecture phased UX and future validation in docs/plans/2026-11-18-icon-personalization.yaml.
+  - Confirmed that the current winit 0.30.13 supports runtime window icons on X11 and Windows but not Wayland or macOS through its generic setter.
+  - Added bundled original cat dog fox and robot artwork with portable PNG decoding and English and Portuguese gallery controls.
+  - Persisted window.icon through the existing preview save cancel rebase and restore settings flow.
+  - Added X11 and Windows runtime window icons and a native AppKit Dock adapter without changing executable or bundle resources.
+  - Added per-user Linux launcher and Windows Start menu shortcut customization with original icon restoration.
+  - Preserved personalized Linux launcher icons during reinstalls and included embedded icon assets in macOS source releases.
+  - Validated graphical interaction on isolated X11 and native builds and workspace tests on Linux and macOS plus a Windows cross-check.
+pending:
+  - Publish verified Linux and macOS artifacts and commit and push the complete buildable Termust revision.
+  - Photo import animation and graphical desktop-shell validation remain separate future work.
+steps:
+  - id: feasibility
+    desc: Verify native icon APIs launcher integration animation limits and a phased product design
+    status: done
+    verify: mise exec -- python3 /home/tarcisiomiranda/.agents/skills/spec-checklist/scripts/speccheck.py check specs/icon-personalization.yaml
+  - id: presets
+    desc: Implement embedded icon choices portable previews and saved settings
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon
+  - id: native
+    desc: Integrate runtime and saved launcher icons with cancellation and update preservation
+    status: done
+    verify: mise run test:icon-personalization
+    note: "The exact verification command passed in this turn; reusing its successful result to synchronize the checklist after concurrent verification."
+  - id: validation
+    desc: Validate builds regressions graphical interaction and document platform coverage
+    status: done
+    verify: mise exec -- cargo test --locked --workspace
+  - id: publication
+    desc: Publish the verified Linux and macOS releases and commit and push their source and release evidence
+    status: doing
+    verify: mise run release:verify
+acceptance:
+  - id: matrix
+    desc: Record a source-backed feasibility matrix for KDE GNOME Cinnamon XFCE Windows and macOS
+    status: done
+  - desc: Selecting each preset previews its artwork and supported native runtime icon while Cancel restores the saved selection.
+    status: done
+  - desc: Save and restart retain the choice and Linux installer updates preserve the selected launcher icon.
+    status: done
+  - desc: Restore-default and English and Portuguese controls work with independent UI font sizing and compact layouts.
+    status: done
+  - desc: Linux graphical checks Rust tests and available macOS or Windows build checks pass with untested desktop behavior recorded explicitly.
+    status: done
+decisions:
+  - The initial candidate is static presets; animation must have an in-app fallback that does not depend on the desktop shell.
+  - Recommend one icon choice per user for all Termust windows rather than independent system icons per tab.
+  - Store preferences and imported images outside release directories and reapply the saved choice after restart and installer updates.
+  - Preserve desktop file identity Windows application identity and macOS bundle identity while changing only supported presentation surfaces.
+  - Treat Linux desktop support as a standards-based feasibility assessment until launcher grouping caching and session-specific behavior are tested.
+  - Use embedded static PNG presets with portable decoded previews and platform adapters; keep the operating system icon static.
+risks:
+  - Desktop caches pinned shortcuts and application grouping can delay or override icon changes.
+  - Updating signed bundle or executable resources can invalidate distribution signatures.

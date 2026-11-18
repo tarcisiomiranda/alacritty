@@ -39,7 +39,7 @@ class Fixture(language.Fixture):
 
     @property
     def state_directory(self):
-        return self.work / "state" / "alacritty"
+        return self.work / "state" / "termust"
 
     def runtime_config(self):
         result = subprocess.run([self.binary, "msg", "--socket", str(self.socket),
@@ -130,7 +130,7 @@ class Fixture(language.Fixture):
 
     def preferences(self, page="appearance"):
         self.x11.chord("Control_L", "comma")
-        index = ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts"].index(page)
+        index = ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts", "agents", "applications"].index(page)
         if index:
             self.tabs(index)
             self.x11.chord("Return")
@@ -272,7 +272,7 @@ def tab_bar(fixture):
         left, top = fixture.menu()
         fixture.x11.chord("Down")
         path = fixture.capture(label)
-        pixels = fixture.pixels(path, left, top, min(50, columns), height=min(23, rows))
+        pixels = fixture.pixels(path, left, top, min(50, columns), height=min(28, rows))
         fixture.x11.chord("Escape")
         return pixels
 
@@ -329,7 +329,7 @@ def settings_navigation(fixture):
     fixture.click(left + 30, top + 8)
     smoke.wait_for(lambda: fixture.runtime_config()["mouse"]["hide_when_typing"] != hidden,
         "sidebar mouse selection reached terminal controls")
-    fixture.click(left + panel_width - 15, top + panel_height - 3)
+    fixture.click(left + panel_width - 7, top + panel_height - 4)
     smoke.wait_for(lambda: fixture.runtime_config()["mouse"]["hide_when_typing"] == hidden,
         "anchored Cancel restored the preview")
     assert fixture.config.read_bytes() == original
@@ -342,19 +342,19 @@ def settings_navigation(fixture):
     assert fixture.dimensions()[:2] == (45, 18)
     fixture.preferences()
     before = fixture.capture("settings-overflow-top")
-    body = fixture.pixels(before, 4, 7, 34)
+    body = fixture.pixels(before, 4, 8, 34)
     footer = fixture.pixels(before, 4, 15, 37)
     fixture.click(20, 10, button=5)
     after = fixture.capture("settings-overflow-scrolled")
-    assert fixture.pixels(after, 4, 7, 34) != body, "Mouse wheel did not scroll the settings body"
+    assert fixture.pixels(after, 4, 8, 34) != body, "Mouse wheel did not scroll the settings body"
     assert fixture.pixels(after, 4, 15, 37) == footer, "Footer moved during body scrolling"
-    fixture.click(40, 7)
+    fixture.click(40, 8)
     restored = fixture.capture("settings-overflow-arrow")
-    assert fixture.pixels(restored, 4, 7, 34) == body
+    assert fixture.pixels(restored, 4, 8, 34) == body
     fixture.x11.chord("Page_Down")
-    assert fixture.pixels(fixture.capture("settings-overflow-page-down"), 4, 7, 34) != body
+    assert fixture.pixels(fixture.capture("settings-overflow-page-down"), 4, 8, 34) != body
     fixture.x11.chord("Page_Up")
-    assert fixture.pixels(fixture.capture("settings-overflow-page-up"), 4, 7, 34) == body
+    assert fixture.pixels(fixture.capture("settings-overflow-page-up"), 4, 8, 34) == body
     fixture.x11.chord("Escape")
     assert fixture.config.read_bytes() == original
     fixture.x11.lib.XResizeWindow(fixture.x11.display, fixture.window, width, height)
@@ -365,7 +365,7 @@ def settings_navigation(fixture):
 
 def localized_panels(fixture):
     fixture.general(language="pt-BR")
-    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts"]:
+    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts", "agents"]:
         fixture.preferences(page)
         fixture.capture(page + "-pt")
         fixture.x11.chord("Escape")
@@ -382,7 +382,7 @@ def localized_panels(fixture):
     fixture.refresh_size()
     compact_columns, compact_rows, _, _ = fixture.dimensions()
     assert (compact_columns, compact_rows) == (45, 18), (compact_columns, compact_rows)
-    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts"]:
+    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts", "agents"]:
         fixture.preferences(page)
         fixture.capture(page + "-pt-compact")
         fixture.x11.chord("Escape")
@@ -390,7 +390,7 @@ def localized_panels(fixture):
     fixture.capture("workspaces-pt-compact")
     fixture.x11.chord("Escape")
     fixture.general(language="en")
-    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts"]:
+    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts", "agents"]:
         fixture.preferences(page)
         fixture.capture(page + "-en-compact")
         fixture.x11.chord("Escape")
@@ -400,16 +400,16 @@ def localized_panels(fixture):
     fixture.refresh_size()
     assert fixture.dimensions()[:2] == (columns, rows)
     fixture.general(language="en")
-    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts"]:
+    for page in ["appearance", "terminal", "tabs", "sessions", "language", "shortcuts", "agents"]:
         fixture.preferences(page)
         fixture.capture(page + "-en")
         fixture.x11.chord("Escape")
     fixture.preferences()
-    fixture.tabs(11)
+    fixture.tabs(12)
     fixture.x11.chord("Return")
     fixture.x11.chord("Return")
     fixture.capture("appearance-en-light")
-    fixture.tabs(6, reverse=True)
+    fixture.tabs(7, reverse=True)
     fixture.x11.chord("Return")
     fixture.capture("shortcuts-en-light")
     fixture.x11.lib.XResizeWindow(fixture.x11.display, fixture.window,
@@ -422,7 +422,7 @@ def localized_panels(fixture):
     fixture.x11.lib.XFlush(fixture.x11.display)
     time.sleep(0.3)
     fixture.refresh_size()
-    print("ok: six pages in English/Portuguese, 45x18 viewport and light theme", flush=True)
+    print("ok: seven pages in English/Portuguese, 45x18 viewport and light theme", flush=True)
 
 def assert_titles(snapshot, expected):
     assert [tab["title"] for tab in snapshot["tabs"]] == expected, snapshot
@@ -468,8 +468,7 @@ def shortcuts(fixture):
     fixture.tabs(1)
     fixture.x11.chord("Return")
     fixture.x11.chord("Control_L", "Shift_L", "F9")
-    fixture.tabs(5)
-    fixture.x11.chord("Return")
+    fixture.x11.chord("Control_L", "Return")
     smoke.wait_for(lambda: fixture.runtime_config()["general"]["shortcuts"].get("CreateNewTab") == "Ctrl+Shift+F9",
         "new tab shortcut saved and applied")
     fixture.x11.chord("Escape")
@@ -496,10 +495,10 @@ def shortcuts(fixture):
     smoke.wait_for(lambda: len(marker.read_text().splitlines()) == 2, "custom binding survived shortcut save and restart")
 
     fixture.preferences("shortcuts")
-    fixture.tabs(5)
+    fixture.x11.type("CreateNewTab")
+    fixture.tabs(2)
     fixture.x11.chord("Return")
-    fixture.tabs(1)
-    fixture.x11.chord("Return")
+    fixture.x11.chord("Control_L", "Return")
     smoke.wait_for(lambda: fixture.runtime_config()["general"]["shortcuts"].get("CreateNewTab") == "",
         "shortcut explicitly disabled")
     fixture.x11.chord("Escape")
@@ -509,7 +508,7 @@ def shortcuts(fixture):
     fixture.x11.chord("Control_L", "u")
 
     fixture.preferences()
-    fixture.tabs(12)
+    fixture.tabs(13)
     fixture.x11.chord("Return")
     fixture.tabs(1)
     fixture.x11.chord("Return")
@@ -538,7 +537,7 @@ def terminal_settings(fixture):
     hidden = baseline["mouse"]["hide_when_typing"]
     copied = baseline["selection"]["save_to_clipboard"]
     fixture.preferences("terminal")
-    fixture.tabs(5)
+    fixture.tabs(6)
     fixture.x11.chord("Return")
     fixture.tabs(2)
     fixture.x11.chord("space")
@@ -557,7 +556,7 @@ def terminal_settings(fixture):
     assert fixture.runtime_config()["scrolling"]["history"] == history
     assert fixture.config.read_bytes() == original
     fixture.preferences("terminal")
-    fixture.tabs(5)
+    fixture.tabs(6)
     fixture.x11.chord("Return")
     fixture.tabs(2)
     fixture.x11.chord("space")
@@ -583,7 +582,7 @@ def settings(fixture):
     baseline = fixture.runtime_config()
     original = fixture.config.read_bytes()
     fixture.preferences()
-    fixture.tabs(8)
+    fixture.tabs(9)
     fixture.x11.chord("Return")
     smoke.wait_for(lambda: fixture.runtime_config()["font"]["size"] == baseline["font"]["size"] + 0.5,
         "font size preview applied without saving")
@@ -595,7 +594,7 @@ def settings(fixture):
     assert fixture.config.read_bytes() == original
 
     fixture.preferences()
-    fixture.tabs(6)
+    fixture.tabs(7)
     fixture.x11.chord("Control_L", "a")
     fixture.x11.type("monospace")
     fixture.tabs(2)
@@ -734,7 +733,7 @@ def recovery(fixture):
     before = manual.read_bytes()
     assert not recovery_file.exists(), "Recovery must be opt-in"
     fixture.preferences("sessions")
-    fixture.tabs(4)
+    fixture.tabs(5)
     fixture.x11.chord("space")
     fixture.tabs(3)
     fixture.x11.chord("Return")
@@ -822,5 +821,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["mise", "exec", "--", "cargo", "metadata",
             "--no-deps", "--format-version", "1"], capture_output=True, text=True, check=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

@@ -468,7 +468,6 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
         ArrowLeft,  +BindingMode::APP_CURSOR, ~BindingMode::VI, ~BindingMode::SEARCH; Action::Esc("\x1bOD".into());
         // Legacy keys handling which can't be automatically encoded.
         F1,         ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOP".into());
-        F2,         ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOQ".into());
         F3,         ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOR".into());
         F4,         ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOS".into());
         Tab,       ModifiersState::SHIFT,   ~BindingMode::VI,   ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1b[Z".into());
@@ -555,6 +554,12 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
         Enter, ModifiersState::SHIFT,       +BindingMode::SEARCH, ~BindingMode::VI; SearchAction::SearchFocusPrevious;
     );
 
+    let f2_mode =
+        if cfg!(target_os = "macos") { BindingMode::empty() } else { BindingMode::ALT_SCREEN };
+    bindings.extend(bindings!(
+        KeyBinding;
+        F2, +f2_mode, ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOQ".into());
+    ));
     bindings.extend(platform_key_bindings());
 
     bindings
@@ -591,6 +596,7 @@ fn tab_keybindings() -> Vec<KeyBinding> {
         KeyBinding;
         "t", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::CreateNewTab;
         "w", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::CloseTab;
+        F2, ~BindingMode::ALT_SCREEN; Action::RenameTab;
         "r", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::RenameTab;
         "s", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::SaveSession;
         "o", ModifiersState::CONTROL | ModifiersState::SHIFT; Action::RestoreSession;
@@ -608,6 +614,8 @@ fn tab_keybindings() -> Vec<KeyBinding> {
         ArrowRight, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneRight;
         ArrowUp, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneUp;
         ArrowDown, ModifiersState::CONTROL | ModifiersState::ALT; Action::FocusPaneDown;
+        Tab, ModifiersState::CONTROL; Action::SelectNextTab;
+        Tab, ModifiersState::CONTROL | ModifiersState::SHIFT; Action::SelectPreviousTab;
         PageUp, ModifiersState::CONTROL; Action::SelectPreviousTab;
         PageDown, ModifiersState::CONTROL; Action::SelectNextTab;
         "1", ModifiersState::ALT; Action::SelectTab1;
@@ -1310,6 +1318,63 @@ mod tests {
     use super::*;
 
     use winit::keyboard::ModifiersState;
+
+    #[test]
+    fn f2_has_one_owner_and_preserves_alternate_screen_protocols() {
+        let bindings = default_key_bindings();
+        #[cfg(not(target_os = "macos"))]
+        let bindings: Vec<_> = bindings.into_iter().chain(common_keybindings()).collect();
+        let trigger =
+            BindingKey::Keycode { key: Key::Named(NamedKey::F2), location: KeyLocation::Any };
+        let actions = |mode| {
+            bindings
+                .iter()
+                .filter(|binding| binding.is_triggered_by(mode, ModifiersState::empty(), &trigger))
+                .map(|binding| binding.action.clone())
+                .collect::<Vec<_>>()
+        };
+        for protocol in [
+            BindingMode::empty(),
+            BindingMode::REPORT_ALL_KEYS_AS_ESC,
+            BindingMode::DISAMBIGUATE_ESC_CODES,
+            BindingMode::REPORT_ALL_KEYS_AS_ESC | BindingMode::DISAMBIGUATE_ESC_CODES,
+        ] {
+            let terminal_actions =
+                if protocol.is_empty() { vec![Action::Esc("\x1bOQ".into())] } else { Vec::new() };
+            assert_eq!(actions(protocol | BindingMode::ALT_SCREEN), terminal_actions);
+            let normal_actions =
+                if cfg!(target_os = "macos") { terminal_actions } else { vec![Action::RenameTab] };
+            assert_eq!(actions(protocol), normal_actions);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_navigation_aliases_trigger_once_and_keep_legacy_keys() {
+        let bindings: Vec<_> =
+            default_key_bindings().into_iter().chain(common_keybindings()).collect();
+        let expected = [
+            (NamedKey::Tab, ModifiersState::CONTROL, Action::SelectNextTab),
+            (
+                NamedKey::Tab,
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::SelectPreviousTab,
+            ),
+            (NamedKey::PageDown, ModifiersState::CONTROL, Action::SelectNextTab),
+            (NamedKey::PageUp, ModifiersState::CONTROL, Action::SelectPreviousTab),
+        ];
+        for (key, mods, action) in expected {
+            let trigger = BindingKey::Keycode { key: Key::Named(key), location: KeyLocation::Any };
+            for mode in [BindingMode::empty(), BindingMode::ALT_SCREEN, BindingMode::all()] {
+                let actions: Vec<_> = bindings
+                    .iter()
+                    .filter(|binding| binding.is_triggered_by(mode, mods, &trigger))
+                    .map(|binding| binding.action.clone())
+                    .collect();
+                assert_eq!(actions, vec![action.clone()]);
+            }
+        }
+    }
 
     #[cfg(not(target_os = "macos"))]
     #[test]

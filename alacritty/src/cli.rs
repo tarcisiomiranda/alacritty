@@ -17,9 +17,9 @@ use crate::config::ui_config::Program;
 use crate::config::window::{Class, Identity};
 use crate::logging::LOG_TARGET_IPC_CONFIG;
 
-/// CLI options for the main Alacritty executable.
+/// CLI options for the main Termust executable.
 #[derive(Parser, Default, Debug)]
-#[clap(author, about, version = env!("VERSION"))]
+#[clap(name = "termust", author = "Tarcisio Miranda and Alacritty contributors", about, version = env!("VERSION"))]
 pub struct Options {
     /// Print all events to STDOUT.
     #[clap(long)]
@@ -29,22 +29,22 @@ pub struct Options {
     #[clap(long, conflicts_with("daemon"))]
     pub ref_test: bool,
 
-    /// X11 window ID to embed Alacritty within (decimal or hexadecimal with "0x" prefix).
+    /// X11 window ID to embed Termust within (decimal or hexadecimal with "0x" prefix).
     #[clap(long)]
     pub embed: Option<String>,
 
     /// Specify alternative configuration file [default:
-    /// $XDG_CONFIG_HOME/alacritty/alacritty.toml].
+    /// $XDG_CONFIG_HOME/termust/termust.toml].
     #[cfg(not(any(target_os = "macos", windows)))]
     #[clap(long, value_hint = ValueHint::FilePath)]
     pub config_file: Option<PathBuf>,
 
-    /// Specify alternative configuration file [default: %APPDATA%\alacritty\alacritty.toml].
+    /// Specify alternative configuration file [default: %APPDATA%\termust\termust.toml].
     #[cfg(windows)]
     #[clap(long, value_hint = ValueHint::FilePath)]
     pub config_file: Option<PathBuf>,
 
-    /// Specify alternative configuration file [default: $HOME/.config/alacritty/alacritty.toml].
+    /// Specify alternative configuration file [default: $HOME/.config/termust/termust.toml].
     #[cfg(target_os = "macos")]
     #[clap(long, value_hint = ValueHint::FilePath)]
     pub config_file: Option<PathBuf>,
@@ -209,11 +209,11 @@ impl From<TerminalOptions> for PtyOptions {
 /// Window specific cli options which can be passed to new windows via IPC.
 #[derive(Serialize, Deserialize, Args, Default, Debug, Clone, PartialEq, Eq)]
 pub struct WindowIdentity {
-    /// Defines the window title [default: Alacritty].
+    /// Defines the window title [default: Termust].
     #[clap(short = 'T', short_alias('t'), long)]
     pub title: Option<String>,
 
-    /// Defines window class/app_id on X11/Wayland [default: Alacritty].
+    /// Defines window class/app_id on X11/Wayland [default: Termust].
     #[clap(long, value_name = "general> | <general>,<instance", value_parser = parse_class)]
     pub class: Option<Class>,
 }
@@ -238,7 +238,7 @@ pub enum Subcommands {
     Migrate(MigrateOptions),
 }
 
-/// Send a message to the Alacritty socket.
+/// Send a message to the Termust socket.
 #[cfg(unix)]
 #[derive(Args, Debug)]
 pub struct MessageOptions {
@@ -255,13 +255,13 @@ pub struct MessageOptions {
 #[cfg(unix)]
 #[derive(Subcommand, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SocketMessage {
-    /// Create a new window in the same Alacritty process.
+    /// Create a new window in the same Termust process.
     CreateWindow(WindowOptions),
 
-    /// Update the Alacritty configuration.
+    /// Update the Termust configuration.
     Config(IpcConfig),
 
-    /// Read runtime Alacritty configuration.
+    /// Read runtime Termust configuration.
     GetConfig(IpcGetConfig),
 }
 
@@ -333,7 +333,7 @@ pub struct IpcConfig {
     /// Window ID for the new config.
     ///
     /// Use `-1` to apply this change to all windows.
-    #[clap(short, long, allow_hyphen_values = true, env = "ALACRITTY_WINDOW_ID")]
+    #[clap(short, long, allow_hyphen_values = true, env = "TERMUST_WINDOW_ID")]
     pub window_id: Option<i128>,
 
     /// Clear all runtime configuration changes.
@@ -348,7 +348,7 @@ pub struct IpcGetConfig {
     /// Window ID for the config request.
     ///
     /// Use `-1` to get the global config.
-    #[clap(short, long, allow_hyphen_values = true, env = "ALACRITTY_WINDOW_ID")]
+    #[clap(short, long, allow_hyphen_values = true, env = "TERMUST_WINDOW_ID")]
     pub window_id: Option<i128>,
 }
 
@@ -621,28 +621,23 @@ general.live_config_reload=false";
         let mut clap = Options::command();
 
         for (shell, file) in &[
-            (Shell::Bash, "alacritty.bash"),
-            (Shell::Fish, "alacritty.fish"),
-            (Shell::Zsh, "_alacritty"),
+            (Shell::Bash, "termust.bash"),
+            (Shell::Fish, "termust.fish"),
+            (Shell::Zsh, "_termust"),
         ] {
             let mut generated = Vec::new();
-            clap_complete::generate(*shell, &mut clap, "alacritty", &mut generated);
+            clap_complete::generate(*shell, &mut clap, "termust", &mut generated);
             let generated = String::from_utf8_lossy(&generated);
 
+            if std::env::var_os("TERMUST_GENERATE_COMPLETIONS").is_some() {
+                std::fs::write(format!("../extra/completions/{file}"), generated.as_bytes())
+                    .unwrap();
+            }
             let mut completion = String::new();
             let mut file = File::open(format!("../extra/completions/{file}")).unwrap();
             file.read_to_string(&mut completion).unwrap();
 
             assert_eq!(generated, completion);
         }
-
-        // NOTE: Use this to generate new completions.
-        //
-        // let mut file = File::create("../extra/completions/alacritty.bash").unwrap();
-        // clap_complete::generate(Shell::Bash, &mut clap, "alacritty", &mut file);
-        // let mut file = File::create("../extra/completions/alacritty.fish").unwrap();
-        // clap_complete::generate(Shell::Fish, &mut clap, "alacritty", &mut file);
-        // let mut file = File::create("../extra/completions/_alacritty").unwrap();
-        // clap_complete::generate(Shell::Zsh, &mut clap, "alacritty", &mut file);
     }
 }

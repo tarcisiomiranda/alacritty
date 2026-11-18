@@ -20,6 +20,9 @@ keeps the menu open; Escape or clicking outside dismisses it.
 
 Appearance controls edit the font family, point size, opacity and a complete
 dark or light palette. **Keep current colors** preserves the configured theme.
+The font controls change terminal text. Settings and shared productivity dialogs
+use a separate 11 point interface font scaled to display DPI, so terminal zoom
+does not resize their text, controls or mouse targets.
 Changes preview in the current window. **Cancel**, Escape or clicking outside
 restores its prior appearance, including an existing temporary font zoom.
 **Save** applies the settings to every open window and persists them
@@ -36,13 +39,19 @@ English and Brazilian Portuguese in the same dialog.
 
 ## Editing shortcuts
 
-The Shortcuts page shows two actions at a time. Select an action, press the new
-combination and choose **Save**. Use Ctrl, Alt or Super with a key, or a function
-key. Existing bindings, terminal modes and configured hint shortcuts are checked
+The Shortcuts page shows a scrollable list with **Action** and **Shortcut**
+columns. Common tab actions, including rename, appear first. Search by action
+name or key; **Ctrl+F** returns to the search field. The search and column headers
+stay visible while the list scrolls.
+
+Click an action or its shortcut, press the new combination and choose **Save**
+or press **Ctrl+Enter**. Enter in the search field starts editing the first
+result. Use Ctrl, Alt or Super with a key, or a function key. Existing bindings, terminal modes and configured hint shortcuts are checked
 for conflicts. A conflict keeps the previous binding and displays an explanation.
 Escape cancels capture; **Cancel** discards unsaved changes. Shortcuts apply only
-on Save. **Disable** removes shortcuts for the selected action; Restore defaults
-stages the standard combinations again.
+on Save. **Disable shortcut** removes shortcuts for the selected action.
+**Restore defaults** on this page resets shortcuts while keeping appearance and
+other preferences. These controls and Save/Cancel stay visible while you scroll.
 
 Edits are stored individually under `general.shortcuts`. Imported settings,
 comments and custom `keyboard.bindings` remain in the original files. An override
@@ -54,19 +63,25 @@ the original bindings. For example:
 [general.shortcuts]
 SplitVertical = "Ctrl+Alt+E"
 CreateNewTab = "Ctrl+Shift+T"
+RenameTab = "F2"
 ```
 
-The editor covers tab creation, duplication, reopening and reordering; pane
-splitting, navigation, maximization and closure; workspaces, settings and session
-saving. Other actions remain available through `keyboard.bindings`.
+The editor covers tab creation, renaming, closure, navigation, duplication,
+reopening and reordering; pane splitting, navigation, maximization and closure;
+workspaces, settings and session saving.
+Other actions remain available through `keyboard.bindings`. F2 for renaming
+leaves the key available to alternate-screen applications; Ctrl+Shift+R remains
+the default alternate shortcut. Choosing a new custom shortcut replaces the
+existing combinations for that action. Selecting an existing shortcut or
+restoring its default keeps the other existing aliases.
 
 ## Named workspaces
 
 Press **Ctrl+Shift+P** or choose **Workspaces / Ambientes de trabalho** from the
 context menu. Enter a name and click **Save current tabs / Salvar abas atuais**
 to create a working environment. Saving an existing name updates that layout.
-Each workspace stores ordered tabs, their active tab, custom names, working
-directories, shell profiles, recent command records and replay preferences.
+Each workspace stores ordered tabs, their groups and active group, custom names,
+working directories, shell profiles, recent output, command records and replay preferences.
 Tabs with [split panes](panes.md) also retain their arrangement, proportions and
 focused pane.
 
@@ -97,8 +112,26 @@ enabled it uses the recovery snapshot when present, then falls back to the
 manually saved session. Recovery creates fresh shells and always suppresses
 command replay. The saved per-tab replay choices remain available for explicit
 manual or named restoration. A recovery snapshot never replaces `tabs.json` or
-the named environments. Recovery cannot restore running processes, scrollback
-or unsaved shell variables.
+the named environments. Recovery restores recent terminal text above a fresh
+shell prompt. It cannot resume running processes or unsaved shell variables.
+
+Manual sessions, workspaces and recovery save up to 500 recent terminal grid
+lines and 64 KiB of plain text per pane, with a 1 MiB text budget per session.
+The saved text comes from the normal screen, including while a full-screen app
+is open. Colors, hyperlinks and terminal control effects are not restored.
+Saved text is placed directly in the terminal grid and is never sent to the shell.
+
+For supported Bash, Zsh and Fish shells, the last command and its original
+directory are saved even while the command is still running. View the saved
+command list in the tab's rename and settings dialog. Replaying a command still
+requires the existing per-pane checkbox for manual or named restoration;
+automatic recovery never executes it. Duplicating a tab opens a fresh terminal;
+reopening a closed tab also brings back its recent text.
+
+State files contain visible output and captured command text. They use private
+permissions (`0600` on Unix). Automatic saving remains off until enabled in
+**Settings → Sessions → Save terminal state automatically**. Enable restoration
+at startup there as well to recover the last saved state on the next normal launch.
 
 ```toml
 [general]
@@ -152,7 +185,7 @@ Shortcuts preferences page or the existing `keyboard.bindings` table.
 
 ```sh
 mise exec -- cargo test --workspace
-mise exec -- cargo build -p alacritty
+mise exec -- cargo build -p termust
 mise exec -- python3 -B scripts/test-productivity.py
 mise exec -- python3 -B scripts/test-close-confirmation.py
 ```

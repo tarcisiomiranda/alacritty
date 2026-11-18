@@ -1,0 +1,332 @@
+plan: macos-apple-silicon
+title: Levar o Termust completo para macOS Apple Silicon
+status: draft
+created: 2026-11-02
+updated: 2026-11-03
+language: pt-BR
+goal: Compilar, instalar e usar o Termust nativo ARM64 no Mac com abas, grupos, painéis, menus e recuperação de estado.
+handoff:
+  - A instalação real do Mac foi atualizada pelo comando público unificado; repetição e --check passaram, preservando o hash do bundle anterior.
+  - Corrigir reinstalação macOS para atualizar o link do app entre bundles versionados; validar instalação legada existente, repetição e falhas sem perda da versão anterior.
+  - Instalador unificado publicado e validado no Mac e no Linux; releases macOS atualizam latest-macos-arm64.json sem trocar install.sh.
+  - Script de release atualizado no checkout do Mac; a atualização da cópia pública ficou pendente por falhas de conexão com a API B2.
+  - Binário ARM64 gerado no Mac publicado; o comando público curl instalou e verificou o app em um HOME temporário no Mac.
+  - No Mac Apple Silicon com macOS 26.6.2, a suíte Rust passou e o Termust.app abriu e executou comando em PTY; faltam fluxos gráficos completos.
+  - O Bash do sistema é 3.2 e não oferece os hooks usados pela integração; o Mac tem Bash 5.3 em /opt/homebrew/bin/bash para o teste de integração.
+  - No teste nativo, libc::openpty exigiu ponteiros mutáveis no teste de integração de shell; corrigir e repetir a suíte no Mac.
+  - A distribuição macOS está em desenvolvimento; a validação nativa depende de acesso a um Mac Apple Silicon.
+  - Preparar script público para build e publicação nativos no Mac; trocar o instalador macOS para o binário somente após upload e verificação.
+  - Selecionar Rust com mise exec quando necessário sem alterar a configuração global do usuário.
+  - Preparar instalador experimental separado que compila a fonte no Mac; não alterar o instalador Linux publicado.
+  - O alvo aarch64-apple-darwin passou em cargo check no Linux; o link nativo e a interface exigem validação no Mac.
+  - Instalador experimental de fonte publicado em install-macos.sh; seis testes simulados e 52 testes do instalador Linux passaram.
+  - Após relato de falha em rustc no Mac, preservar a mensagem original do compilador no diagnóstico do instalador.
+  - O comando mise run release:verify do release Linux expirou ao baixar o arquivo público; o instalador Linux publicado não foi alterado.
+  - Executar os passos abaixo no checkout do Termust em um Mac Apple Silicon, fora do Rosetta.
+  - Não considerar a portabilidade pronta apenas porque cargo build passou; testar a interface e o aplicativo aberto pelo Finder.
+  - Atualizar este plano e as specs durante o trabalho, registrando comandos, resultados e limitações reais.
+  - Não fazer commit, push ou publicação sem autorização correspondente do usuário.
+context:
+  - O aplicativo e o pacote Cargo principal se chamam termust; os diretórios alacritty e as bibliotecas alacritty_* continuam com seus nomes internos.
+  - A base herdada já contém suporte a macOS, alvo ARM64, template Termust.app e Makefile para DMG.
+  - A referência Linux mais recente é 0.18.0-termust.c14a29f6.586b456f7269, com grupos e recuperação de texto já implementados.
+  - Essa referência passou por 441 testes unitários e de referência, um doctest e testes gráficos no Linux; isso não comprova funcionamento no Mac.
+  - A distribuição atual pelo B2 e pelo install.sh atende somente Linux x86_64 com glibc.
+  - O Linux também possui integração de agentes em specs/agent-status.yaml e docs/agents.md; incluir esses arquivos e validar a mesma experiência durante a portabilidade.
+  - Há alterações locais rastreadas e arquivos novos fora de commits; um clone do repositório remoto pode não conter as funcionalidades atuais.
+source_transfer:
+  - Levar o checkout completo com todas as alterações locais e arquivos novos, incluindo Cargo.lock, mise.toml, extra, scripts, specs e docs.
+  - Se partir de um clone no Mac, sobrepor os arquivos do checkout atual preservando alterações e arquivos novos; não depender apenas de git diff, que omite arquivos não rastreados.
+  - Não levar target, dist, caches de compilação, sockets, logs temporários ou backups .afs.bak como dependências do build.
+  - Não transferir arquivos .env, credenciais B2, tokens, históricos pessoais ou snapshots reais de terminal para o pacote de código.
+  - Preservar licenças e atribuição ao Alacritty; manter configurações e sessões pessoais separadas do checkout.
+  - Confirmar no Mac que existem scripts/test-state-groups.py, o template extra/osx/Termust.app e este plano.
+scope:
+  - Build e testes nativos em aarch64-apple-darwin.
+  - Abas internas do Termust com grupos e painéis dentro da mesma janela.
+  - Atalhos e edição de campos adequados a Command, Option e teclado do Mac.
+  - Integração com shell de login, registro de comandos e restauração segura de sessões.
+  - Aplicativo Termust.app, instalação local sem sudo e pacote DMG ARM64.
+  - Fluxo de instalação e atualização específico de macOS, preservando a distribuição Linux.
+  - Testes gráficos no macOS, CI, documentação e prints reais.
+out_of_scope:
+  - Trocar o renderer por Metal ou reescrever a interface.
+  - Restaurar memória de processos, sessões SSH ou estado interno de aplicações como Vim.
+  - Suporte Intel ou pacote universal na primeira entrega; tratar como etapa posterior.
+  - Publicação na Mac App Store, Homebrew tap e atualização automática em segundo plano.
+  - Exigir uma conta Apple Developer para compilar e usar localmente.
+decisions:
+  - Usar as mesmas abas internas e o mesmo modelo de grupos do Linux; evitar duas barras simultâneas de abas internas e abas nativas do macOS.
+  - Manter janelas independentes, com Cmd+N para nova janela e Cmd+T para nova aba interna.
+  - Cmd+W deve pedir confirmação para fechar a aba ativa; não deve encerrar a janela inteira enquanto houver outras abas.
+  - Auditar Cmd+Q separadamente e preservar a distinção entre fechar uma aba, fechar uma janela e sair do aplicativo.
+  - Priorizar ARM64 nativo, mantendo Rosetta e binários universais fora do caminho principal.
+  - Usar 11.0 como candidato inicial a deployment target ARM64; confirmar a versão mínima efetiva das dependências e elevar se necessário.
+  - Um build em macOS recente não comprova compatibilidade com todas as versões antigas; registrar as versões realmente testadas.
+  - Preservar a criação de shell de login e seus arquivos de inicialização; não resolver a captura de comandos trocando silenciosamente o perfil do usuário.
+  - Recuperação automática continua sem reexecução de comandos; restauração manual mantém a opção explícita existente por painel.
+  - Manter os caminhos de configuração e estado existentes antes de propor migração para Library/Application Support.
+  - Separar uso local com assinatura ad hoc da distribuição pública assinada e notarizada.
+specs:
+  create_before_implementation: specs/macos-apple-silicon.yaml
+  update_existing:
+    - specs/terminal-tabs.yaml
+    - specs/terminal-panes.yaml
+    - specs/terminal-productivity.yaml
+    - specs/terminal-ui.yaml
+    - specs/binary-distribution.yaml
+    - specs/termust-branding.yaml
+  workflow:
+    - Criar a spec macOS com requisitos, etapas verificáveis, critérios de aceite e limitações.
+    - Alterar status dos passos das specs usando tm-skillz spec ou speccheck.py; done exige verificação.
+    - Manter as specs existentes alinhadas sem duplicar os contratos de grupos, sessões e instalador.
+environment:
+  prerequisites:
+    - Mac Apple Silicon com sessão gráfica local e terminal fora do Rosetta.
+    - Xcode Command Line Tools com SDK macOS disponível.
+    - mise, Rust com rustup, Python 3 e ferramentas de desenvolvimento do projeto.
+    - scdoc e tic para o empacotamento atual; verificar compatibilidade do tic disponível no Mac.
+    - Acesso às permissões de Acessibilidade somente se a automação gráfica escolhida precisar delas.
+  inspect_commands:
+    - uname -m
+    - sw_vers
+    - xcode-select -p
+    - xcrun --sdk macosx --show-sdk-path
+    - mise tasks
+    - mise exec -- rustc -vV
+    - mise exec -- cargo metadata --locked --no-deps --format-version 1
+  notes:
+    - uname -m deve indicar arm64; verificar também o host do rustc.
+    - O Cargo.toml declara Rust mínimo 1.85.0; a versão Linux foi verificada com Clippy 1.89.0. Confirmar compatibilidade com o Cargo.lock sem atualizar dependências por conveniência.
+    - Cargo pode usar CARGO_TARGET_DIR fora do checkout; obter target_directory pelo cargo metadata, sem reutilizar o caminho absoluto do cache Linux.
+    - Os comandos desta seção apenas orientam a continuação no Mac; não foram executados neste ambiente Linux.
+current_blockers:
+  - id: custom-tab-bar
+    files:
+      - alacritty/src/display/mod.rs
+    evidence: A inicialização reserva a linha superior e cria TabBar apenas quando target_os não é macos.
+    impact: Abas internas e grupos não ficam disponíveis apenas recompilando para ARM64.
+  - id: native-tab-routing
+    files:
+      - alacritty/src/input/mod.rs
+      - alacritty/src/display/window.rs
+      - alacritty/src/window_context.rs
+      - alacritty/src/event.rs
+    evidence: As ações de criar e selecionar abas no macOS ainda chamam as APIs de abas nativas do winit e criam outras janelas.
+    impact: Ativar somente o desenho da barra produziria dois modelos incompatíveis de abas.
+  - id: shortcuts
+    files:
+      - alacritty/src/config/bindings.rs
+      - alacritty/src/settings.rs
+      - alacritty/src/productivity.rs
+      - alacritty/src/window_context.rs
+      - alacritty/src/context_menu.rs
+    evidence: tab_keybindings é excluída no macOS; Cmd+W está ligado a Action::Quit, que usa quit_window; F2 permanece como tecla de terminal.
+    impact: É necessário adaptar ações, conflitos, rótulos e atalhos de edição dos diálogos, incluindo Cmd+V, sem bloquear o shell.
+  - id: default-shell-tracking
+    files:
+      - alacritty/src/shell_integration.rs
+      - alacritty_terminal/src/tty/unix.rs
+      - alacritty/src/session.rs
+      - alacritty/src/macos/proc.rs
+    evidence: ShellIntegration::prepare retorna None no macOS sem shell explicitamente configurado; a criação padrão usa /usr/bin/login e shell de login.
+    impact: O shell padrão do Mac pode abrir normalmente sem registrar o último comando.
+  - id: packaging
+    files:
+      - Makefile
+      - mise.toml
+      - extra/osx/Termust.app/Contents/Info.plist
+      - .github/workflows/release.yml
+    evidence: O Makefile usa MACOSX_DEPLOYMENT_TARGET=10.12 inclusive para ARM64 e caminhos target/release fixos; a assinatura existente é ad hoc.
+    impact: É necessário corrigir alvo mínimo, diretório de saída, montagem do bundle e expectativas de assinatura antes de usar make dmg.
+  - id: linux-distribution
+    files:
+      - install.sh
+      - distribution.toml
+      - scripts/package-release.py
+      - scripts/build-portable.py
+      - scripts/publish-b2.py
+      - scripts/verify-install.py
+    evidence: O instalador rejeita Darwin; os manifestos, o pacote e os gates atuais são específicos de Linux, ELF, glibc e seis distribuições.
+    impact: Um pacote Mac não pode substituir os arquivos latest-linux nem contornar os gates Linux.
+  - id: graphical-tests
+    files:
+      - scripts/test-tabs.py
+      - scripts/test-language.py
+      - scripts/test-productivity.py
+      - scripts/test-panes.py
+      - scripts/test-shortcut-list.py
+      - scripts/test-state-groups.py
+    evidence: Os testes gráficos atuais dependem de Xvfb, X11 e ferramentas de captura do Linux.
+    impact: Preservar os cenários e as asserções, mas criar uma execução gráfica nativa para o Mac.
+stages:
+  - id: baseline
+    desc: Preparar o checkout completo e registrar o primeiro build macOS sem esconder falhas.
+    status: todo
+    work:
+      - Criar a spec macOS e registrar modelo do Mac, macOS, SDK, Rust e target_directory.
+      - Compilar e testar o código atual para separar erros de compilação das lacunas funcionais conhecidas.
+      - Usar HOME, XDG_CONFIG_HOME e XDG_STATE_HOME temporários nos testes, com variáveis limitadas ao processo de teste.
+      - Não abrir sessões reais salvas por padrão durante a primeira validação nem sobrescrever configurações pessoais.
+    verify:
+      - mise exec -- rustup target add aarch64-apple-darwin
+      - mise exec -- cargo check --locked --workspace --target aarch64-apple-darwin
+      - mise exec -- cargo test --locked --workspace --target aarch64-apple-darwin
+  - id: unified-tabs
+    desc: Ativar abas internas, grupos e painéis com o mesmo modelo de sessão do Linux.
+    status: todo
+    work:
+      - Habilitar TabBar e a reserva superior desde a geometria inicial, inclusive antes do primeiro resize.
+      - Roteiar criar, selecionar, numerar e fechar abas para Tabs<TerminalTab> no macOS.
+      - Evitar que novas abas internas criem novas janelas nativas ou ativem uma segunda barra de abas do sistema.
+      - Preservar criação de janelas independentes e o tratamento de eventos por identidade estável de PTY e painel.
+      - Verificar títulos longos, filtro de grupo, aba ativa visível, arrasto, fechamento da última aba e reabertura.
+    acceptance:
+      - Cmd+T cria uma aba com outro PTY na mesma janela e mantém o processo anterior vivo.
+      - Criar, renomear, mover e remover grupos funciona; fechar o último membro não deixa uma tela filtrada vazia.
+      - Painéis divididos mantêm foco, proporções, busca e isolamento ao mudar de aba ou grupo.
+  - id: mac-input
+    desc: Ajustar atalhos e interação nativa sem consumir teclas destinadas aos programas do terminal.
+    status: todo
+    work:
+      - Definir atalhos com Command para abas, configuração e clipboard e registrar a tabela final na documentação.
+      - Usar Cmd+W para CloseTab com confirmação e Cmd+N para nova janela; auditar separadamente Cmd+Q e o botão de fechar a janela.
+      - Escolher um atalho de navegação entre abas que não dispute com o alternador de aplicativos Cmd+Tab do macOS.
+      - Garantir que F2 ou Fn+F2 renomeie no prompt quando habilitado e chegue a aplicações que usam a tela alternativa.
+      - Verificar Cmd+A, Cmd+C, Cmd+V e busca nos campos de configurações, grupos e atalhos.
+      - Adaptar rótulos Super para Command quando apropriado e testar conflitos do editor de atalhos no target macOS.
+      - Testar Option como Alt, acentos, teclas mortas, IME, teclado brasileiro, clique secundário e gesto de dois dedos.
+      - Testar Retina, resize, mudança entre monitores, fullscreen e os modos de decoração para evitar sobreposição com a barra de título.
+    acceptance:
+      - Confirmar fechamento com Y ou Enter e cancelar com N ou Escape não envia caracteres ao shell.
+      - Teclas de cópia, colagem e edição funcionam tanto no terminal quanto nos diálogos em inglês e português.
+  - id: login-shell-state
+    desc: Capturar comandos do shell padrão e restaurar o estado com segurança no macOS.
+    status: todo
+    work:
+      - Integrar o Zsh padrão ao fluxo de login preservando .zshenv, .zprofile, .zshrc, .zlogin e ZDOTDIR conforme a ordem real de inicialização.
+      - Validar PATH e ferramentas instaladas pelo usuário quando o aplicativo abre pelo Finder, sem depender de ter sido iniciado por outro terminal.
+      - Testar também shells explicitamente configurados e manter invocações não suportadas utilizáveis sem reexecução.
+      - Se novos argumentos de shell forem necessários, atualizar em conjunto SavedShell, sua validação e a integração, sem liberar argumentos arbitrários como -c nos snapshots.
+      - Verificar cwd por painel com a integração existente e o mecanismo macOS de libproc.
+      - Preservar sessões antigas, nomes, grupos, filtro ativo, panes, últimos comandos e suas pastas originais.
+      - Manter restauração de texto antes do PTY, sem interpretar escapes salvos nem escrever esse texto no shell.
+    acceptance:
+      - O último comando é registrado antes de terminar, inclusive um comando longo, com cwd correto e texto multilinha.
+      - Após encerramento inesperado, grupos, layout e texto recente voltam em shells novos, e um contador de execução permanece em um.
+      - A recuperação automática não reexecuta comandos mesmo quando o snapshot guarda replay_last_command=true.
+      - Reexecução manual exige a opção explícita existente e mantém cancelamento, timeout e verificação de diretório.
+      - Preservar limites de 20 comandos, 500 linhas recentes e 64 KiB de texto por painel e 1 MiB de texto por sessão, com arquivo privado 0600.
+  - id: arm64-app
+    desc: Produzir um Termust.app nativo e um DMG instalável localmente.
+    status: todo
+    work:
+      - Corrigir o Makefile para parametrizar deployment target e honrar CARGO_TARGET_DIR e o diretório ARM64 real.
+      - Usar Cargo.lock, conferir bibliotecas com otool e evitar dependências acidentais de caminhos do Homebrew ou do computador de build.
+      - Manter nome, identificador, executável e ícone Termust no bundle; revisar descrições de permissões herdadas somente conforme a necessidade real.
+      - Validar recursos terminfo, manuais e completions; TERM continua alacritty por compatibilidade.
+      - Criar tasks explícitas de build, app, DMG e verificação macOS sem transformar as tasks Linux em comandos ambíguos.
+      - Corrigir as regras de instalação do Makefile, que usam uma variável INSTALL não definida, antes de depender delas.
+      - Instalar inicialmente em ~/Applications/Termust.app e disponibilizar o comando por um link do usuário, sem substituir Alacritty ou outros terminais.
+    verify:
+      - MACOSX_DEPLOYMENT_TARGET=11.0 mise exec -- cargo build --locked --release -p termust --target aarch64-apple-darwin
+      - mise exec -- plutil -lint extra/osx/Termust.app/Contents/Info.plist
+    artifact_checks:
+      - Executar file e lipo -archs no binário final; o resultado deve conter arm64.
+      - Executar otool -L, codesign --verify e plutil no bundle final, não apenas no binário em target.
+      - Abrir o Termust.app pelo Finder e por open; conferir Dock, ícone, nome, foco, versão, shell e novas janelas.
+      - Validar o mínimo de macOS efetivo com evidência; não prometer suporte a 11.0 sem testá-lo.
+  - id: darwin-installer
+    desc: Instalar, atualizar e voltar à versão anterior no Mac preservando o fluxo Linux.
+    status: todo
+    work:
+      - Projetar manifesto macos-aarch64 separado, com versão, arquitetura, macOS mínimo, hashes e formato do pacote.
+      - Detectar Darwin arm64 e escolher o pacote correto; rejeitar Intel sem pacote compatível e não depender de Rosetta.
+      - Manter compatibilidade com o Bash 3.2 do sistema e verificar a disponibilidade de Python 3, se continuar sendo necessário.
+      - Adaptar verificação de Mach-O, bundle e assinatura em vez de usar ELF, ldd, glibc, desktop files ou caches de ícones do Linux.
+      - Manter verificação de hash, extração segura, bloqueio de instalação, atualização atômica, recibo, proteção contra downgrade e rollback completo do bundle.
+      - Garantir que o link CLI aponte para o bundle atual e que uma versão antiga no PATH seja detectada.
+      - Não encerrar janelas existentes durante atualização; explicar que processos em execução continuam com o binário anterior.
+      - Criar testes de instalação, reinstalação, atualização, rollback, pacote corrompido, arquitetura errada e diretório sem permissão em prefixos temporários.
+      - Preservar o instalador e todos os gates de compatibilidade Linux, com testes separados por plataforma.
+  - id: native-validation
+    desc: Validar a experiência gráfica real no Mac e registrar as evidências.
+    status: todo
+    work:
+      - Criar automação macOS ou uma verificação manual reproduzível; não considerar Xvfb um teste da interface Cocoa.
+      - Usar dados de exemplo e diretórios temporários; não registrar comandos ou conteúdo pessoal nos prints.
+      - Reaproveitar os cenários de scripts/test-state-groups.py para grupos, persistência, painéis e não reexecução.
+      - Reaproveitar os cenários de atalhos, menus, sessão e confirmação de fechamento, adaptando teclas e captura de tela.
+      - Adaptar scripts/test-agents.py para Cocoa e verificar estados nativos do Codex, adapters dos demais CLIs, atenção da janela e foco sem vazar Enter para pedidos de permissão.
+      - Executar testes e screenshots em inglês e português, com janela larga e compacta e tela Retina.
+      - Revalidar o Linux após alterar roteamento compartilhado, atalhos, sessão ou instalador.
+    verify:
+      - mise exec -- cargo test --locked --workspace --target aarch64-apple-darwin
+      - mise exec -- cargo clippy --locked --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
+    evidence:
+      - Relatório com Mac, arquitetura, macOS, SDK, Rust, versão do Termust e cada cenário aprovado ou pendente.
+      - Print do aplicativo aberto pelo Finder com nome e ícone Termust no Dock.
+      - Prints de abas agrupadas, menu, configurações compactas e estado restaurado com dados de exemplo.
+  - id: ci-documentation
+    desc: Reproduzir o build ARM64 e documentar o uso sem depender do Mac de desenvolvimento.
+    status: todo
+    work:
+      - Atualizar .github/workflows/ci.yml e release.yml para runner ARM64 explícito, sem assumir a arquitetura de macos-latest.
+      - Executar testes do workspace e do bundle no Mac e manter a cobertura Linux existente.
+      - Atualizar README.md, INSTALL.md, docs/install.md, docs/tabs.md e docs/productivity.md com limitações e atalhos reais do Mac.
+      - Documentar as novas tasks; os nomes macOS abaixo são propostos e ainda não existem no mise.toml.
+      - Não publicar automaticamente por efeito desta etapa nem salvar credenciais de distribuição no repositório.
+    proposed_mise_tasks:
+      - build:macos-arm64
+      - package:macos-app
+      - package:macos-dmg
+      - install:macos
+      - install:macos-verify
+      - test:macos
+      - test:macos-install
+  - id: optional-public-release
+    desc: Preparar distribuição pública assinada quando o uso local estiver aprovado.
+    status: todo
+    work:
+      - Manter esta etapa separada da conclusão do uso local no Mac.
+      - Com credenciais próprias disponíveis e autorização, assinar com Developer ID e hardened runtime, notarizar com notarytool e anexar o ticket com stapler.
+      - Não tratar a assinatura ad hoc atual como equivalente a Developer ID e notarização.
+      - Não remover quarentena nem desabilitar Gatekeeper globalmente para esconder problemas de distribuição.
+      - Publicar artefatos Mac em prefixos e ponteiros próprios no bucket termust, mantendo latest-linux e versões históricas intactos.
+      - Validar download e abertura do pacote em outro ambiente Mac limpo e registrar a verificação pública.
+acceptance:
+  local_ready:
+    - Termust.app abre pelo Finder em Apple Silicon sem Rosetta e funciona sem mise ou Rust no PATH de execução.
+    - Abas, grupos, painéis, menus, atalhos editáveis e idiomas têm os cenários nativos aprovados.
+    - Cmd+W fecha somente a aba confirmada; cancelar preserva shell, cwd e demais abas.
+    - Shell padrão registra o último comando e a recuperação restaura contexto sem reexecução automática.
+    - Configuração e sessões são privadas, compatíveis e independentes do Alacritty instalado.
+    - Instalação local, atualização e rollback passam sem sudo e sem encerrar sessões em uso.
+    - Build, testes, evidências e limitações ficam registrados na spec e neste plano.
+  public_ready:
+    - O instalador curl seleciona corretamente Darwin ARM64 e mantém Linux funcionando.
+    - O pacote tem hashes, manifesto próprio e validação real do bundle distribuído.
+    - Assinatura e notarização são verificadas quando a entrega pública se propõe a funcionar pelo fluxo padrão do Gatekeeper.
+risks:
+  - Remover apenas um cfg macOS deixa geometria, roteamento e abas nativas inconsistentes.
+  - Atalhos herdados podem fechar a janela inteira, colidir com o sistema ou impedir digitação em aplicações de terminal.
+  - O shell de login e o PATH aberto pelo Finder podem divergir do ambiente de outro terminal.
+  - Xvfb, um build cruzado ou um resultado de CI sem sessão gráfica não demonstram a experiência real do Mac.
+  - Atualizar arquivos latest ou contratos Linux durante a distribuição Mac pode quebrar o instalador já publicado.
+  - Clonar apenas o remoto pode omitir justamente as mudanças ainda locais que precisam ser portadas.
+rollback:
+  - Guardar uma cópia do Termust.app anterior e do recibo antes da atualização local.
+  - Restaurar o bundle e o link CLI do usuário em conjunto se a instalação falhar.
+  - Preservar configurações e snapshots; usar uma cópia de teste para verificar compatibilidade antes de restaurar dados pessoais.
+  - Reverter somente as mudanças desta portabilidade e não descartar o working tree compartilhado.
+  - Não apagar nem substituir versões Linux e não remover o Alacritty existente.
+references:
+  - title: Rust e destinos Apple Darwin
+    url: https://doc.rust-lang.org/rustc/platform-support/apple-darwin.html
+  - title: Plataformas suportadas pelo Rust
+    url: https://doc.rust-lang.org/rustc/platform-support.html
+  - title: Assinatura Developer ID
+    url: https://developer.apple.com/developer-id/
+  - title: Notarização de software macOS
+    url: https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
+next_action: Validar abas, grupos, painéis e restauração de sessão na interface nativa do Mac.

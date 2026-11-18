@@ -1,0 +1,105 @@
+[tasks."build:release"]
+description = "Build the optimized terminal"
+run = "cargo build --locked --release -p termust"
+
+[tasks.package]
+description = "Package the release binary and desktop integration"
+depends = ["build:release"]
+run = "python3 -B scripts/package-release.py"
+
+[tasks.install]
+description = "Build and install this checkout for the current user"
+depends = ["package"]
+run = "bash install.sh --archive dist/termust-linux-x86_64.tar.gz"
+
+[tasks."test:install"]
+description = "Verify installer failures and local installation in temporary directories"
+run = "python3 -B scripts/test-install.py"
+
+[tasks."package:macos-source"]
+description = "Package the source used by the native macOS release builder"
+run = "python3 -B scripts/package-macos-source.py"
+
+[tasks."test:macos-release"]
+description = "Verify the macOS binary installer and release workflow"
+run = "python3 -B scripts/test-macos-release.py"
+
+[tasks."publish:macos-builder"]
+description = "Publish the macOS native release builder"
+depends = ["package:macos-source", "test:macos-release"]
+run = "python3 -B scripts/publish-macos-builder.py"
+
+[tasks."publish:installer"]
+description = "Publish the common Linux and macOS installer"
+depends = ["test:install", "test:macos-release", "test:release-tools"]
+run = "python3 -B scripts/publish-installer.py"
+
+[tasks."test:regressions"]
+description = "Check the seven audit fixes with isolated graphical sessions"
+run = "cargo build --locked -p termust && python3 -B scripts/test-bug-regressions.py"
+
+[tasks."test:shortcuts"]
+description = "Verify tab shortcuts and terminal application key routing"
+run = "cargo build --locked -p termust && python3 -B scripts/test-shortcuts.py"
+
+[tasks."test:shortcut-list"]
+description = "Verify searchable shortcut settings with real keyboard and mouse input"
+run = "cargo build --locked -p termust && python3 -B scripts/test-shortcut-list.py"
+
+[tasks."test:ui-font"]
+description = "Verify settings font independence and mouse targets in isolated X11 sessions"
+run = "cargo test --locked -p termust ui::tests && cargo build --locked -p termust && python3 -B scripts/test-ui-font.py --screenshot docs/images/terminal-tools/independent-ui.png"
+
+[tasks."test:icon-personalization"]
+description = "Verify icon previews cancellation persistence launchers and restoration on isolated X11"
+run = "cargo test --locked -p termust icon && cargo build --locked -p termust && python3 -B scripts/test-icon-personalization.py --screenshot docs/images/terminal-tools/icon-personalization.png"
+
+[tasks."build:portable"]
+description = "Build with Rust 1.89 and an older glibc in an isolated container"
+run = "python3 -B scripts/build-portable.py"
+
+[tasks."test:slim-dividers"]
+description = "Verify single-pixel pane dividers, invisible resize targets and native split regressions"
+run = "cargo build --locked -p termust && python3 -B scripts/test-panes.py --screenshot docs/images/terminal-tools/slim-panes.png"
+
+[tasks."test:pane-drag"]
+description = "Verify live pane dragging, docking, transfer and cancellation on isolated X11"
+run = "cargo build --locked -p termust && python3 -B scripts/test-pane-drag.py --screenshot docs/images/terminal-tools/pane-drag.png"
+
+[tasks."test:state-groups"]
+description = "Verify terminal state recovery and tab group workflows on isolated X11"
+run = "cargo build --locked -p termust && python3 -B scripts/test-state-groups.py"
+
+[tasks."test:desktop-apps"]
+description = "Verify desktop application preferences and safe folder launches on isolated X11"
+run = "cargo build --locked -p termust && python3 -B scripts/test-desktop-apps.py"
+
+[tasks."test:agents"]
+description = "Verify private agent adapters and native tab attention workflows"
+run = "cargo build --locked -p termust && python3 -B scripts/test-agent-bridge.py && python3 -B scripts/test-agents.py"
+
+[tasks."package:portable"]
+description = "Package the portable Linux release"
+depends = ["build:portable"]
+run = "python3 -B scripts/package-release.py --portable"
+
+[tasks."test:distros"]
+description = "Install and launch the portable release on six Linux distributions"
+run = "python3 -B scripts/test-distros.py"
+
+[tasks."test:release-tools"]
+description = "Verify portable publication gates without accessing B2"
+run = "python3 -B scripts/test-release-tools.py"
+
+[tasks.publish]
+description = "Publish the verified portable release and installer to B2"
+depends = ["package:portable", "test:install", "test:release-tools"]
+run = "python3 -B scripts/publish-b2.py publish"
+
+[tasks."release:verify"]
+description = "Verify the current release over public HTTPS"
+run = "python3 -B scripts/publish-b2.py verify"
+
+[tasks."install:verify"]
+description = "Verify the installed binary and desktop launcher"
+run = "python3 -B scripts/verify-install.py"

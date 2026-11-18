@@ -34,6 +34,7 @@ use alacritty_terminal::term::{ClipboardType, Term, TermMode};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::NamedColor;
 
+use crate::agent::{AgentIntegration, AgentState};
 use crate::cli::{ParsedOptions, WindowOptions};
 use crate::clipboard::Clipboard;
 use crate::close_confirmation::{CloseAction, CloseConfirmation};
@@ -54,13 +55,15 @@ use crate::localization::Message;
 #[cfg(unix)]
 use crate::logging::LOG_TARGET_IPC_CONFIG;
 use crate::message_bar::MessageBuffer;
-use crate::panes::{Axis, PaneAction, PaneNode, PaneRect};
+use crate::panes::{Axis, Direction as PaneDirection, PaneAction, PaneNode, PaneRect};
 use crate::productivity::{
-    PreferencesDialog, ProductivityAction, ProductivityDialog, WorkspaceDialog,
+    AgentDialog, AgentRow, GroupDialog, PreferencesDialog, ProductivityAction, ProductivityDialog,
+    WorkspaceDialog,
 };
 use crate::scheduler::{Scheduler, TimerId, Topic};
 use crate::session::{
-    CommandRecord, MAX_COMMANDS, SavedSession, SavedShell, SavedTab, SessionStore, WorkspaceStore,
+    CommandRecord, MAX_COMMANDS, MAX_OUTPUT_BYTES, MAX_SESSION_OUTPUT_BYTES, SavedSession,
+    SavedShell, SavedTab, SessionStore, WorkspaceStore,
 };
 use crate::shell_integration::ShellIntegration;
 use crate::tab_ui::{DialogAction, TabDialog};
@@ -79,6 +82,7 @@ struct TabContext {
     replay_last_command: bool,
     pending_replay: Option<CommandRecord>,
     integration: Option<ShellIntegration>,
+    agent: Option<AgentIntegration>,
     original_shell: Option<SavedShell>,
     replay_started: Option<Instant>,
     terminal: Arc<FairMutex<Term<EventProxy>>>,
@@ -103,6 +107,7 @@ impl TabContext {
         proxy: EventLoopProxy<Event>,
         id: TabId,
         shell: Option<tty::Shell>,
+        screen_text: &str,
     ) -> Result<Self, Box<dyn Error>> {
         let mut pty_config = config.pty_config();
         options.terminal_options.override_pty_config(&mut pty_config);
@@ -115,13 +120,20 @@ impl TabContext {
             options.window_identity.title.unwrap_or_else(|| config.window.identity.title.clone());
         let working_directory =
             pty_config.working_directory.clone().or_else(|| std::env::current_dir().ok());
+        let agent = AgentIntegration::prepare(&mut pty_config, config.general.agent_integration)
+            .unwrap_or_else(|_| {
+                log::warn!("Agent integration unavailable for this terminal");
+                None
+            });
         let integration = ShellIntegration::prepare(&mut pty_config)?;
         let original_shell = integration.as_ref().map(|integration| SavedShell {
             program: integration.original_shell().program().to_owned(),
             args: integration.original_shell().args().to_vec(),
         });
         let event_proxy = EventProxy::for_tab(proxy, display.window.id(), id);
-        let terminal = Term::new(config.term_options(), &display.size_info, event_proxy.clone());
+        let mut terminal =
+            Term::new(config.term_options(), &display.size_info, event_proxy.clone());
+        terminal.restore_session_text(screen_text);
         let terminal = Arc::new(FairMutex::new(terminal));
         let pty = tty::new(&pty_config, display.size_info.into(), display.window.id().into())?;
         #[cfg(not(windows))]
@@ -152,6 +164,7 @@ impl TabContext {
             replay_last_command: false,
             pending_replay: None,
             integration,
+            agent,
             original_shell,
             replay_started: None,
             terminal,
@@ -248,6 +261,7 @@ impl TabContext {
 struct TerminalTab {
     id: TabId,
     custom_title: Option<String>,
+    group: Option<String>,
     panes: Tabs<TabContext>,
     layout: PaneNode,
     zoomed: bool,
@@ -272,6 +286,7 @@ impl TerminalTab {
         Self {
             id: pane.id,
             custom_title: None,
+            group: None,
             layout: PaneNode::Leaf(pane.id),
             panes: Tabs::new(pane),
             zoomed: false,
@@ -283,10 +298,19 @@ impl TerminalTab {
     }
 
     fn snapshot(&mut self) -> SavedTab {
+        self.snapshot_with_output(MAX_OUTPUT_BYTES)
+    }
+
+    fn snapshot_with_output(&mut self, output_limit: usize) -> SavedTab {
         let ids: Vec<_> = self.panes.iter().map(|pane| pane.id).collect();
-        let mut snapshots = self.panes.iter_mut().map(TabContext::snapshot);
+        let mut snapshots = self.panes.iter_mut().map(|pane| {
+            let mut saved = pane.snapshot();
+            saved.screen_text = pane.terminal.lock().session_text(500, output_limit);
+            saved
+        });
         let mut saved = snapshots.next().unwrap();
         saved.title = self.custom_title.clone();
+        saved.group = self.group.clone();
         saved.panes = snapshots.collect();
         saved.active_pane = self.panes.active_index;
         if self.panes.len() > 1 {
@@ -309,6 +333,7 @@ impl TerminalTab {
         let active = saved.active_pane;
         let layout = saved.layout.take();
         let title = saved.title.clone();
+        let group = saved.group.take();
         let extra = mem::take(&mut saved.panes);
         let mut restored = Vec::new();
         for saved in std::iter::once(saved).chain(extra) {
@@ -321,7 +346,15 @@ impl TerminalTab {
                 .shell
                 .as_ref()
                 .map(|shell| tty::Shell::new(shell.program.clone(), shell.args.clone()));
-            let mut pane = TabContext::new(display, config, options, proxy.clone(), id, shell)?;
+            let mut pane = TabContext::new(
+                display,
+                config,
+                options,
+                proxy.clone(),
+                id,
+                shell,
+                &saved.screen_text,
+            )?;
             pane.apply_saved(saved);
             pane.custom_title = None;
             if !replay {
@@ -338,6 +371,7 @@ impl TerminalTab {
         }
         tab.panes.select(active);
         tab.custom_title = title;
+        tab.group = group;
         if let Some(layout) = layout {
             tab.layout = layout.remap_ids(|id| ids[id as usize]);
         }
@@ -345,17 +379,28 @@ impl TerminalTab {
     }
 
     fn rectangles(&self, size: crate::display::SizeInfo) -> Vec<(TabId, PaneRect)> {
+        let (width, height) = size.pane_extent();
         if self.zoomed {
-            vec![(self.panes.active.id, PaneRect {
-                x: 0,
-                y: 0,
-                width: size.columns(),
-                height: size.screen_lines(),
-            })]
+            vec![(self.panes.active.id, PaneRect { x: 0, y: 0, width, height })]
         } else {
-            self.layout.layout(size.columns(), size.screen_lines()).panes
+            self.layout.layout(width, height, size.pane_minimum()).panes
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PaneDropTarget {
+    Pane { tab: TabId, pane: TabId, direction: PaneDirection },
+    NewTab,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PaneMove {
+    pane: TabId,
+    source_tab: TabId,
+    origin: PhysicalPosition<f64>,
+    started: bool,
+    target: Option<PaneDropTarget>,
 }
 
 pub struct WindowContext {
@@ -365,7 +410,10 @@ pub struct WindowContext {
     event_queue: Vec<WinitEvent<Event>>,
     tab_actions: Vec<EventType>,
     tabs: Tabs<TerminalTab>,
+    group_filter: Option<String>,
     pane_drag: Option<Vec<bool>>,
+    pane_move: Option<PaneMove>,
+    pane_handle: Option<TabId>,
     closing_pane: Option<TabId>,
     tab_dialog_pane: Option<TabId>,
     context_menu_pane: Option<TabId>,
@@ -381,8 +429,8 @@ pub struct WindowContext {
     touch: TouchPurpose,
     pointer_position: PhysicalPosition<f64>,
     tab_mouse_pressed: bool,
-    close_confirmation_key: Option<PhysicalKey>,
-    close_mouse_release: Option<MouseButton>,
+    modal_action_key: Option<PhysicalKey>,
+    modal_mouse_release: Option<MouseButton>,
     occluded: bool,
     window_config: ParsedOptions,
     config: Rc<UiConfig>,
@@ -500,11 +548,13 @@ impl WindowContext {
         let mut restored = Vec::new();
         let mut next_tab_id = 0;
         let mut active = 0;
+        let mut group_filter = None;
         let mut notice = None;
         if restore && config.general.restore_session && display.tab_bar.is_some() {
             match Self::load_startup_session(&config) {
                 Ok(Some((snapshot, replay))) => {
                     active = snapshot.active;
+                    group_filter = snapshot.active_group;
                     for (index, saved) in snapshot.tabs.into_iter().enumerate() {
                         let tab = match TerminalTab::restore(
                             &display,
@@ -518,6 +568,7 @@ impl WindowContext {
                             Err(_) => {
                                 restored.clear();
                                 active = 0;
+                                group_filter = None;
                                 notice = Some(Message::SavedShellFailed);
                                 break;
                             },
@@ -540,6 +591,7 @@ impl WindowContext {
                 proxy.clone(),
                 id,
                 None,
+                "",
             )?))
         } else {
             let mut iterator = restored.into_iter();
@@ -554,9 +606,12 @@ impl WindowContext {
             display,
             config,
             tabs,
+            group_filter,
             next_tab_id,
             recent_closed: Vec::new(),
             pane_drag: None,
+            pane_move: None,
+            pane_handle: None,
             closing_pane: None,
             tab_dialog_pane: None,
             context_menu_pane: None,
@@ -575,8 +630,8 @@ impl WindowContext {
             touch: Default::default(),
             pointer_position: PhysicalPosition::new(-1., -1.),
             tab_mouse_pressed: false,
-            close_confirmation_key: None,
-            close_mouse_release: None,
+            modal_action_key: None,
+            modal_mouse_release: None,
             dirty: true,
         };
         context.display.window.set_title(context.tabs.active.display_title().to_owned());
@@ -613,14 +668,7 @@ impl WindowContext {
                 &mut self.display.productivity_dialog
             {
                 let base = self.config.clone();
-                if dialog.original.font != base.font {
-                    dialog.original_font_size =
-                        base.font.size().scale(self.display.window.scale_factor as f32);
-                }
-                if dialog.values.language == dialog.original.general.language {
-                    dialog.values.language = base.general.language;
-                }
-                dialog.original = base.clone();
+                dialog.rebase(base.clone(), self.display.window.scale_factor as f32);
                 let mut preview = (*base).clone();
                 if dialog.values.preview(&mut preview).is_ok() {
                     self.config = Rc::new(preview);
@@ -642,7 +690,20 @@ impl WindowContext {
         }
         if let Some(menu) = &mut self.display.context_menu {
             menu.locale = locale;
-            menu.shortcuts = self.config.general.shortcuts.clone();
+            #[cfg(target_os = "linux")]
+            menu.update_applications(&self.config);
+            if let Some(pane) = self
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.panes.iter())
+                .find(|pane| Some(pane.id) == self.context_menu_pane)
+            {
+                let mode = crate::config::BindingMode::new(
+                    pane.terminal.lock().mode(),
+                    pane.search_state.history_index.is_some(),
+                );
+                menu.update_shortcuts(&self.config, mode);
+            }
         }
         if let Some(dialog) = &mut self.display.language_dialog {
             if old_config.general.language != self.config.general.language {
@@ -652,6 +713,9 @@ impl WindowContext {
         }
 
         self.display.update_config(&self.config);
+        if old_config.window.icon != self.config.window.icon {
+            self.display.window.set_icon(self.config.window.icon);
+        }
         for tab in self.tabs.iter_mut().flat_map(|tab| tab.panes.iter_mut()) {
             tab.terminal.lock().set_options(self.config.term_options());
             if !tab.preserve_title
@@ -752,10 +816,13 @@ impl WindowContext {
     }
 
     fn snapshot(&mut self) -> SavedSession {
+        let panes = self.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>().max(1);
+        let limit = MAX_OUTPUT_BYTES.min(MAX_SESSION_OUTPUT_BYTES / panes);
         SavedSession {
             version: 1,
             active: self.tabs.active_index,
-            tabs: self.tabs.iter_mut().map(TerminalTab::snapshot).collect(),
+            active_group: self.group_filter.clone(),
+            tabs: self.tabs.iter_mut().map(|tab| tab.snapshot_with_output(limit)).collect(),
         }
     }
 
@@ -783,12 +850,56 @@ impl WindowContext {
         }
     }
 
+    fn animate_agents(&mut self, scheduler: &mut Scheduler) {
+        let timer = TimerId::new(Topic::AgentAnimation, self.id());
+        scheduler.unschedule(timer);
+        if self.occluded
+            || !self.config.general.agent_integration
+            || !self.tabs.iter().flat_map(|tab| tab.panes.iter()).any(|pane| {
+                pane.agent
+                    .as_ref()
+                    .and_then(AgentIntegration::primary)
+                    .is_some_and(|status| status.state.animated())
+            })
+        {
+            return;
+        }
+        self.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
+        self.display.window.request_redraw();
+        scheduler.schedule(
+            Event::new(EventType::AgentAnimation, self.id()),
+            Duration::from_millis(125),
+            false,
+            timer,
+        );
+    }
+
     fn poll_activity(&mut self, scheduler: &mut Scheduler) {
         let mut changed = false;
         let active = self.tabs.active_index;
         for (index, tab) in self.tabs.iter_mut().enumerate() {
             let active_pane = tab.panes.active_index;
             for (pane_index, pane) in tab.panes.iter_mut().enumerate() {
+                if self.config.general.agent_integration {
+                    if let Some(agent) = &mut pane.agent {
+                        let before = agent.primary();
+                        let focused = index == active
+                            && pane_index == active_pane
+                            && pane.terminal.lock().is_focused;
+                        changed |= agent.poll(focused);
+                        let after = agent.primary();
+                        if self.config.general.agent_notifications
+                            && !focused
+                            && after
+                                .as_ref()
+                                .is_some_and(|status| status.unread && status.state.attention())
+                            && before != after
+                        {
+                            self.display.window.set_urgent(true);
+                        }
+                    }
+                }
                 let old = pane.activity;
                 let ready = pane.refresh_history();
                 if index == active && pane_index == active_pane && ready {
@@ -799,11 +910,17 @@ impl WindowContext {
         }
         if changed {
             self.refresh_tab_bar();
+            let rows = self.agent_rows();
+            if let Some(ProductivityDialog::Agents(dialog)) = &mut self.display.productivity_dialog
+            {
+                dialog.update(rows);
+            }
         }
         if self.last_recovery.elapsed() >= Duration::from_secs(2) {
             self.persist_recovery();
             self.last_recovery = Instant::now();
         }
+        self.animate_agents(scheduler);
         let timer = TimerId::new(Topic::SessionActivity, self.id());
         scheduler.unschedule(timer);
         scheduler.schedule(
@@ -857,6 +974,7 @@ impl WindowContext {
                     proxy.clone(),
                     id,
                     shell,
+                    "",
                 ) {
                     Ok(pane) => pane,
                     Err(_) => {
@@ -874,12 +992,13 @@ impl WindowContext {
                 self.select_pane(id, proxy, scheduler);
             },
             PaneAction::Focus(direction) => {
-                let size = self.display.size_info;
+                let (width, height) = self.display.size_info.pane_extent();
                 if let Some(id) = self.tabs.active.layout.navigate(
                     self.tabs.active.panes.active.id,
                     direction,
-                    size.columns(),
-                    size.screen_lines(),
+                    width,
+                    height,
+                    self.display.size_info.pane_minimum(),
                 ) {
                     self.select_pane(id, proxy, scheduler);
                 }
@@ -984,6 +1103,21 @@ impl WindowContext {
             self.set_tab_focus(false);
         }
         self.tabs.remove(index);
+        if let Some(group) = &self.group_filter {
+            let target = self.tabs.iter().position(|tab| tab.group.as_ref() == Some(group));
+            if let Some(target) = target {
+                if self.tabs.active.group.as_ref() != Some(group) {
+                    self.tabs.select(target);
+                }
+            } else {
+                self.group_filter = None;
+            }
+        }
+        if self.display.productivity_dialog.as_ref().is_some_and(
+            |dialog| matches!(dialog, ProductivityDialog::Groups(dialog) if dialog.tab_id == id),
+        ) {
+            self.close_productivity(false);
+        }
         if self.display.context_menu.as_ref().is_some_and(|menu| menu.tab_id == id) {
             self.close_context_menu();
         }
@@ -1011,9 +1145,409 @@ impl WindowContext {
             .find(|(candidate, _)| *candidate == id)
             .map(|(_, rect)| rect)
             .unwrap_or(PaneRect { x: 0, y: 0, width: 2, height: 1 });
-        let mut size = size.pane(rect.x, rect.y, rect.width, rect.height);
+        let mut size = size.pane_pixels(rect);
         size.reserve_lines(usize::from(self.tabs.active.search_state.history_index.is_some()));
         size
+    }
+
+    fn pane_location(&self, id: TabId) -> Option<(usize, usize)> {
+        self.tabs.iter().enumerate().find_map(|(index, tab)| {
+            tab.panes.iter().position(|pane| pane.id == id).map(|pane| (index, pane))
+        })
+    }
+
+    fn pane_handle_rect(&self, rect: PaneRect) -> Option<PaneRect> {
+        let size = self.display.size_info;
+        let width = (size.cell_width() * 2.) as usize;
+        let height = size.cell_height() as usize;
+        (rect.width >= width + size.cell_width() as usize && rect.height >= height * 2)
+            .then(|| PaneRect { x: rect.x + rect.width - width, y: rect.y, width, height })
+    }
+
+    fn pane_pointer(&self) -> (usize, usize) {
+        let size = self.display.size_info;
+        (
+            (self.pointer_position.x - size.padding_x() as f64).max(0.) as usize,
+            (self.pointer_position.y - size.padding_y() as f64).max(0.) as usize,
+        )
+    }
+
+    fn pane_handle_at_pointer(&self) -> Option<TabId> {
+        let size = self.display.size_info;
+        if self.mouse.left_button_state == ElementState::Pressed
+            || self.pane_drag.is_some()
+            || self.pointer_position.x < size.padding_x() as f64
+            || self.pointer_position.y < size.padding_y() as f64
+        {
+            return None;
+        }
+        let (x, y) = self.pane_pointer();
+        self.tabs.active.rectangles(size).into_iter().find_map(|(id, rect)| {
+            self.pane_handle_rect(rect).filter(|rect| rect.contains(x, y)).map(|_| id)
+        })
+    }
+
+    fn damage_pane_controls(&mut self) {
+        self.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
+        self.display.damage_tracker.next_frame().mark_fully_damaged();
+    }
+
+    fn pane_tab_hit(&self) -> Option<TabButton> {
+        let size = self.display.size_info;
+        if self.pointer_position.x < size.padding_x() as f64
+            || self.pointer_position.y < 0.
+            || self.pointer_position.y >= size.padding_y() as f64
+        {
+            return None;
+        }
+        let x = ((self.pointer_position.x - size.padding_x() as f64) / size.cell_width() as f64)
+            as usize;
+        self.display.tab_bar.as_ref()?.hit(x, size.columns())
+    }
+
+    fn pane_drop_target(&self, source: TabId) -> Option<PaneDropTarget> {
+        let (source_index, _) = self.pane_location(source)?;
+        let target = match self.pane_tab_hit() {
+            Some(TabButton::Create) if self.tabs.get(source_index)?.panes.len() > 1 => {
+                return Some(PaneDropTarget::NewTab);
+            },
+            Some(TabButton::Select(index) | TabButton::Close(index)) => {
+                let tab = self.tabs.get(index)?;
+                PaneDropTarget::Pane {
+                    tab: tab.id,
+                    pane: tab.panes.active.id,
+                    direction: PaneDirection::Right,
+                }
+            },
+            _ => {
+                let size = self.display.size_info;
+                let (width, height) = size.pane_extent();
+                let (x, y) = self.pane_pointer();
+                if self.pointer_position.x < size.padding_x() as f64
+                    || self.pointer_position.y < size.padding_y() as f64
+                    || x >= width
+                    || y >= height
+                {
+                    return None;
+                }
+                let (pane, rect) = self
+                    .tabs
+                    .active
+                    .rectangles(size)
+                    .into_iter()
+                    .find(|(_, rect)| rect.contains(x, y))?;
+                PaneDropTarget::Pane {
+                    tab: self.tabs.active.id,
+                    pane,
+                    direction: rect.drop_direction(x, y)?,
+                }
+            },
+        };
+        let PaneDropTarget::Pane { tab, pane, direction } = target else { return None };
+        let destination = self.tabs.iter().find(|candidate| candidate.id == tab)?;
+        let mut layout = destination.layout.clone();
+        let valid = if self.tabs.get(source_index)?.id == tab {
+            layout.relocate(source, pane, direction)
+        } else {
+            layout.insert(pane, source, direction)
+        };
+        valid.then_some(target)
+    }
+
+    fn move_pane(
+        &mut self,
+        source: TabId,
+        target: PaneDropTarget,
+        proxy: &EventLoopProxy<Event>,
+        scheduler: &mut Scheduler,
+    ) -> bool {
+        let Some((source_index, pane_index)) = self.pane_location(source) else { return false };
+        let focused = self.tabs.active.terminal.lock().is_focused;
+        let destination = match target {
+            PaneDropTarget::NewTab => {
+                if self.tabs.get(source_index).unwrap().panes.len() == 1 {
+                    return false;
+                }
+                self.set_tab_focus(false);
+                let origin = self.tabs.get_mut(source_index).unwrap();
+                let pane = origin.panes.take(pane_index).unwrap();
+                origin.layout.remove(source);
+                origin.zoomed = false;
+                let mut tab = TerminalTab::single(pane);
+                tab.group = origin.group.clone();
+                tab.id = self.next_tab_id;
+                self.next_tab_id += 1;
+                let id = tab.id;
+                self.tabs.push(tab);
+                id
+            },
+            PaneDropTarget::Pane { tab, pane: target, direction } => {
+                let Some(destination_index) =
+                    self.tabs.iter().position(|candidate| candidate.id == tab)
+                else {
+                    return false;
+                };
+                let mut layout = self.tabs.get(destination_index).unwrap().layout.clone();
+                if source_index == destination_index {
+                    if !layout.relocate(source, target, direction) {
+                        return false;
+                    }
+                    self.set_tab_focus(false);
+                    let destination = self.tabs.get_mut(destination_index).unwrap();
+                    destination.layout = layout;
+                    destination.panes.select(pane_index);
+                    destination.zoomed = false;
+                } else {
+                    if !layout.insert(target, source, direction) {
+                        return false;
+                    }
+                    self.set_tab_focus(false);
+                    let origin = self.tabs.get_mut(source_index).unwrap();
+                    let pane = if origin.panes.len() > 1 {
+                        origin.layout.remove(source);
+                        origin.zoomed = false;
+                        origin.panes.take(pane_index).unwrap()
+                    } else {
+                        self.tabs.take(source_index).unwrap().panes.active
+                    };
+                    let destination_index =
+                        self.tabs.iter().position(|candidate| candidate.id == tab).unwrap();
+                    let destination = self.tabs.get_mut(destination_index).unwrap();
+                    destination.layout = layout;
+                    destination.panes.push(pane);
+                    destination.panes.select(destination.panes.len() - 1);
+                    destination.zoomed = false;
+                }
+                tab
+            },
+        };
+        let index = self.tabs.iter().position(|tab| tab.id == destination).unwrap();
+        self.tabs.select(index);
+        self.activate_tab(focused, proxy, scheduler);
+        self.resize_inactive_tabs();
+        self.persist_recovery();
+        self.damage_pane_controls();
+        true
+    }
+
+    fn cancel_pane_move(
+        &mut self,
+        drag: PaneMove,
+        proxy: &EventLoopProxy<Event>,
+        scheduler: &mut Scheduler,
+    ) {
+        let origin = self.tabs.iter().position(|tab| tab.id == drag.source_tab);
+        if let Some(index) = origin {
+            self.select_tab(index, proxy, scheduler);
+        }
+        if let Some(bar) = &mut self.display.tab_bar {
+            bar.hover(None);
+        }
+        self.pane_handle = None;
+        self.display.window.set_mouse_cursor(CursorIcon::Default);
+        self.damage_pane_controls();
+    }
+
+    fn handle_pane_move(
+        &mut self,
+        event: &WinitEvent<Event>,
+        proxy: &EventLoopProxy<Event>,
+        scheduler: &mut Scheduler,
+    ) -> bool {
+        let Some(mut drag) = self.pane_move.take() else { return false };
+        if self.pane_location(drag.pane).is_none() {
+            self.cancel_pane_move(drag, proxy, scheduler);
+            if !matches!(
+                event,
+                WinitEvent::WindowEvent {
+                    event: WindowEvent::MouseInput {
+                        state: ElementState::Released,
+                        button: MouseButton::Left,
+                        ..
+                    },
+                    ..
+                }
+            ) {
+                self.modal_mouse_release = Some(MouseButton::Left);
+            }
+            return matches!(
+                event,
+                WinitEvent::WindowEvent {
+                    event: WindowEvent::MouseInput { .. } | WindowEvent::CursorMoved { .. },
+                    ..
+                }
+            );
+        }
+        match event {
+            WinitEvent::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. }, ..
+            } => {
+                let dx = position.x - drag.origin.x;
+                let dy = position.y - drag.origin.y;
+                let threshold = 5. * self.display.window.scale_factor;
+                drag.started |= dx * dx + dy * dy >= threshold * threshold;
+                if drag.started {
+                    let hit = self.pane_tab_hit();
+                    if let Some(TabButton::Select(index) | TabButton::Close(index)) = hit {
+                        self.select_tab(index, proxy, scheduler);
+                    }
+                    if let Some(bar) = &mut self.display.tab_bar {
+                        bar.hover(hit);
+                    }
+                    drag.target = self.pane_drop_target(drag.pane);
+                }
+                self.display.window.set_mouse_visible(true);
+                self.display.window.set_mouse_cursor(if !drag.started {
+                    CursorIcon::Grab
+                } else if drag.target.is_some() {
+                    CursorIcon::Grabbing
+                } else {
+                    CursorIcon::NoDrop
+                });
+                self.pane_move = Some(drag);
+                self.damage_pane_controls();
+                true
+            },
+            WinitEvent::WindowEvent {
+                event:
+                    WindowEvent::MouseInput {
+                        state: ElementState::Released,
+                        button: MouseButton::Left,
+                        ..
+                    },
+                ..
+            } => {
+                let moved = drag.started
+                    && drag
+                        .target
+                        .is_some_and(|target| self.move_pane(drag.pane, target, proxy, scheduler));
+                if !moved {
+                    self.cancel_pane_move(drag, proxy, scheduler);
+                }
+                self.pane_handle = None;
+                if let Some(bar) = &mut self.display.tab_bar {
+                    bar.hover(None);
+                }
+                self.display.window.set_mouse_cursor(CursorIcon::Default);
+                self.damage_pane_controls();
+                true
+            },
+            WinitEvent::WindowEvent {
+                event: WindowEvent::KeyboardInput { event: key, .. },
+                ..
+            } => {
+                if key.logical_key == Key::Named(NamedKey::Escape) {
+                    self.capture_modal_action(event);
+                    self.modal_mouse_release = Some(MouseButton::Left);
+                    self.cancel_pane_move(drag, proxy, scheduler);
+                } else {
+                    self.pane_move = Some(drag);
+                }
+                true
+            },
+            WinitEvent::WindowEvent {
+                event: WindowEvent::Focused(false) | WindowEvent::Resized(_),
+                ..
+            } => {
+                self.modal_mouse_release = Some(MouseButton::Left);
+                self.cancel_pane_move(drag, proxy, scheduler);
+                false
+            },
+            WinitEvent::WindowEvent { event: WindowEvent::CursorLeft { .. }, .. } => {
+                drag.target = None;
+                self.pane_move = Some(drag);
+                self.damage_pane_controls();
+                true
+            },
+            WinitEvent::WindowEvent {
+                event:
+                    WindowEvent::MouseInput { .. }
+                    | WindowEvent::MouseWheel { .. }
+                    | WindowEvent::Ime(_)
+                    | WindowEvent::DroppedFile(_),
+                ..
+            } => {
+                self.pane_move = Some(drag);
+                true
+            },
+            _ => {
+                self.pane_move = Some(drag);
+                false
+            },
+        }
+    }
+
+    fn pane_control_overlays(&self) -> Vec<crate::renderer::rects::RenderRect> {
+        use crate::renderer::rects::RenderRect;
+        use crate::ui::rounded;
+
+        if self.display.tab_dialog.is_some()
+            || self.display.context_menu.is_some()
+            || self.display.language_dialog.is_some()
+            || self.display.productivity_dialog.is_some()
+            || self.display.close_confirmation.is_some()
+        {
+            return Vec::new();
+        }
+        let size = self.display.size_info;
+        let rectangles = self.tabs.active.rectangles(size);
+        let mut overlays = Vec::new();
+        let accent = self.config.colors.normal.blue;
+        if let Some(PaneMove {
+            target: Some(PaneDropTarget::Pane { tab, pane, direction }), ..
+        }) = self.pane_move
+        {
+            if tab == self.tabs.active.id {
+                if let Some((_, rect)) = rectangles.iter().find(|(id, _)| *id == pane) {
+                    let rect = rect.dock_rect(direction);
+                    let x = size.padding_x() + rect.x as f32;
+                    let y = size.padding_y() + rect.y as f32;
+                    let width = rect.width as f32;
+                    let height = rect.height as f32;
+                    overlays.extend([
+                        RenderRect::new(x, y, width, height, accent, 0.18),
+                        RenderRect::new(x, y, width, 2., accent, 0.9),
+                        RenderRect::new(x, y + height - 2., width, 2., accent, 0.9),
+                        RenderRect::new(x, y, 2., height, accent, 0.9),
+                        RenderRect::new(x + width - 2., y, 2., height, accent, 0.9),
+                    ]);
+                }
+            }
+        }
+        for (id, rect) in rectangles {
+            let hovered = self.pane_handle == Some(id);
+            if self.tabs.active.panes.len() == 1 && !hovered {
+                continue;
+            }
+            let Some(handle) = self.pane_handle_rect(rect) else { continue };
+            let radius = (size.cell_width() * 0.5).min(size.cell_height() * 0.3);
+            let x = size.padding_x() + handle.x as f32 + handle.width as f32 * 0.5;
+            let y = size.padding_y() + handle.y as f32 + handle.height as f32 * 0.5;
+            overlays.extend(rounded(
+                RenderRect::new(
+                    x - radius - 2.,
+                    y - radius - 2.,
+                    radius * 2. + 4.,
+                    radius * 2. + 4.,
+                    self.config.colors.primary.background,
+                    0.85,
+                ),
+                radius + 2.,
+            ));
+            overlays.extend(rounded(
+                RenderRect::new(
+                    x - radius,
+                    y - radius,
+                    radius * 2.,
+                    radius * 2.,
+                    if hovered { accent } else { self.config.colors.primary.foreground },
+                    if hovered { 1. } else { 0.45 },
+                ),
+                radius,
+            ));
+        }
+        overlays
     }
 
     fn handle_pane_mouse(
@@ -1022,6 +1556,9 @@ impl WindowContext {
         proxy: &EventLoopProxy<Event>,
         scheduler: &mut Scheduler,
     ) -> bool {
+        if self.tab_mouse_pressed {
+            return false;
+        }
         if let WinitEvent::WindowEvent {
             event: WindowEvent::CursorMoved { position, .. }, ..
         } = event
@@ -1031,20 +1568,74 @@ impl WindowContext {
         if matches!(event, WinitEvent::WindowEvent { event: WindowEvent::Focused(false), .. }) {
             self.pane_drag = None;
         }
+        if self.handle_pane_move(event, proxy, scheduler) {
+            return true;
+        }
+        let size = self.display.size_info;
+        if matches!(
+            event,
+            WinitEvent::WindowEvent {
+                event: WindowEvent::CursorMoved { .. } | WindowEvent::CursorLeft { .. },
+                ..
+            }
+        ) {
+            let handle = if matches!(
+                event,
+                WinitEvent::WindowEvent { event: WindowEvent::CursorLeft { .. }, .. }
+            ) {
+                None
+            } else {
+                self.pane_handle_at_pointer()
+            };
+            if self.pane_handle != handle {
+                self.pane_handle = handle;
+                self.damage_pane_controls();
+            }
+            if handle.is_some() {
+                self.display.window.set_mouse_visible(true);
+                self.display.window.set_mouse_cursor(CursorIcon::Grab);
+                return true;
+            }
+        }
+        if let WinitEvent::WindowEvent {
+            event:
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed, button: MouseButton::Left, ..
+                },
+            ..
+        } = event
+        {
+            if let Some(id) = self.pane_handle_at_pointer() {
+                self.cancel_mouse_drag(scheduler);
+                self.select_pane(id, proxy, scheduler);
+                self.pane_handle = Some(id);
+                self.pane_move = Some(PaneMove {
+                    pane: id,
+                    source_tab: self.tabs.active.id,
+                    origin: self.pointer_position,
+                    started: false,
+                    target: None,
+                });
+                self.display.window.set_mouse_cursor(CursorIcon::Grab);
+                self.damage_pane_controls();
+                return true;
+            }
+        }
         if self.tabs.active.panes.len() == 1 {
             return false;
         }
-        let size = self.display.size_info;
-        let (x, y) = self.pointer_cell();
+        let (width, height) = size.pane_extent();
+        let (x, y) = self.pane_pointer();
         if let Some(path) = self.pane_drag.clone() {
             match event {
                 WinitEvent::WindowEvent { event: WindowEvent::CursorMoved { .. }, .. } => {
                     self.tabs.active.layout.resize_divider(
                         &path,
-                        x.min(size.columns()),
-                        y.min(size.screen_lines()),
-                        size.columns(),
-                        size.screen_lines(),
+                        x.min(width),
+                        y.min(height),
+                        width,
+                        height,
+                        size.pane_minimum(),
                     );
                     self.resize_inactive_tabs();
                     self.refresh_tab_bar();
@@ -1062,14 +1653,18 @@ impl WindowContext {
         }
         if self.pointer_position.x < size.padding_x() as f64
             || self.pointer_position.y < size.padding_y() as f64
-            || x >= size.columns()
-            || y >= size.screen_lines()
+            || x >= width
+            || y >= height
         {
             return false;
         }
         let divider = (!self.tabs.active.zoomed)
-            .then(|| self.tabs.active.layout.layout(size.columns(), size.screen_lines()))
-            .and_then(|layout| layout.hit_divider(x, y).cloned());
+            .then(|| self.tabs.active.layout.layout(width, height, size.pane_minimum()))
+            .and_then(|layout| {
+                layout
+                    .hit_divider_near(x, y, (3. * self.display.window.scale_factor).ceil() as usize)
+                    .cloned()
+            });
         if let Some(divider) = divider {
             self.display.window.set_mouse_cursor(if divider.axis == Axis::Vertical {
                 CursorIcon::ColResize
@@ -1112,10 +1707,13 @@ impl WindowContext {
                 _ => (),
             }
         }
-        if matches!(event, WinitEvent::WindowEvent {
-            event: WindowEvent::MouseInput { state: ElementState::Pressed, .. },
-            ..
-        }) {
+        if matches!(
+            event,
+            WinitEvent::WindowEvent {
+                event: WindowEvent::MouseInput { state: ElementState::Pressed, .. },
+                ..
+            }
+        ) {
             let target = self
                 .tabs
                 .active
@@ -1180,6 +1778,159 @@ impl WindowContext {
             Some(path) => WorkspaceStore::new(path).list(),
             None => Ok(Vec::new()),
         }
+    }
+
+    fn agent_message(state: AgentState) -> Message {
+        match state {
+            AgentState::Ready => Message::AgentReady,
+            AgentState::Working => Message::AgentWorking,
+            AgentState::Input => Message::AgentInput,
+            AgentState::Permission => Message::AgentPermission,
+            AgentState::Done => Message::AgentDone,
+            AgentState::Error => Message::AgentError,
+            AgentState::Unknown => Message::AgentUnknown,
+        }
+    }
+
+    fn agent_rows(&self) -> Vec<AgentRow> {
+        let locale = self.config.general.language.resolve();
+        if !self.config.general.agent_integration {
+            return Vec::new();
+        }
+        self.tabs
+            .iter()
+            .enumerate()
+            .flat_map(|(tab_index, tab)| {
+                tab.panes.iter().enumerate().filter_map(move |(index, pane)| {
+                    let status = pane.agent.as_ref()?.primary()?;
+                    Some(AgentRow {
+                        tab_id: tab.id,
+                        pane_id: pane.id,
+                        title: format!(
+                            "{}:{} · {}",
+                            tab_index + 1,
+                            index + 1,
+                            tab.custom_title.as_deref().unwrap_or_else(|| pane.display_title())
+                        ),
+                        provider: status.provider.label().into(),
+                        status: locale.text(Self::agent_message(status.state)).into(),
+                        state: status.state,
+                        limited: status.limited,
+                        unread: status.unread,
+                    })
+                })
+            })
+            .collect()
+    }
+
+    fn open_agents(&mut self) {
+        self.dismiss_close_confirmation();
+        self.close_productivity(true);
+        self.close_context_menu();
+        self.close_tab_dialog();
+        self.close_language_settings();
+        self.display.productivity_dialog = Some(ProductivityDialog::Agents(AgentDialog::new(
+            self.config.general.language.resolve(),
+            self.agent_rows(),
+        )));
+        self.display.window.set_ime_inhibitor(ImeInhibitor::VI, true);
+        self.display.ime.set_preedit(None);
+        self.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
+    }
+
+    fn open_groups(&mut self, index: usize) {
+        let Some(tab) = self.tabs.get(index) else { return };
+        let id = tab.id;
+        let current = tab.group.clone();
+        let mut groups = std::collections::BTreeMap::<String, usize>::new();
+        for tab in self.tabs.iter() {
+            if let Some(name) = &tab.group {
+                *groups.entry(name.clone()).or_default() += 1;
+            }
+        }
+        self.dismiss_close_confirmation();
+        self.close_productivity(true);
+        self.close_context_menu();
+        self.close_tab_dialog();
+        self.close_language_settings();
+        self.display.productivity_dialog = Some(ProductivityDialog::Groups(GroupDialog::new(
+            id,
+            groups.into_iter().collect(),
+            current,
+            self.config.general.language.resolve(),
+        )));
+        self.display.window.set_ime_inhibitor(ImeInhibitor::VI, false);
+        self.display.ime.set_preedit(None);
+        self.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
+    }
+
+    fn group_action(
+        &mut self,
+        action: ProductivityAction,
+        proxy: &EventLoopProxy<Event>,
+        scheduler: &mut Scheduler,
+    ) {
+        let Some(ProductivityDialog::Groups(dialog)) = &self.display.productivity_dialog else {
+            return;
+        };
+        let id = dialog.tab_id;
+        self.close_productivity(false);
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else { return };
+        match action {
+            ProductivityAction::GroupCreate(name) => {
+                if !crate::session::valid_group_name(&name)
+                    || self.tabs.iter().any(|tab| tab.group.as_ref() == Some(&name))
+                {
+                    return;
+                }
+                self.tabs.get_mut(index).unwrap().group = Some(name.clone());
+                self.group_filter = Some(name);
+                self.select_tab(index, proxy, scheduler);
+            },
+            ProductivityAction::GroupRename { old, new } => {
+                if !crate::session::valid_group_name(&new)
+                    || self.tabs.iter().any(|tab| tab.group.as_ref() == Some(&new))
+                {
+                    return;
+                }
+                for tab in self.tabs.iter_mut() {
+                    if tab.group.as_ref() == Some(&old) {
+                        tab.group = Some(new.clone());
+                    }
+                }
+                if self.group_filter.as_ref() == Some(&old) {
+                    self.group_filter = Some(new);
+                }
+            },
+            ProductivityAction::GroupMove(group) => {
+                if group.as_ref().is_some_and(|name| {
+                    !self.tabs.iter().any(|tab| tab.group.as_ref() == Some(name))
+                }) {
+                    return;
+                }
+                self.tabs.get_mut(index).unwrap().group = group.clone();
+                if index == self.tabs.active_index && self.group_filter.is_some() {
+                    self.group_filter = group;
+                }
+            },
+            ProductivityAction::GroupShow(group) => {
+                let target = match &group {
+                    Some(name) if self.tabs.active.group.as_ref() != Some(name) => {
+                        self.tabs.iter().position(|tab| tab.group.as_ref() == Some(name))
+                    },
+                    _ => Some(self.tabs.active_index),
+                };
+                if let Some(target) = target {
+                    self.group_filter = group;
+                    self.select_tab(target, proxy, scheduler);
+                }
+            },
+            _ => return,
+        }
+        self.refresh_tab_bar();
+        self.persist_recovery();
     }
 
     fn open_workspaces(&mut self) {
@@ -1283,11 +2034,18 @@ impl WindowContext {
                     dialog.startup = self.config.general.startup_session.clone();
                 }
             },
-            None => (),
+            Some(ProductivityDialog::Groups(_) | ProductivityDialog::Agents(_)) | None => (),
         }
         self.dirty = true;
         self.display.damage_tracker.frame().mark_fully_damaged();
         self.display.window.request_redraw();
+    }
+
+    pub fn settings_icon_failed(&mut self) {
+        if let Some(ProductivityDialog::Preferences(dialog)) = &mut self.display.productivity_dialog
+        {
+            dialog.status = Some(Message::IconIntegrationFailed);
+        }
     }
 
     pub fn workspace_removed(&mut self, removed: bool) {
@@ -1352,9 +2110,10 @@ impl WindowContext {
         event: &WinitEvent<Event>,
         proxy: &EventLoopProxy<Event>,
         clipboard: &mut Clipboard,
+        scheduler: &mut Scheduler,
     ) -> bool {
+        let size = self.display.dialog_size_info();
         let Some(dialog) = &mut self.display.productivity_dialog else { return false };
-        let size = self.display.size_info;
         let action = match event {
             WinitEvent::WindowEvent {
                 event: WindowEvent::KeyboardInput { event, is_synthetic: false, .. },
@@ -1448,12 +2207,32 @@ impl WindowContext {
         };
         self.dirty = true;
         self.display.damage_tracker.frame().mark_fully_damaged();
+        if action.is_some() {
+            self.capture_modal_action(event);
+        }
         match action {
             Some(ProductivityAction::Cancel) => self.close_productivity(true),
             Some(ProductivityAction::SaveSettings(values)) => {
                 self.preview_preferences();
                 let _ = proxy
                     .send_event(Event::new(EventType::SetSettings(Box::new(values)), self.id()));
+            },
+            Some(ProductivityAction::FocusAgent { tab_id, pane_id }) => {
+                self.close_productivity(false);
+                let target = self.tabs.iter().position(|tab| {
+                    tab.id == tab_id && tab.panes.iter().any(|pane| pane.id == pane_id)
+                });
+                if let Some(index) = target {
+                    self.select_tab(index, proxy, scheduler);
+                    if self.tabs.active.panes.active.id != pane_id {
+                        self.tabs.active.zoomed = false;
+                    }
+                    self.select_pane(pane_id, proxy, scheduler);
+                    if let Some(agent) = &mut self.tabs.active.panes.active.agent {
+                        agent.poll(true);
+                    }
+                    self.refresh_tab_bar();
+                }
             },
             Some(ProductivityAction::OpenWorkspace(name)) => {
                 let snapshot = WorkspaceStore::default_path()
@@ -1466,6 +2245,12 @@ impl WindowContext {
                     dialog.status = Some(Message::WorkspaceFailed);
                 }
             },
+            Some(
+                action @ (ProductivityAction::GroupCreate(_)
+                | ProductivityAction::GroupRename { .. }
+                | ProductivityAction::GroupMove(_)
+                | ProductivityAction::GroupShow(_)),
+            ) => self.group_action(action, proxy, scheduler),
             Some(action) => self.workspace_action(action, proxy),
             None => self.preview_preferences(),
         }
@@ -1577,6 +2362,9 @@ impl WindowContext {
         };
         self.dirty = true;
         self.display.damage_tracker.frame().mark_fully_damaged();
+        if action.is_some() {
+            self.capture_modal_action(event);
+        }
         match action {
             Some(LanguageDialogAction::Save(language)) => {
                 let _ = proxy.send_event(Event::new(EventType::SetLanguage(language), self.id()));
@@ -1668,11 +2456,7 @@ impl WindowContext {
             self.session_notice(Message::StateDirectoryFailed);
             return;
         };
-        let snapshot = SavedSession {
-            version: 1,
-            active: self.tabs.active_index,
-            tabs: self.tabs.iter_mut().map(TerminalTab::snapshot).collect(),
-        };
+        let snapshot = self.snapshot();
         let store = SessionStore::new(path);
         let notice = match store.save(&snapshot) {
             Ok(()) => Message::SessionSaved,
@@ -1725,7 +2509,9 @@ impl WindowContext {
         for tab in prepared {
             self.tabs.push(tab);
         }
+        self.group_filter = snapshot.active_group;
         self.select_tab(base + snapshot.active, proxy, scheduler);
+        self.refresh_tab_bar();
         self.poll_session_restore(scheduler);
     }
 
@@ -1893,6 +2679,9 @@ impl WindowContext {
         };
         self.dirty = true;
         self.display.damage_tracker.frame().mark_fully_damaged();
+        if action.is_some() {
+            self.capture_modal_action(event);
+        }
         match action {
             Some(DialogAction::Apply) => {
                 self.apply_dialog_settings();
@@ -1907,9 +2696,53 @@ impl WindowContext {
     }
 
     fn refresh_tab_bar(&mut self) {
+        let agents = self.agent_rows();
         if let Some(bar) = &mut self.display.tab_bar {
             bar.titles = self.tabs.iter().map(|tab| tab.display_title().to_owned()).collect();
             bar.active = self.tabs.active_index;
+            bar.groups = self.tabs.iter().map(|tab| tab.group.clone()).collect();
+            bar.group_filter = self.group_filter.clone();
+            bar.group_label = self.group_filter.clone().unwrap_or_else(|| {
+                self.config.general.language.resolve().text(Message::AllTabs).into()
+            });
+            let statuses: Vec<_> = self
+                .tabs
+                .iter()
+                .map(|tab| {
+                    if !self.config.general.agent_integration {
+                        return None;
+                    }
+                    tab.panes
+                        .iter()
+                        .filter_map(|pane| pane.agent.as_ref()?.primary())
+                        .max_by_key(|status| (status.unread, status.state.priority()))
+                })
+                .collect();
+            bar.agent_states =
+                statuses.iter().map(|status| status.as_ref().map(|status| status.state)).collect();
+            bar.agent_labels = statuses
+                .iter()
+                .map(|status| {
+                    status
+                        .as_ref()
+                        .map(|status| {
+                            format!(
+                                "{} · {}",
+                                self.config.general.language.resolve().text(match status.state {
+                                    AgentState::Input => Message::AgentTabInput,
+                                    AgentState::Permission => Message::AgentTabPermission,
+                                    state => Self::agent_message(state),
+                                }),
+                                status.provider.label()
+                            )
+                        })
+                        .unwrap_or_default()
+                })
+                .collect();
+            bar.agent_unread = agents.iter().filter(|agent| agent.unread).count();
+            bar.agent_count = agents.len();
+            bar.agent_indicator =
+                agents.iter().map(|agent| agent.state).max_by_key(|state| state.priority());
             bar.activities = self
                 .tabs
                 .iter()
@@ -1929,29 +2762,51 @@ impl WindowContext {
             self.dirty = true;
             self.display.damage_tracker.frame().mark_fully_damaged();
         }
+        if matches!(self.display.productivity_dialog, Some(ProductivityDialog::Agents(_))) {
+            let rows = self.agent_rows();
+            if let Some(ProductivityDialog::Agents(dialog)) = &mut self.display.productivity_dialog
+            {
+                dialog.update(rows);
+            }
+        }
     }
 
-    fn consume_close_input(&mut self, event: &WinitEvent<Event>) -> bool {
+    fn capture_modal_action(&mut self, event: &WinitEvent<Event>) {
         match event {
             WinitEvent::WindowEvent { event: WindowEvent::KeyboardInput { event, .. }, .. }
-                if self.close_confirmation_key == Some(event.physical_key) =>
+                if event.state == ElementState::Pressed =>
+            {
+                self.modal_action_key = Some(event.physical_key);
+            },
+            WinitEvent::WindowEvent {
+                event: WindowEvent::MouseInput { state: ElementState::Pressed, button, .. },
+                ..
+            } => self.modal_mouse_release = Some(*button),
+            _ => (),
+        }
+    }
+
+    fn consume_modal_input(&mut self, event: &WinitEvent<Event>) -> bool {
+        match event {
+            WinitEvent::WindowEvent { event: WindowEvent::KeyboardInput { event, .. }, .. }
+                if self.modal_action_key == Some(event.physical_key) =>
             {
                 if event.state == ElementState::Released {
-                    self.close_confirmation_key = None;
+                    self.modal_action_key = None;
                 }
                 true
             },
             WinitEvent::WindowEvent {
                 event: WindowEvent::MouseInput { state: ElementState::Released, button, .. },
                 ..
-            } if self.close_mouse_release == Some(*button) => {
-                self.close_mouse_release = None;
+            } if self.modal_mouse_release == Some(*button) => {
+                self.modal_mouse_release = None;
                 self.tab_mouse_pressed = false;
                 true
             },
             WinitEvent::WindowEvent { event: WindowEvent::Focused(false), .. } => {
-                self.close_confirmation_key = None;
-                self.close_mouse_release = None;
+                self.modal_action_key = None;
+                self.modal_mouse_release = None;
                 false
             },
             _ => false,
@@ -2037,7 +2892,7 @@ impl WindowContext {
                 }
                 let action = dialog.key(event, self.modifiers.state());
                 if action.is_some() {
-                    self.close_confirmation_key = Some(event.physical_key);
+                    self.modal_action_key = Some(event.physical_key);
                 }
                 action
             },
@@ -2087,7 +2942,7 @@ impl WindowContext {
                     )
                 };
                 if action.is_some() {
-                    self.close_mouse_release = Some(*button);
+                    self.modal_mouse_release = Some(*button);
                 }
                 action
             },
@@ -2127,10 +2982,12 @@ impl WindowContext {
     ) {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
-        match TabContext::new(&self.display, &self.config, options, proxy.clone(), id, None) {
+        match TabContext::new(&self.display, &self.config, options, proxy.clone(), id, None, "") {
             Ok(tab) => {
                 tab.terminal.lock().is_focused = false;
-                self.tabs.push(TerminalTab::single(tab));
+                let mut tab = TerminalTab::single(tab);
+                tab.group = self.group_filter.clone().or_else(|| self.tabs.active.group.clone());
+                self.tabs.push(tab);
                 self.select_tab(self.tabs.len() - 1, proxy, scheduler);
             },
             Err(err) => error!("Could not open tab: {err}"),
@@ -2181,8 +3038,12 @@ impl WindowContext {
         proxy: &EventLoopProxy<Event>,
         scheduler: &mut Scheduler,
     ) {
+        if self.group_filter.is_some() && self.group_filter != self.tabs.active.group {
+            self.group_filter = self.tabs.active.group.clone();
+        }
         self.cancel_tab_timers(scheduler);
         self.pane_drag = None;
+        self.pane_handle = None;
         self.display.split_active = self.tabs.active.panes.len() > 1;
         self.set_tab_focus(focused);
         self.display.window.set_title(self.tabs.active.display_title().to_owned());
@@ -2239,7 +3100,7 @@ impl WindowContext {
                 let Some(rect) = rect else {
                     continue;
                 };
-                let mut pane_size = full.pane(rect.x, rect.y, rect.width, rect.height);
+                let mut pane_size = full.pane_pixels(rect);
                 pane_size.reserve_lines(usize::from(pane.search_state.history_index.is_some()));
                 let mut terminal = pane.terminal.lock();
                 if terminal.columns() != pane_size.columns()
@@ -2263,6 +3124,39 @@ impl WindowContext {
         let (index, pane_index) = self.tabs.iter().enumerate().find_map(|(index, tab)| {
             tab.panes.iter().position(|pane| pane.id == id).map(|pane| (index, pane))
         })?;
+        if let TerminalEvent::AgentState { app, state, kind } = &event {
+            if self.config.general.agent_integration && app == "codex" {
+                let active = index == self.tabs.active_index
+                    && pane_index == self.tabs.active.panes.active_index;
+                let pane = self.tabs.get_mut(index).unwrap().panes.get_mut(pane_index).unwrap();
+                let focused = active && pane.terminal.lock().is_focused;
+                #[cfg(not(windows))]
+                let pid = unsafe { libc::tcgetpgrp(pane.master_fd) };
+                #[cfg(not(windows))]
+                let pid = if pid > 1 && pid as u32 != pane.shell_pid { pid as u32 } else { 0 };
+                #[cfg(windows)]
+                let pid = 0;
+                if let Some(agent) = &mut pane.agent {
+                    let changed = agent.native(state, kind.as_deref(), focused, pid);
+                    if changed
+                        && self.config.general.agent_notifications
+                        && agent
+                            .primary()
+                            .is_some_and(|status| status.unread && status.state.attention())
+                    {
+                        self.display.window.set_urgent(true);
+                    }
+                }
+                self.refresh_tab_bar();
+                let rows = self.agent_rows();
+                if let Some(ProductivityDialog::Agents(dialog)) =
+                    &mut self.display.productivity_dialog
+                {
+                    dialog.update(rows);
+                }
+            }
+            return None;
+        }
         if matches!(event, TerminalEvent::Wakeup) {
             self.replay_pending_command(index, pane_index);
         }
@@ -2326,6 +3220,7 @@ impl WindowContext {
         if index == self.tabs.active_index {
             self.dirty = true;
         }
+        let focused = self.tabs.active.terminal.lock().is_focused;
         let tab = self.tabs.get_mut(index).unwrap().panes.get_mut(pane_index).unwrap();
         match event {
             TerminalEvent::PtyWrite(text) => tab.notifier.notify(text.into_bytes()),
@@ -2346,8 +3241,30 @@ impl WindowContext {
             },
             TerminalEvent::Bell => {
                 let urgency = tab.terminal.lock().mode().contains(TermMode::URGENCY_HINTS);
-                if urgency && !self.tabs.active.terminal.lock().is_focused {
+                if urgency && !focused {
                     self.display.window.set_urgent(true);
+                }
+                self.display.visual_bell.ring();
+                self.dirty = true;
+                if let Some(command) = &self.config.bell.command {
+                    if tab
+                        .prev_bell_cmd
+                        .is_none_or(|i| i.elapsed() >= crate::event::BELL_CMD_COOLDOWN)
+                    {
+                        #[cfg(not(windows))]
+                        let result = crate::daemon::spawn_daemon(
+                            command.program(),
+                            command.args(),
+                            tab.master_fd,
+                            tab.shell_pid,
+                        );
+                        #[cfg(windows)]
+                        let result = crate::daemon::spawn_daemon(command.program(), command.args());
+                        if let Err(err) = result {
+                            log::warn!("Unable to launch bell command: {err}");
+                        }
+                        tab.prev_bell_cmd = Some(Instant::now());
+                    }
                 }
             },
             _ => (),
@@ -2361,6 +3278,10 @@ impl WindowContext {
         }
         self.tab_drag = None;
         self.pane_drag = None;
+        if self.pane_move.take().is_some() || self.pane_handle.take().is_some() {
+            self.pane_handle = None;
+            self.damage_pane_controls();
+        }
         self.mouse.left_button_state = ElementState::Released;
         self.mouse.middle_button_state = ElementState::Released;
         self.mouse.right_button_state = ElementState::Released;
@@ -2387,7 +3308,13 @@ impl WindowContext {
         let (column, line) = self.pointer_cell();
         let mut menu = ContextMenu::new(id, column, line);
         menu.copy_enabled = copy_enabled;
-        menu.shortcuts = self.config.general.shortcuts.clone();
+        let mode = crate::config::BindingMode::new(
+            tab.terminal.lock().mode(),
+            tab.search_state.history_index.is_some(),
+        );
+        menu.update_shortcuts(&self.config, mode);
+        #[cfg(target_os = "linux")]
+        menu.update_applications(&self.config);
         menu.locale = self.config.general.language.resolve();
         self.display.context_menu = Some(menu);
         self.display.window.set_ime_inhibitor(ImeInhibitor::VI, true);
@@ -2429,6 +3356,16 @@ impl WindowContext {
         let hit = top
             .then(|| self.display.tab_bar.as_ref().unwrap().hit(column, size.columns()))
             .flatten();
+        if *button == MouseButton::Left && hit == Some(TabButton::Agents) {
+            self.tab_mouse_pressed = true;
+            self.open_agents();
+            return true;
+        }
+        if *button == MouseButton::Left && hit == Some(TabButton::Groups) {
+            self.tab_mouse_pressed = true;
+            self.open_groups(self.tabs.active_index);
+            return true;
+        }
         let toolbar = *button == MouseButton::Left && hit == Some(TabButton::Menu);
         if *button != MouseButton::Right && !toolbar {
             return false;
@@ -2471,6 +3408,7 @@ impl WindowContext {
                     return true;
                 };
                 if event.logical_key == Key::Named(NamedKey::Escape) {
+                    self.modal_action_key = Some(event.physical_key);
                     self.close_context_menu();
                     return true;
                 }
@@ -2536,6 +3474,7 @@ impl WindowContext {
                     if *button != MouseButton::Left
                         || !menu.layout(size.columns(), size.screen_lines()).contains(column, line)
                     {
+                        self.capture_modal_action(event);
                         self.close_context_menu();
                     }
                     return true;
@@ -2566,7 +3505,10 @@ impl WindowContext {
             _ => return false,
         };
         let Some(action) = action else { return true };
+        self.capture_modal_action(event);
         let id = self.display.context_menu.as_ref().unwrap().tab_id;
+        #[cfg(target_os = "linux")]
+        let pane_id = self.context_menu_pane;
         self.close_context_menu();
         let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else { return true };
         match action {
@@ -2577,6 +3519,28 @@ impl WindowContext {
                 self.tab_actions.push(EventType::CreateTab(options));
             },
             MenuAction::Settings => self.open_preferences(),
+            #[cfg(target_os = "linux")]
+            MenuAction::OpenEditor | MenuAction::OpenFileManager => {
+                use crate::desktop_apps::{AppKind, InstalledApps};
+                let (kind, preference) = if action == MenuAction::OpenEditor {
+                    (AppKind::Editor, &self.config.general.editor)
+                } else {
+                    (AppKind::FileManager, &self.config.general.file_manager)
+                };
+                let apps = InstalledApps::detect();
+                let result = self
+                    .tabs
+                    .get_mut(index)
+                    .and_then(|tab| tab.panes.iter_mut().find(|pane| Some(pane.id) == pane_id))
+                    .and_then(|pane| {
+                        let directory = pane.snapshot().working_directory?;
+                        let app = apps.resolve(kind, preference)?;
+                        Some(app.launch(&directory, pane.master_fd, pane.shell_pid))
+                    });
+                if !matches!(result, Some(Ok(()))) {
+                    self.session_notice(Message::DesktopOpenFailed);
+                }
+            },
             MenuAction::SplitVertical
             | MenuAction::SplitHorizontal
             | MenuAction::PaneZoom
@@ -2592,6 +3556,8 @@ impl WindowContext {
             MenuAction::Duplicate => self.tab_actions.push(EventType::DuplicateTab(Some(index))),
             MenuAction::ReopenClosed => self.tab_actions.push(EventType::ReopenClosedTab),
             MenuAction::Workspaces => self.open_workspaces(),
+            MenuAction::Groups => self.open_groups(index),
+            MenuAction::Agents => self.open_agents(),
             MenuAction::Rename => self.tab_actions.push(EventType::RenameTab(Some(index))),
             MenuAction::Save => self.tab_actions.push(EventType::SaveSession),
             MenuAction::Restore => self.tab_actions.push(EventType::RestoreSession),
@@ -2777,7 +3743,10 @@ impl WindowContext {
         }
 
         // Redraw the window.
+        self.display.pane_overlays = self.pane_control_overlays();
         let size = self.display.size_info;
+        let (width, height) = size.pane_extent();
+        let divider_color = crate::ui::Palette::new(&self.display.colors).border;
         let tab = &mut self.tabs.active;
         if tab.panes.len() == 1 {
             let pane = &mut tab.panes.active;
@@ -2795,17 +3764,17 @@ impl WindowContext {
                 Vec::new()
             } else {
                 tab.layout
-                    .layout(size.columns(), size.screen_lines())
+                    .layout(width, height, size.pane_minimum())
                     .dividers
                     .into_iter()
                     .map(|divider| {
                         let rect = divider.rect;
                         crate::renderer::rects::RenderRect::new(
-                            size.padding_x() + rect.x as f32 * size.cell_width(),
-                            size.padding_y() + rect.y as f32 * size.cell_height(),
-                            rect.width as f32 * size.cell_width(),
-                            rect.height as f32 * size.cell_height(),
-                            self.config.colors.footer_bar_background(),
+                            size.padding_x() + rect.x as f32,
+                            size.padding_y() + rect.y as f32,
+                            rect.width as f32,
+                            rect.height as f32,
+                            divider_color,
                             1.,
                         )
                     })
@@ -2820,7 +3789,7 @@ impl WindowContext {
                     if rect.width == 0 || rect.height == 0 {
                         return None;
                     }
-                    let mut pane_size = size.pane(rect.x, rect.y, rect.width, rect.height);
+                    let mut pane_size = size.pane_pixels(*rect);
                     pane_size.reserve_lines(usize::from(pane.search_state.history_index.is_some()));
                     Some(crate::display::PaneRender {
                         terminal: pane.terminal.lock(),
@@ -2872,7 +3841,10 @@ impl WindowContext {
         scheduler: &mut Scheduler,
         event: WinitEvent<Event>,
     ) {
-        if self.consume_close_input(&event) {
+        if matches!(event, WinitEvent::WindowEvent { event: WindowEvent::Focused(true), .. }) {
+            self.recovery_snapshot = None;
+        }
+        if self.consume_modal_input(&event) {
             return;
         }
         if self.display.tab_dialog.is_some()
@@ -2882,7 +3854,16 @@ impl WindowContext {
             || self.display.close_confirmation.is_some()
         {
             self.cancel_mouse_drag(scheduler);
-            if matches!(event, WinitEvent::UserEvent(Event { payload: EventType::Scroll(_), .. })) {
+            if matches!(
+                event,
+                WinitEvent::UserEvent(Event { payload: EventType::Scroll(_), .. })
+                    | WinitEvent::WindowEvent {
+                        event: WindowEvent::DroppedFile(_)
+                            | WindowEvent::HoveredFile(_)
+                            | WindowEvent::HoveredFileCancelled,
+                        ..
+                    }
+            ) {
                 return;
             }
         }
@@ -2895,6 +3876,10 @@ impl WindowContext {
             self.persist_recovery();
         }
         let event = match event {
+            WinitEvent::UserEvent(Event { payload: EventType::AgentAnimation, .. }) => {
+                self.animate_agents(scheduler);
+                return;
+            },
             WinitEvent::UserEvent(Event { payload: EventType::SessionActivity, .. }) => {
                 self.poll_activity(scheduler);
                 return;
@@ -2912,7 +3897,7 @@ impl WindowContext {
             },
             WinitEvent::UserEvent(Event { payload: EventType::DuplicateTab(index), .. }) => {
                 if let Some(tab) = self.tabs.get_mut(index.unwrap_or(self.tabs.active_index)) {
-                    let mut snapshot = tab.snapshot();
+                    let mut snapshot = tab.snapshot_with_output(0);
                     snapshot.replay_last_command = false;
                     self.open_fresh_tab(snapshot, event_proxy, scheduler);
                 }
@@ -2930,12 +3915,21 @@ impl WindowContext {
             },
             WinitEvent::UserEvent(Event { payload: EventType::MoveTab(previous), .. }) => {
                 let from = self.tabs.active_index;
-                let to = if previous {
-                    from.saturating_sub(1)
+                let indices = self
+                    .display
+                    .tab_bar
+                    .as_ref()
+                    .map(|bar| bar.visible_indices())
+                    .unwrap_or_else(|| (0..self.tabs.len()).collect());
+                let position = indices.iter().position(|index| *index == from).unwrap_or(0);
+                let target = if previous {
+                    position.saturating_sub(1)
                 } else {
-                    (from + 1).min(self.tabs.len() - 1)
+                    (position + 1).min(indices.len().saturating_sub(1))
                 };
-                self.reorder_tab(from, to);
+                if let Some(to) = indices.get(target) {
+                    self.reorder_tab(from, *to);
+                }
                 return;
             },
             WinitEvent::UserEvent(Event { payload: EventType::RestorePending, .. }) => {
@@ -2991,7 +3985,7 @@ impl WindowContext {
         if self.handle_close_confirmation(&event, event_proxy, scheduler) {
             return;
         }
-        if self.handle_productivity_event(&event, event_proxy, clipboard) {
+        if self.handle_productivity_event(&event, event_proxy, clipboard, scheduler) {
             return;
         }
         if self.handle_language_event(&event, event_proxy) {
@@ -3037,6 +4031,8 @@ impl WindowContext {
         let context = ActionContext {
             cursor_blink_timed_out: &mut pane.cursor_blink_timed_out,
             prev_bell_cmd: &mut pane.prev_bell_cmd,
+            pending_replay: &mut pane.pending_replay,
+            replay_started: &mut pane.replay_started,
             message_buffer: &mut self.message_buffer,
             inline_search_state: &mut pane.inline_search_state,
             search_state: &mut pane.search_state,

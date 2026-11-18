@@ -1,0 +1,100 @@
+plan: fork-bug-audit
+title: Review terminal features and distribution for regressions
+status: done
+created: 2026-10-31
+updated: 2026-10-31
+goal: Find and reproduce bugs introduced by the fork changes and document actionable results.
+context:
+  - Review committed feature changes since 29dc5537 and uncommitted installer and distribution files.
+scope:
+  - Session persistence, command capture and replay.
+  - Tab and pane lifecycle, rendering and input routing.
+  - Menus, settings persistence and shortcut behavior.
+  - Installer and package publication correctness.
+out_of_scope:
+  - Git commits or changing the user configuration.
+stages:
+  - id: audit
+    desc: Review independent areas and run existing checks
+    status: done
+  - id: reproduce
+    desc: Confirm reported defects with targeted reproductions
+    status: done
+  - id: report
+    desc: Record validated findings, coverage and limitations
+    status: done
+  - id: corrections
+    desc: Fix all seven findings, add regressions and update the local installation and existing public package
+    status: done
+risks:
+  - Existing tests cover common flows but may miss interactions between features.
+rollback:
+  - Keep reproductions isolated from user sessions and installed artifacts.
+decisions:
+  - Use parallel cavecrew reviewers for independent feature areas.
+  - Findings require a concrete trigger and observable incorrect behavior.
+  - The user requested corrections after the audit; implement and validate all seven findings.
+findings:
+  - id: replay-user-input
+    priority: P1
+    location: alacritty/src/window_context.rs:1778
+    problem: Pending automatic replay appends its command and Enter to unfinished user input.
+    reproduction: Delay Bash startup, enable saved replay, type a harmless touch command followed by a comment without Enter, then release startup; the typed command executes and the saved command does not.
+    evidence: /tmp/alacritty-review-replay.py
+    fix: Cancel pending replay on user-originated input including keyboard, paste and file drops.
+  - id: modal-enter-repeat
+    priority: P1
+    location: alacritty/src/window_context.rs:1897
+    problem: Holding Enter to apply tab settings leaks repeated Enter events into the shell after the dialog closes.
+    reproduction: Type a harmless touch command without Enter, open tab rename, enter a name and hold Enter; the shell command executes.
+    evidence: /tmp/review-modal-enter.py
+    fix: Consume the decision key repeats and release until the physical key is released.
+  - id: settings-stale-draft
+    priority: P2
+    location: alacritty/src/window_context.rs:620
+    problem: Saving an unchanged open settings dialog overwrites external changes loaded while the dialog was open.
+    reproduction: Open Appearance, externally change confirm_tab_close from false to true, wait for reload, then Save; the file returns to false.
+    evidence: /tmp/alacritty-review-settings.py
+    fix: Rebase untouched draft fields on reload or persist only fields edited by the user.
+  - id: recovery-other-window
+    priority: P2
+    location: alacritty/src/window_context.rs:774
+    problem: Per-window snapshot deduplication ignores another window replacing the shared recovery file.
+    reproduction: Autosave window A, autosave B, focus unchanged A for five seconds; recovery still contains B.
+    evidence: /tmp/alacritty-review-recovery.py
+    fix: Invalidate recovery deduplication on focus gain or compare with the actual shared saved state.
+  - id: tab-drag-release
+    priority: P2
+    location: alacritty/src/window_context.rs:1093
+    problem: Releasing a dragged tab over a pane divider does not terminate the tab drag.
+    reproduction: Drag tab B over its pane divider and release, then move over A without holding a button; tab order changes to B then A.
+    evidence: /tmp/review-pane-drag.py
+    fix: Deliver tab drag release before divider handling or clear the drag state on all release paths.
+  - id: inactive-bell
+    priority: P2
+    location: alacritty/src/window_context.rs:2347
+    problem: Inactive pane and tab bell events discard the configured bell command and visual bell.
+    reproduction: Configure bell.command to append a marker; an active bell appends it, but a bell emitted after focus moves to another pane does not.
+    evidence: /tmp/review-pane-bell.py
+    fix: Preserve bell command, cooldown and visual notification handling for inactive sources.
+  - id: user-terminfo-path
+    priority: P2
+    location: install.sh:248
+    problem: Default user installation compiles terminfo under .local/share/terminfo, outside the default lookup paths.
+    reproduction: Install the archive into a temporary HOME, hide system terminfo with an isolated bwrap mount; infocmp alacritty fails while infocmp with the explicit installed directory succeeds.
+    fix: Install user entries under the standard HOME/.terminfo path or configure discovery for both Alacritty and child applications.
+validation:
+  - Workspace checks passed with 408 tests and one documentation test.
+  - All 18 existing installer tests passed.
+  - All seven existing graphical suites passed against a fresh debug build, covering tabs, saved sessions, menus, languages, productivity, close confirmation and panes.
+  - Six terminal regressions reproduced with real shells and isolated Xvfb windows.
+  - Terminfo lookup regression reproduced using the real archive and isolated system terminfo paths.
+limitations:
+  - Graphical behavior validated on Linux X11; native Wayland, Windows and macOS were not exercised.
+  - Cross-platform graphical validation remains outside the Linux X11 environment available here.
+corrections:
+  - All seven findings fixed with regression coverage recorded in specs/terminal-regressions.yaml.
+  - Passed 411 workspace tests, one doctest, 20 installer tests, eight new graphical tests on debug and release builds, and seven existing graphical suites.
+  - Clippy with Rust 1.89, nightly formatting and independent correction review passed.
+  - Installed and verified optimized release 0.18.0-workspace.c14a29f6.eae964aa4390 locally.
+  - Published the corrected release to the existing B2 bucket; anonymous downloads and a real curl installation in an isolated HOME passed.

@@ -1,0 +1,74 @@
+spec: terminal-regressions
+title: Fix the seven confirmed terminal audit regressions
+status: done
+created: 2026-10-31
+updated: 2026-10-31
+goal: Correct all seven reproduced defects while preserving existing terminal workflows.
+problem: The audit found unintended command execution, stale state and missing notifications or terminfo discovery.
+behavior:
+  - Cancel pending automatic replay on actual user terminal input.
+  - Keep modal action keys and mouse releases isolated until released.
+  - Merge untouched settings fields from external reloads while preserving draft edits.
+  - Recover the last focused window even when another window overwrote recovery storage.
+  - End tab dragging on release over pane dividers.
+  - Execute configured bell notifications for inactive tabs and panes using their source context.
+  - Install terminfo into the standard user lookup path.
+constraints:
+  - Preserve user settings, saved sessions and running terminal processes.
+  - No Git commit or push; reuse the authorized dedicated B2 release bucket.
+implemented:
+  - Cancel automatic replay on terminal typing and paste while retaining the explicit replay preference for future restoration.
+  - Suppress modal decision key repeats and releases across tab settings, preferences, workspaces, context menus and close confirmation.
+  - Rebase untouched settings and font input after external configuration reloads while preserving edited fields.
+  - Invalidate recovery deduplication on focus gain so the last focused window owns the shared recovery snapshot.
+  - Route tab drag events before pane divider handling and preserve inactive bell commands with their source directory and cooldown.
+  - Install discoverable user terminfo while preserving unrelated entries and warning on optional integration failures.
+  - Add eight graphical regression tests and two installer regressions plus three settings unit tests.
+pending:
+  - None.
+steps:
+  - id: runtime
+    desc: Correct replay, modal input, recovery, dragging, settings and bells
+    status: done
+    verify: mise exec -- cargo test --workspace
+    note: "411 workspace tests and one doctest passed; Clippy passed with Rust 1.89 and nightly formatting checks passed. Graphical and release verification follow."
+  - id: installer
+    desc: Correct terminfo discovery and add an isolated lookup regression
+    status: done
+    verify: mise run test:install
+    note: "All 20 installer tests passed, including two new regressions that failed before the fix; real archive verified in an isolated HOME with system terminfo hidden."
+  - id: graphical
+    desc: Verify targeted reproductions and existing graphical suites
+    status: done
+    verify: mise run test:regressions
+    note: "All eight new graphical regressions passed on debug and optimized release binaries, with no skips. All seven existing Xvfb suites also passed. Commands were already executed against the final source."
+  - id: local
+    desc: Build and install the validated corrections for daily use
+    status: done
+    verify: mise run install:verify
+    note: "Installed optimized package through mise run install; existing running processes and configurations preserved."
+  - id: release
+    desc: Publish and verify the corrected package using the existing public installer
+    status: done
+    verify: mise run release:verify
+    note: "mise run publish completed with anonymous verification of all artifacts. Public curl-to-bash installation and verify-install passed in an isolated HOME; no repeat network verification needed."
+acceptance:
+  - desc: All seven reproductions pass with expected behavior and existing checks remain green
+    status: done
+    note: "All seven defects have regression coverage; all old suites and release installation checks passed."
+decisions:
+  - Use on_terminal_input_start to cancel replay without treating terminal protocol replies as user input.
+  - Reuse modal input suppression across menus and dialogs.
+  - Update the local installation and existing public distribution after validation so both delivery paths receive the fixes.
+risks:
+  - Input routing changes require checking clipboard, IME, raw keyboard releases and modal transitions.
+validation:
+  - All 411 workspace tests and one doctest passed.
+  - All 20 installer tests passed; new lookup and preservation regressions failed before the fix.
+  - All eight new graphical tests passed on debug and optimized release builds with no skips.
+  - All seven existing graphical suites passed on the final source.
+  - Clippy passed with Rust 1.89; nightly formatting and diff checks passed.
+  - Independent review found no remaining issues in the correction diff.
+  - Release 0.18.0-workspace.c14a29f6.eae964aa4390 installed and verified locally.
+  - Published the same release to B2 and verified every public object before updating latest.
+  - The real public curl-to-bash installer passed in an isolated HOME with default terminfo lookup.

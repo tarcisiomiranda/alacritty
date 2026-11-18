@@ -1,0 +1,11 @@
+bucket = "termust"
+base_url = "https://f005.backblazeb2.com/file/termust"
+platform = "linux-x86_64"
+
+[[mirrors]]
+bucket = "tarcisiomiranda-termust"
+base_url = "https://f005.backblazeb2.com/file/tarcisiomiranda-termust"
+
+[[mirrors]]
+bucket = "tarcisiomiranda-alacritty"
+base_url = "https://f005.backblazeb2.com/file/tarcisiomiranda-alacritty"

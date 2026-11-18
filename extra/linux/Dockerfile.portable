@@ -1,0 +1,9 @@
+FROM rust:1.89-bullseye@sha256:70e77c09f99aca6dbbbd179910c6a19a23603c79c1c5ad34cdcb49e0a800bbe7
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libfontconfig1-dev libfreetype6-dev libxcb-xfixes0-dev \
+        libxkbcommon-dev libxkbcommon-x11-dev pkg-config python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /source

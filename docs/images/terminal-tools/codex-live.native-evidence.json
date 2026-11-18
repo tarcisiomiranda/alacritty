@@ -1,0 +1,51 @@
+{
+  "codex_version": "codex-cli 0.166.0",
+  "states": [
+    {
+      "app": "codex",
+      "state": "idle"
+    },
+    {
+      "app": "codex",
+      "state": "working"
+    },
+    {
+      "app": "codex",
+      "state": "idle"
+    },
+    {
+      "app": "codex",
+      "state": "working"
+    },
+    {
+      "app": "codex",
+      "state": "done"
+    },
+    {
+      "app": "codex",
+      "state": "idle"
+    },
+    {
+      "app": "codex",
+      "state": "working"
+    },
+    {
+      "app": "codex",
+      "state": "blocked",
+      "kind": "permission"
+    },
+    {
+      "app": "codex",
+      "state": "working"
+    },
+    {
+      "app": "codex",
+      "state": "idle"
+    },
+    {
+      "state": "clear"
+    }
+  ],
+  "hook_trust_used": false,
+  "tool_approval_bypass_used": false
+}

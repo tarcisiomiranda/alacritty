@@ -1,7 +1,6 @@
 # Tabs, panes and daily work
 
-This fork adds tools for daily work in one window. These changes are for this
-fork. Alacritty upstream has different goals and does not accept native tabs or
+Termust adds tools for daily work in one window. It is an independent fork of Alacritty. Alacritty upstream has different goals and does not accept native tabs or
 split panes.
 
 I used Terminator before. It was slow on my computer. Terminator uses Python.
@@ -29,6 +28,33 @@ one pane fill the tab and then go back to the full layout.
 
 The menu gives quick access to tabs, panes, saved sessions and settings. It
 also works with the keyboard. In a small window, it can scroll.
+
+On Linux, **Settings → Applications** lists installed IDEs/editors and file managers.
+Choose a preferred app in each category and save. The menu then offers actions such
+as **Open in VS Code**, **Open in Zed**, **Open in Nautilus** or **Open in Dolphin**.
+The first two menu actions open the preferred editor and file manager, before
+all tab actions. They show the installed application icons, including VS Code and
+Nautilus. PNG and SVG icons are loaded through the optional system GdkPixbuf
+library; generic editor and folder icons are used when an app icon is unavailable.
+
+They open the current folder of the pane that owns the menu without sending a
+command to its shell. Automatic uses the first detected editor and the system
+file manager. Applications installed through desktop launchers, including exported
+Flatpak launchers, are detected when GIO is available. Reopen settings after
+installing an application. A saved app that is no longer installed stays visible
+as unavailable; choose another app or Automatic.
+
+The same preferences can be set in the terminal configuration:
+
+```toml
+[general]
+editor = "code"
+file_manager = "nautilus"
+```
+
+Supported editor IDs are `auto`, `code`, `zed`, `codium`, `code-insiders`, `kate`
+and `sublime`. File manager IDs are `auto`, `nautilus`, `dolphin`, `nemo`, `thunar`,
+`caja` and `pcmanfm`. The registered desktop application or executable must be installed.
 
 ![Right-click menu](images/terminal-tools/context-menu.png)
 
@@ -65,9 +91,44 @@ themes both work.
 
 ![Appearance settings](images/terminal-tools/settings-appearance.png)
 
+Compact Termust settings keep numeric controls and Save/Cancel buttons small,
+with a visible keyboard legend at the bottom. These examples use the updated
+interface at narrow window sizes.
+
+![Compact Termust settings](images/terminal-tools/settings-compact-termust.png)
+
+![Compact Termust settings in Portuguese](images/terminal-tools/settings-compact-termust-pt.png)
+
 ![Light theme](images/terminal-tools/settings-light.png)
 
 ![Split panes in a light theme](images/terminal-tools/split-panes-light.png)
+
+## Personal icons
+
+Open **Settings → Appearance → Application icon** to choose the original Termust
+icon, a cat, a dog, a fox or a robot. Click a card or use Tab and Enter to preview
+your choice. Save applies it to all Termust windows and remembers it after restart.
+Cancel restores the saved choice. **Restore original icon** changes only the icon;
+press Save to keep that change.
+
+On Linux, Save updates the current user's `Termust.desktop` launcher while keeping
+its command, application identity and other fields. The icon files live in the user
+data directory and survive release updates. Existing panel or pinned launchers may
+need to be pinned again. Runtime window previews work on X11; the current Wayland
+backend uses the saved launcher icon instead. KDE, GNOME, Cinnamon and XFCE shell
+integration still needs validation in their actual sessions.
+
+On Windows, window icons update live and Save updates a per-user Start menu
+shortcut. Existing pinned shortcuts may need to be pinned again. On macOS, the
+chosen icon appears in the Dock while Termust is running; Finder and the closed
+application keep the original icon. The installed executable and macOS bundle
+resources are unchanged.
+
+The setting is also available as `window.icon`, with values `termust`, `cat`, `dog`,
+`fox` and `robot`. Presets are bundled and work offline. Personal photos and animated
+companions are not part of this version.
+
+![Personal icon picker](images/terminal-tools/icon-personalization.en-dpi1-cat-preview.png)
 
 ## Language
 
@@ -80,17 +141,20 @@ saved. It changes the interface, while shell output keeps its own language.
 
 ## Shortcuts
 
-See and change shortcuts in settings. The editor checks for conflicts before
-you save a new key.
+See actions and their keys together in a scrollable list. Search by action name
+or key, or press Ctrl+F to search. Click a row to change its key, then Save.
+The editor checks conflicts, and Save/Cancel stay visible while you scroll.
 
-![Shortcut settings](images/terminal-tools/settings-shortcuts.png)
+![Searchable shortcut list](images/terminal-tools/shortcut-list-en-wide.png)
+
+![Compact shortcut list in Portuguese](images/terminal-tools/shortcut-list-pt-compact.png)
 
 See [tabs and saved sessions](tabs.md), [split panes](panes.md) and
 [settings and workspaces](productivity.md) for the keys and full details.
 
 ## Tests
 
-The screenshots above come from the actual app on Linux/X11, using a temporary
+Some screenshots were made before the Termust rename; the compact settings examples show the updated Termust interface. They come from the actual app on Linux/X11, using a temporary
 Xvfb display and sample files. They do not show private sessions. The Rust
 workspace tests pass on stable Rust and Rust 1.85.0. Graphical tests cover tabs,
 panes, sessions, menus, settings, language and close confirmation. This is not a

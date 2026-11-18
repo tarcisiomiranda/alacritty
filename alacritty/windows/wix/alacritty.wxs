@@ -1,59 +1,59 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-   <Package Name="Alacritty" UpgradeCode="87c21c74-dbd5-4584-89d5-46d9cd0c40a7" Language="1033" Codepage="1252" Version="0.18.0-dev" Manufacturer="Alacritty" InstallerVersion="200">
+   <Package Name="Termust" UpgradeCode="0df08c63-dc80-5db7-87b4-afdedb8822e3" Language="1033" Codepage="1252" Version="0.18.0-dev" Manufacturer="Termust" InstallerVersion="200">
       <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
-      <Icon Id="AlacrittyIco" SourceFile=".\alacritty\windows\alacritty.ico" />
+      <Icon Id="TermustIco" SourceFile=".\extra\logo\termust.ico" />
       <WixVariable Id="WixUILicenseRtf" Value=".\alacritty\windows\wix\license.rtf" />
-      <Property Id="ARPPRODUCTICON" Value="AlacrittyIco" />
+      <Property Id="ARPPRODUCTICON" Value="TermustIco" />
       <MediaTemplate EmbedCab="yes" />
       <ui:WixUI Id="WixUI_Minimal" />
       <Feature Id="ProductFeature" Title="ConsoleApp" Level="1">
-         <ComponentRef Id="AlacrittyExe" />
-         <ComponentRef Id="AlacrittyShortcut" />
+         <ComponentRef Id="TermustExe" />
+         <ComponentRef Id="TermustShortcut" />
          <ComponentRef Id="ModifyPathEnv" />
          <ComponentRef Id="ContextMenu" />
          <ComponentRef Id="ContextMenuFolder" />
       </Feature>
       <!-- Application binaries -->
-      <DirectoryRef Id="AlacrittyProgramFiles">
-         <Component Id="AlacrittyExe">
-            <File Id="AlacrittyExeFile" Source=".\target\release\alacritty.exe" Name="alacritty.exe" KeyPath="yes" />
+      <DirectoryRef Id="TermustProgramFiles">
+         <Component Id="TermustExe">
+            <File Id="TermustExeFile" Source=".\target\release\termust.exe" Name="termust.exe" KeyPath="yes" />
          </Component>
       </DirectoryRef>
-      <DirectoryRef Id="AlacrittyProgramMenu">
+      <DirectoryRef Id="TermustProgramMenu">
          <!-- Application shortcut -->
-         <Component Id="AlacrittyShortcut" Guid="aa36e61a-23cd-4383-b744-2f78e912f0dc">
-            <Shortcut Id="AlacrittyShortcutFile" Name="Alacritty" Description="A cross-platform, GPU-accelerated terminal emulator" Target="[AlacrittyProgramFiles]alacritty.exe" />
-            <RemoveFolder Id="AlacrittyProgramMenu" On="uninstall" />
-            <RegistryValue Root="HKCU" Key="Software\Microsoft\Alacritty" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+         <Component Id="TermustShortcut" Guid="94eefb68-4a60-54e3-9089-9861f7eb264a">
+            <Shortcut Id="TermustShortcutFile" Name="Termust" Description="A cross-platform, GPU-accelerated terminal emulator" Target="[TermustProgramFiles]termust.exe" />
+            <RemoveFolder Id="TermustProgramMenu" On="uninstall" />
+            <RegistryValue Root="HKCU" Key="Software\Microsoft\Termust" Name="installed" Type="integer" Value="1" KeyPath="yes" />
          </Component>
       </DirectoryRef>
-      <DirectoryRef Id="AlacrittyProgramFiles">
+      <DirectoryRef Id="TermustProgramFiles">
          <!-- Add to PATH -->
-         <Component Id="ModifyPathEnv" Guid="edf0b679-9eb6-46f7-a5d1-5160f30acb34" KeyPath="yes">
-            <Environment Id="PathEnv" Value="[AlacrittyProgramFiles]" Name="PATH" Permanent="no" Part="first" Action="set" System="yes" />
+         <Component Id="ModifyPathEnv" Guid="b58142d9-3612-5804-8f6e-351e2659ba02" KeyPath="yes">
+            <Environment Id="PathEnv" Value="[TermustProgramFiles]" Name="PATH" Permanent="no" Part="first" Action="set" System="yes" />
          </Component>
       </DirectoryRef>
       <StandardDirectory Id="ProgramFiles64Folder">
-         <Directory Id="AlacrittyProgramFiles" Name="Alacritty" />
+         <Directory Id="TermustProgramFiles" Name="Termust" />
       </StandardDirectory>
       <StandardDirectory Id="ProgramMenuFolder">
-         <Directory Id="AlacrittyProgramMenu" Name="Alacritty" />
+         <Directory Id="TermustProgramMenu" Name="Termust" />
       </StandardDirectory>
       <!-- Add context menu -->
-      <Component Id="ContextMenu" Guid="449f9121-f7b9-41fe-82da-52349ea8ff91" Directory="TARGETDIR">
-         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\Open Alacritty here\command">
-            <RegistryValue Type="string" Value='[AlacrittyProgramFiles]alacritty.exe --working-directory "%v"' KeyPath="yes" />
+      <Component Id="ContextMenu" Guid="6f6151b8-7ccb-5888-a66a-abd34e65f44d" Directory="TARGETDIR">
+         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\Open Termust here\command">
+            <RegistryValue Type="string" Value='[TermustProgramFiles]termust.exe --working-directory "%v"' KeyPath="yes" />
          </RegistryKey>
-         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\Open Alacritty here">
-            <RegistryValue Type="string" Name="Icon" Value="[AlacrittyProgramFiles]alacritty.exe" />
+         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\Background\shell\Open Termust here">
+            <RegistryValue Type="string" Name="Icon" Value="[TermustProgramFiles]termust.exe" />
          </RegistryKey>
       </Component>
-      <Component Id="ContextMenuFolder" Guid="69483b38-a267-433f-9395-60827963347a" Directory="TARGETDIR">
-         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\Open Alacritty here\command">
-            <RegistryValue Type="string" Value='[AlacrittyProgramFiles]alacritty.exe --working-directory "%v"' KeyPath="yes" />
+      <Component Id="ContextMenuFolder" Guid="088e8f34-030b-5187-b342-b8bcdde1a573" Directory="TARGETDIR">
+         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\Open Termust here\command">
+            <RegistryValue Type="string" Value='[TermustProgramFiles]termust.exe --working-directory "%v"' KeyPath="yes" />
          </RegistryKey>
-         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\Open Alacritty here">
-            <RegistryValue Type="string" Name="Icon" Value="[AlacrittyProgramFiles]alacritty.exe" />
+         <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\Open Termust here">
+            <RegistryValue Type="string" Name="Icon" Value="[TermustProgramFiles]termust.exe" />
          </RegistryKey>
       </Component>
    </Package>

@@ -2,10 +2,11 @@ spec: terminal-ui
 title: Clear and consistent native menus and controls
 status: done
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-11-09
 goal: Make native menus and preferences easy to scan, navigate and click during everyday terminal use.
-problem: Uniform crowded buttons obscure navigation and actions while compact panels hide controls unpredictably.
+problem: Uniform crowded controls obscure navigation and shortcut pagination hides actions and ignores clicks on its final entries.
 behavior:
+  - Settings and shared productivity dialogs use an independent 11 point font and layout scaled only by display DPI.
   - Separate settings navigation from content and keep save and cancel actions anchored.
   - Group context actions and expose overflow through predictable scrolling and visible controls.
   - Use consistent surfaces, inputs, toggles, selection and focus styling across native dialogs.
@@ -18,9 +19,19 @@ requirements_functional:
   - Closing, saved layouts and shortcut editing preserve their existing behavior.
 constraints:
   - Use the existing native renderer without adding a GUI toolkit or runtime dependency.
-  - No installed binary replacement, commit or push.
-  - No mise.toml or tasks exist; use mise exec.
+  - Install the authorized follow-up locally and publish through existing mise tasks; no commit or push.
 implemented:
+  - Published the verified UI change for native macOS Apple Silicon and Linux; the Mac installation was updated with the previous app bundle retained.
+  - Settings and shared productivity dialogs use a dedicated default-font glyph cache at 11 logical points and independent DPI-aware layout and pointer coordinates.
+  - Real graphical tests kept panel bounds, Save targets and UI text stable with terminal fonts at 11, 22 and 36 points in compact and wide windows at 1x and 2x DPI; preview, cancel and mouse Save passed.
+  - Published and locally installed 0.18.0-termust.c14a29f6.ce240e67a40e with public curl verification across all three download locations and a previous-version rollback snapshot.
+  - Replaced two-action shortcut pagination with an aligned searchable list and common tab actions near the top.
+  - Kept search and column headers pinned while the list scrolls and placed Disable Defaults Save and Cancel in a fixed footer.
+  - Fixed the activation range so all20 supported actions including renaming and the final entries can be edited.
+  - Added search by action or key Ctrl+F lookup Ctrl+Enter save real clipboard paste and stable focus after changing a searched key.
+  - Added tiny-height fallback and regressions for every shortcut mouse target fixed search/footer geometry and shortcut-only defaults.
+  - Passed workspace tests Rust1.89 Clippy and six graphical shortcut-list cases against debug and optimized portable binaries with English Portuguese compact wide dark and light layouts.
+  - Added real wide English and compact Portuguese screenshots and a mise test:shortcut-list task.
   - Adaptive light and dark surfaces, rounded controls, bold titles, radio choices and distinct destructive actions.
   - Sidebar and compact category navigation, stable scrolling and anchored action footers.
   - Grouped context menus with stable overflow, wheel and arrow controls, Home and End navigation.
@@ -31,17 +42,23 @@ implemented:
   - Contextual close buttons with larger targets and separate colored command activity markers.
   - Shared UI surfaces and text derive from primary terminal colors; accent and destructive actions use the configured blue and red slots.
   - Compact theme follow-up passed 222 Alacritty tests, Clippy and six graphical suites; screenshots reviewed in dark, light and custom green themes.
+  - GNOME-sized preferences use bounded one-row numeric steppers, shorter actions, an inset footer and visible compact Escape help.
+  - Final compact follow-up passed 423 workspace tests, ten localization checks, Clippy, full settings and menu regressions, and optimized graphical inspection at the user 737x570 dimensions.
 pending:
-  - None.
+  - None in the independent settings font scope.
 steps:
+  - id: independent-ui-font
+    desc: Give settings and shared productivity dialogs independent glyph metrics and matching pointer geometry
+    status: done
+    verify: mise run test:ui-font
   - id: components
     desc: Improve reusable styling and responsive menu and dialog geometry
     status: done
-    verify: mise exec -- cargo test -p alacritty
+    verify: mise exec -- cargo test -p termust
   - id: graphical
     desc: Verify clicks, scroll, focus, persistence and translated compact layouts
     status: done
-    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-tab-ui.py
+    verify: mise exec -- cargo build -p termust && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-tab-ui.py
   - id: regression
     desc: Preserve pane, session and confirmation behavior and document controls
     status: done
@@ -49,18 +66,38 @@ steps:
   - id: tab-bar
     desc: Style the native tab bar and preserve interaction and terminal geometry
     status: done
-    verify: mise exec -- cargo test -p alacritty
-    note: "Verified the final source with mise exec -- cargo test --workspace --quiet (406 unit tests and 1 doctest), cargo build -p alacritty, and Rust 1.89 Clippy with warnings denied."
+    verify: mise exec -- cargo test -p termust
+    note: "Verified the final source with mise exec -- cargo test --workspace --quiet (406 unit tests and 1 doctest), cargo build -p termust, and Rust 1.89 Clippy with warnings denied."
   - id: tab-bar-graphical
     desc: Verify tab hover, closing, dragging, activity and translated dialogs
     status: done
-    verify: mise exec -- cargo build -p alacritty && mise exec -- python3 -B scripts/test-tabs.py && mise exec -- python3 -B scripts/test-tab-ui.py && mise exec -- python3 -B scripts/test-productivity.py
+    verify: mise exec -- cargo build -p termust && mise exec -- python3 -B scripts/test-tabs.py && mise exec -- python3 -B scripts/test-tab-ui.py && mise exec -- python3 -B scripts/test-productivity.py
     note: "Final build passed test-tabs.py, test-tab-ui.py, test-productivity.py, test-language.py, test-panes.py and test-close-confirmation.py on isolated Xvfb. Dark, light, compact, Unicode and close-hover screenshots reviewed. Commands already ran successfully; no repeat needed."
   - id: compact-theme
     desc: Reduce tab height, inset close targets and derive all UI colors from the terminal theme
     status: done
-    verify: mise exec -- cargo test -p alacritty && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-language.py
+    verify: mise exec -- cargo test -p termust && mise exec -- python3 -B scripts/test-productivity.py && mise exec -- python3 -B scripts/test-language.py
     note: "Already verified final source with 222 Alacritty tests, Rust 1.89 Clippy and all six graphical suites. Productivity confirms green accent pixels in tabs and menu; language confirms translated glyphs across theme reload. Final screenshots inspected. Avoiding redundant reruns."
+  - id: compact-settings-followup
+    desc: Polish compact preferences controls and preserve hit targets, navigation and reversible previews
+    status: done
+    verify: mise exec -- cargo test -p termust
+    note: "423 workspace tests and one doctest passed; Clippy and rustfmt passed; final compact-help translation change also passed targeted localization checks."
+  - id: compact-settings-graphical
+    desc: Inspect normal and GNOME-sized compact preferences across languages and themes
+    status: done
+    verify: mise exec -- python3 -B scripts/test-productivity.py
+    note: "Full productivity, language and context-menu suites passed; 96 compact/wide dark/light EN/PT page captures verified geometry. Final optimized build passed compact mouse preview/Cancel/Save and visible Esc legend checks at 67x20 and 54x20; native title branding passed four real-window cases."
+  - id: shortcut-list
+    desc: Show searchable scrollable shortcut rows with aligned keys and allow editing all supported actions
+    status: done
+    verify: mise exec -- cargo test -p termust productivity
+    note: "Implemented searchable aligned rows, common actions first, pinned search headers and footer, dynamic activation for all20 actions. Workspace tests passed, the newly registered geometry regression passed, and Rust1.89 Clippy all-targets passed with warnings denied. Reviewer paste and changed-key focus findings fixed with regressions."
+  - id: shortcut-list-graphical
+    desc: Verify shortcut discovery capture conflicts Save Cancel and scrolling in English and Portuguese
+    status: done
+    verify: mise exec -- python3 -B scripts/test-productivity.py
+    note: "Six real keyboard mouse clipboard and persistence cases passed on debug and final portable binaries; full productivity regression passed; EN/PT wide/compact dark/light captures inspected. All six distro runtimes passed. Release ce240e67a40e published to three verified B2 locations; real public curl installation and install:verify passed locally."
 acceptance:
   - id: clarity
     desc: Navigation, editable controls and primary actions have distinct legible presentation
@@ -80,12 +117,22 @@ acceptance:
     status: done
     note: "One-row tabs, inset close target and harmless right margin verified graphically. Shared theme colors verified in dark and light layouts and through live accent changes."
 decisions:
+  - Both glyph caches share the renderer atlas, so clearing it invalidates and reloads both caches together.
+  - The productivity draw pass binds its own size and glyph cache, then restores the terminal grid and projection before subsequent overlays.
+  - Use the platform default monospace face at 11 logical points for productivity dialogs, independent of terminal family, font size and spacing.
+  - Keep terminal text, tab bar and unrelated overlays on their existing metrics in this change.
+  - Show shortcut actions and key combinations in one scrollable table with common tab actions first and a search field.
+  - Keep the search field column headers Disable Defaults Save and Cancel visible independently of list scrolling.
+  - Activate every supported shortcut by its actual collection length rather than a hard-coded last action ID.
+  - Reset only shortcut preferences from the shortcut page and preserve existing F2 terminal-application routing.
   - Improve the native shared component layer and existing dialogs rather than introduce another GUI runtime.
   - Use a sidebar on wide settings panels and compact navigation when width is limited.
   - Keep focus, hover, selected category and destructive actions visually distinct.
   - Reserve one terminal cell row for compact tabs and inset the close icon and hit target from the right edge.
   - Derive shared UI surfaces from the configured background and foreground, using the theme blue slot as accent and red slot for destructive actions.
   - Display close buttons on the active or hovered tab and keep activity markers independent of custom titles.
+  - Use bounded numeric steppers and footer buttons with a reserved bottom inset in compact settings.
+  - Keep Escape in the compact English and Portuguese help legend.
 risks:
   - Existing graphical fixtures encode old coordinates and must be updated to the actual visible layout.
   - Clipping, Unicode text and compact navigation must use the same geometry as mouse hit testing.

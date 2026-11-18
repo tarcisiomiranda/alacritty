@@ -14,7 +14,7 @@ use crate::config::LOG_TARGET_CONFIG;
 use crate::config::ui_config::{Delta, Percentage};
 
 /// Default Alacritty name, used for window title and class.
-pub const DEFAULT_NAME: &str = "Alacritty";
+pub const DEFAULT_NAME: &str = "Termust";
 
 #[derive(ConfigDeserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct WindowConfig {
@@ -44,6 +44,8 @@ pub struct WindowConfig {
 
     /// Background opacity from 0.0 to 1.0.
     pub opacity: Percentage,
+
+    pub icon: crate::personalization::IconPreset,
 
     /// Request blur behind the window.
     pub blur: bool,
@@ -75,6 +77,7 @@ impl Default for WindowConfig {
             embed: Default::default(),
             padding: Default::default(),
             opacity: Default::default(),
+            icon: Default::default(),
             position: Default::default(),
             identity: Default::default(),
             dimensions: Default::default(),
