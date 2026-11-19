@@ -26,7 +26,7 @@ def native_icon(terminal):
 
 def open_icons(terminal):
     terminal.preferences()
-    terminal.tabs(14)
+    terminal.tabs(8)
     terminal.x11.chord("Return")
     time.sleep(.15)
 
@@ -36,14 +36,14 @@ def wait_icon(terminal, preset):
         f"icon preview changed to {preset}")
 
 
-def click_cat(terminal):
-    path = terminal.capture("picker")
+def click_cat(terminal, screenshot="picker"):
+    path = terminal.capture(screenshot)
     pixels = subprocess.check_output(["magick", str(path), "-depth", "8", "rgb:-"], timeout=10)
     width, _ = terminal.x11.geometry(terminal.window)
     points = [offset // 3 for offset in range(0, len(pixels), 3)
         if pixels[offset:offset + 3] == bytes.fromhex("e9dcff")]
     if len(points) < 20:
-        raise AssertionError("the cat artwork was not visible in the picker")
+        raise AssertionError(f"the cat artwork was not visible in {screenshot}")
     terminal.x11.click(sum(point % width for point in points) / len(points),
         sum(point // width for point in points) / len(points))
 
@@ -99,9 +99,12 @@ class IconPersonalizationTests(unittest.TestCase):
                     self.assertEqual(native_icon(terminal), cat_icon)
                     terminal.stop()
                     terminal.start()
+                    terminal.x11.lib.XResizeWindow(terminal.x11.display, terminal.window, width, height)
+                    terminal.x11.lib.XFlush(terminal.x11.display)
                     wait_icon(terminal, "cat")
                     self.assertEqual(native_icon(terminal), cat_icon)
-                    open_icons(terminal)
+                    terminal.preferences()
+                    click_cat(terminal, f"appearance-preview-{locale}-dpi{scale}")
                     terminal.tabs(1)
                     terminal.x11.chord("Return")
                     wait_icon(terminal, "dog")

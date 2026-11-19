@@ -216,15 +216,16 @@ impl Panel {
     }
 
     fn row_height(row: &Row, control_height: usize) -> usize {
-        if matches!(row, Row::IconChoices(..)) {
-            4
-        } else if matches!(
-            row,
-            Row::Label(_) | Row::ShortcutHeader(..) | Row::AgentHeader(..) | Row::Shortcut { .. }
-        ) {
-            1
-        } else {
-            control_height
+        match row {
+            Row::IconChoices(..) => 4,
+            Row::One(Control { kind: UiKind::AppearanceChoice { icon: Some(_), .. }, .. }) => {
+                control_height + 1
+            },
+            Row::Label(_)
+            | Row::ShortcutHeader(..)
+            | Row::AgentHeader(..)
+            | Row::Shortcut { .. } => 1,
+            _ => control_height,
         }
     }
 
@@ -1052,6 +1053,27 @@ impl PreferencesDialog {
         ];
         match self.page {
             0 => {
+                rows.push(Row::One(Control {
+                    id: 38,
+                    kind: UiKind::AppearanceChoice {
+                        label: t(Message::AppIcon),
+                        icon: Some(self.values.icon),
+                    },
+                    text: self.values.icon.label(self.locale).into(),
+                    disabled: false,
+                }));
+                let theme = match self.values.theme {
+                    ThemeChoice::Keep => Message::CurrentTheme,
+                    ThemeChoice::Dark => Message::DarkTheme,
+                    ThemeChoice::Light => Message::LightTheme,
+                };
+                rows.push(Row::One(Control {
+                    id: 8,
+                    kind: UiKind::AppearanceChoice { label: t(Message::Theme), icon: None },
+                    text: t(theme).into(),
+                    disabled: false,
+                }));
+                rows.push(Row::Label(String::new()));
                 rows.push(Row::Label(t(Message::FontFamily).into()));
                 rows.push(Row::One(Control {
                     id: 3,
@@ -1062,7 +1084,6 @@ impl PreferencesDialog {
                     ),
                     disabled: false,
                 }));
-                rows.push(Row::Label(String::new()));
                 rows.push(Row::Adjustment {
                     label: t(Message::FontSize).into(),
                     value: format!("{:.1} pt", self.values.font_size),
@@ -1075,20 +1096,6 @@ impl PreferencesDialog {
                     decrease: Control::button(6, "−"),
                     increase: Control::button(7, "+"),
                 });
-                rows.push(Row::Label(String::new()));
-                let theme = match self.values.theme {
-                    ThemeChoice::Keep => Message::CurrentTheme,
-                    ThemeChoice::Dark => Message::DarkTheme,
-                    ThemeChoice::Light => Message::LightTheme,
-                };
-                rows.push(Row::One(Control::button(
-                    8,
-                    format!("{}: {}  ›", t(Message::Theme), t(theme)),
-                )));
-                rows.push(Row::One(Control::button(
-                    38,
-                    format!("{}: {}  ›", t(Message::AppIcon), self.values.icon.label(self.locale)),
-                )));
             },
             8 => {
                 use crate::personalization::IconPreset;
@@ -2088,6 +2095,47 @@ impl ProductivityDialog {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn appearance_icon_preview_is_visible_and_opens_the_gallery() {
+        use crate::personalization::IconPreset;
+
+        for (columns, lines) in [(100, 32), (64, 28), (45, 18)] {
+            let mut preferences = PreferencesDialog::new(
+                Rc::new(UiConfig::default()),
+                crossfont::Size::new(11.),
+                Vec::new(),
+            );
+            preferences.locale = Locale::PtBr;
+            preferences.values.icon = IconPreset::Dog;
+            let mut dialog = ProductivityDialog::Preferences(Box::new(preferences));
+            let parts = dialog.parts(columns, lines);
+            let preview = &parts.iter().find(|(_, id)| *id == Some(38)).unwrap().0;
+            let theme = &parts.iter().find(|(_, id)| *id == Some(8)).unwrap().0;
+            assert_eq!(preview.text, IconPreset::Dog.label(Locale::PtBr));
+            assert_eq!(preview.rect.left, theme.rect.left);
+            assert_eq!(preview.rect.width, theme.rect.width);
+            assert!(preview.rect.height >= 2);
+            assert_eq!(
+                preview.kind,
+                UiKind::AppearanceChoice {
+                    label: Locale::PtBr.text(Message::AppIcon),
+                    icon: Some(IconPreset::Dog),
+                },
+            );
+            dialog.click(preview.rect.left + 1, preview.rect.top + 1, columns, lines);
+            assert_eq!(dialog.panel().focus, 602);
+            dialog.activate(601);
+            dialog.activate(0);
+            assert!(dialog.parts(columns, lines).iter().any(|(element, id)| {
+                *id == Some(38)
+                    && matches!(
+                        element.kind,
+                        UiKind::AppearanceChoice { icon: Some(IconPreset::Cat), .. }
+                    )
+            }));
+        }
+    }
+
     #[test]
     fn icon_gallery_preserves_other_drafts_and_keeps_cards_and_actions_reachable() {
         use crate::personalization::IconPreset;

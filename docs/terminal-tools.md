@@ -105,9 +105,10 @@ interface at narrow window sizes.
 
 ## Personal icons
 
-Open **Settings → Appearance → Application icon** to choose the original Termust
-icon, a cat, a dog, a fox or a robot. Click a card or use Tab and Enter to preview
-your choice. Save applies it to all Termust windows and remembers it after restart.
+Open **Settings → Appearance** and click the icon preview at the top to choose
+the original Termust icon, a cat, a dog, a fox or a robot. Click a card or use Tab
+and Enter to preview your choice. Save applies it to all Termust windows and
+remembers it after restart.
 Cancel restores the saved choice. **Restore original icon** changes only the icon;
 press Save to keep that change.
 

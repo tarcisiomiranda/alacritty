@@ -75,6 +75,7 @@ pub enum UiKind {
     Shortcut,
     AgentStatus(crate::agent::AgentState, bool),
     IconCard(crate::personalization::IconPreset, bool),
+    AppearanceChoice { label: &'static str, icon: Option<crate::personalization::IconPreset> },
 }
 
 pub struct UiElement {

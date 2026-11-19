@@ -1561,6 +1561,72 @@ impl Display {
         self.damage_tracker.next_frame().mark_fully_damaged();
     }
 
+    fn draw_appearance_choice(
+        &mut self,
+        rect: crate::tab_ui::UiRect,
+        label: &str,
+        value: &str,
+        icon: Option<crate::personalization::IconPreset>,
+        colors: (Rgb, Rgb, Rgb),
+    ) {
+        use unicode_width::UnicodeWidthStr;
+
+        let (foreground, muted, background) = colors;
+        let size = self.size_info;
+        let inset = usize::from(rect.width > 2);
+        let indicator = usize::from(rect.width >= 12);
+        let preview = icon.filter(|_| rect.height >= 2 && rect.width >= 20);
+        let preview_columns = usize::from(preview.is_some()) * 6;
+        let left = rect.left + inset + preview_columns;
+        let available = rect.width.saturating_sub(2 * inset + 2 * indicator + preview_columns);
+
+        if let Some(preset) = preview {
+            let slot_width = (preview_columns - 1) as f32 * size.cell_width();
+            let height = rect.height as f32 * size.cell_height();
+            let side = slot_width.min(height - size.cell_height() / 2.);
+            let x = size.padding_x() + (rect.left + inset) as f32 * size.cell_width();
+            let y = size.padding_y() + rect.top as f32 * size.cell_height();
+            self.renderer.draw_rects(
+                &size,
+                &self.glyph_cache.font_metrics(),
+                preset.rects(x + (slot_width - side) / 2., y + (height - side) / 2., side),
+            );
+        }
+
+        let stacked = icon.is_some() && rect.height >= 2;
+        let vertical_space = rect.height - 1 - usize::from(stacked);
+        let line = rect.top + vertical_space / 2;
+        let mut text_size = size;
+        if vertical_space % 2 != 0 {
+            text_size.padding_y += size.cell_height() / 2.;
+            text_size.bottom_padding_y -= size.cell_height() / 2.;
+            self.renderer.set_viewport(&text_size);
+        }
+        let mut draw = |text: &str, column, line, width, foreground, bold| {
+            self.renderer.draw_string_styled(
+                Point::new(line, Column(column)),
+                (foreground, background, bold),
+                StrShortener::new(text, width, ShortenDirection::Right, Some('…')),
+                &text_size,
+                &mut self.glyph_cache,
+            );
+        };
+        if stacked {
+            draw(label, left, line, available, foreground, true);
+            draw(value, left, line + 1, available, muted, false);
+        } else if label.width() + value.width() + 2 <= available {
+            draw(label, left, line, label.width(), foreground, false);
+            draw(value, left + available - value.width(), line, value.width(), muted, false);
+        } else {
+            draw(&format!("{label} · {value}"), left, line, available, foreground, false);
+        }
+        if indicator != 0 {
+            let symbol = if icon.is_some() { "›" } else { "↻" };
+            draw(symbol, rect.left + rect.width - inset - 1, line, 1, muted, false);
+        }
+        self.renderer.set_viewport(&size);
+    }
+
     fn draw_ui_elements(&mut self, elements: Vec<crate::tab_ui::UiElement>) {
         use crate::tab_ui::UiKind;
         use crate::ui::{Palette, rounded};
@@ -1633,7 +1699,10 @@ impl Display {
                 matches!(element.kind, UiKind::SelectedNavigation | UiKind::SelectedItem);
             let button = matches!(
                 element.kind,
-                UiKind::PrimaryButton | UiKind::SecondaryButton | UiKind::DangerButton
+                UiKind::PrimaryButton
+                    | UiKind::SecondaryButton
+                    | UiKind::DangerButton
+                    | UiKind::AppearanceChoice { .. }
             );
             let interactive = button
                 || matches!(
@@ -1654,7 +1723,9 @@ impl Display {
                 UiKind::Input => (p.text, p.input),
                 UiKind::Command => (p.text, p.surface),
                 UiKind::PrimaryButton if !element.disabled => (p.on_accent, p.accent),
-                UiKind::SecondaryButton => (p.text, if active { p.hover } else { p.surface }),
+                UiKind::SecondaryButton | UiKind::AppearanceChoice { .. } => {
+                    (p.text, if active { p.hover } else { p.surface })
+                },
                 UiKind::DangerButton => (p.danger, if active { p.danger_hover } else { p.panel }),
                 UiKind::DangerMenu => (p.danger, if active { p.hover } else { p.panel }),
                 UiKind::SelectedNavigation | UiKind::SelectedItem => (p.text, p.selected),
@@ -1743,6 +1814,10 @@ impl Display {
                 }
             }
             self.renderer.draw_rects(&size, &metrics, rects);
+            if let UiKind::AppearanceChoice { label, icon } = element.kind {
+                self.draw_appearance_choice(rect, label, &element.text, icon, (fg, p.muted, bg));
+                continue;
+            }
             let mut string: String = element.text.chars().filter(|ch| !ch.is_control()).collect();
             let scroll_arrow =
                 element.kind == UiKind::MenuItem && matches!(string.trim(), "↑" | "↓");

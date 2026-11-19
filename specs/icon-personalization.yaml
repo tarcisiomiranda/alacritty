@@ -2,11 +2,12 @@ spec: icon-personalization
 title: Personal terminal icon presets
 status: done
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 goal: Let users choose a predefined terminal icon with preview save cancel and platform-specific desktop integration.
 problem: The fixed application icon does not let people give their terminal a personal visual identity.
 behavior:
   - Begin with a curated set of static pets and characters with a live preview and an explicit restore-default action.
+  - Display the selected artwork and preset name in a clickable preview on the Appearance page.
   - Distinguish the application launcher icon the running window icon and a companion drawn inside Termust.
   - Keep local photo import and optional animation as later phases.
 constraints:
@@ -28,6 +29,8 @@ implemented:
   - Published Linux release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical B2 bucket and both legacy mirrors after all six distro checks and portable icon tests passed.
   - Published the native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and updated the common installer and native source builder.
   - Verified anonymous public install reinstall and --check on Linux and macOS using temporary destinations; macOS also passed strict codesign verification without Rust in PATH.
+  - Put a clickable thumbnail and the preset name at the top of Appearance above the aligned theme control.
+  - Verified the thumbnail and gallery on Linux X11 with compact and high-DPI windows, plus AppKit icon replacement, cancellation, saving and reapplication after restart in a bundled Apple Silicon test build.
 pending:
   - Photo import animation and graphical desktop-shell validation remain separate future work.
 steps:
@@ -52,6 +55,11 @@ steps:
     desc: Publish the verified Linux and macOS releases and commit and push their source and release evidence
     status: done
     verify: mise run release:verify
+  - id: appearance-preview
+    desc: Render the current preset in Appearance and keep the gallery reachable by mouse and keyboard
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon
+    note: "Linux X11 compact and HiDPI fixtures passed. Native Mac AppKit validated preview entry, save, cancel and restart."
 acceptance:
   - id: matrix
     desc: Record a source-backed feasibility matrix for KDE GNOME Cinnamon XFCE Windows and macOS
@@ -64,7 +72,10 @@ acceptance:
     status: done
   - desc: Linux graphical checks Rust tests and available macOS or Windows build checks pass with untested desktop behavior recorded explicitly.
     status: done
+  - desc: Appearance shows the selected icon artwork and name, aligns the theme and icon controls, and opens the gallery when clicked or activated from the keyboard.
+    status: done
 decisions:
+  - Put the icon preview and theme at the top of Appearance so they are visible in compact windows. Use matching row widths and match keyboard order to the layout.
   - The initial candidate is static presets; animation must have an in-app fallback that does not depend on the desktop shell.
   - Recommend one icon choice per user for all Termust windows rather than independent system icons per tab.
   - Store preferences and imported images outside release directories and reapply the saved choice after restart and installer updates.

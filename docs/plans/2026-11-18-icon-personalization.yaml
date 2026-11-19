@@ -1,9 +1,10 @@
 plan: icon-personalization
 title: Evaluate affectionate terminal personalization
-status: done
+status: in_progress
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-19
 context:
+  - The user asked for a visible icon preview in Appearance and clearer arrangement of theme and icon controls after finding the text-only entry.
   - The user wants selectable icons such as cats and dogs and later personal photos and possibly animation.
   - The product must cover KDE GNOME Cinnamon XFCE Windows and macOS where possible.
 goal: Deliver the first preset icon picker with persistent settings and supported platform integrations.
@@ -32,6 +33,12 @@ stages:
   - id: publication
     desc: Commit and push the buildable revision and publish verified Linux and macOS binaries through the common installer.
     status: done
+  - id: appearance-preview
+    desc: Use a thumbnail and preset name as the gallery entry, align the Appearance rows, and validate compact layout and macOS Dock updates.
+    status: done
+  - id: appearance-release
+    desc: Push the Appearance source revision and publish matching Linux x86_64 and macOS Apple Silicon builds through the existing installer.
+    status: doing
 risks:
   - Runtime window icons and pinned launcher icons are different surfaces controlled by different components.
   - Arbitrary frame animation of system icons is not a portable desktop contract.
@@ -157,6 +164,12 @@ implementation:
   macos: NSApplication.applicationIconImage uses embedded PNG data on the main thread; restoring the original uses nil and leaves the signed bundle unchanged.
   packaging: The macOS source archive includes the PNG assets referenced by the portable module and a regression test checks their bytes.
 validation:
+  - command: mise exec -- python3 -B scripts/test-icon-personalization.py
+    result: Passed thumbnail painting and mouse entry from Appearance plus gallery keyboard navigation, preview, cancel, save, restart and original icon restoration across English, Brazilian Portuguese and DPI 2 X11 fixtures.
+  - command: mise exec -- python3 -B scripts/test-ui-font.py
+    result: Passed Settings geometry and font adjustment previews at terminal font sizes 11, 22 and 36 with the new Appearance order.
+  - command: Bundled Apple Silicon AppKit probe via SSH
+    result: Passed clicks on the Appearance thumbnail and gallery presets, native application icon changes for Cat and Dog, restoration on Cancel, and Dog after Save and restart.
   - command: mise run test:icon-personalization
     result: Passed preview of every preset native X11 icon changes mouse selection cancel save restart and original launcher restoration for English wide Portuguese compact and Portuguese DPI 2 scenarios.
   - command: mise run test:ui-font
@@ -178,7 +191,7 @@ validation:
 unverified:
   - Actual KDE GNOME Cinnamon and XFCE panels favorites caches and compositor-specific Wayland behavior require manual desktop-session testing.
   - Windows PowerShell shortcut updates and pinned-taskbar refresh have only been compiled and reviewed and need execution on Windows.
-  - macOS Dock appearance has native API and build coverage but has not been visually validated in this turn.
+  - Inspect the visible Dock tile and pinned shortcut behavior in macOS with a manual desktop check.
 publication:
   source_commit: 64a3a8d107856c11c0ecb9105943dae6d9dba441
   source_url: https://github.com/tarcisiomiranda/alacritty/tree/64a3a8d107856c11c0ecb9105943dae6d9dba441
