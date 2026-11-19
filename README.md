@@ -96,8 +96,10 @@ The Linux package requires glibc. Release checks cover Ubuntu 22.04/24.04,
 Debian 12/13 and Fedora 43/44. See [installation details](docs/install.md)
 for requirements, update checks and rollback.
 
-Open **Termust** from your application menu, or run `termust`. Window titles
-include the active tab name followed by Termust; saved tab names stay separate.
+Open **Termust** from your application menu, or run `termust`. After an update,
+choose **New Window** on the launcher or run `~/.local/bin/termust` to open the
+installed build alongside existing sessions. Window titles include the active
+tab name followed by Termust. Saved tab names stay separate.
 To build and install this checkout on Linux:
 
 ```sh
@@ -107,8 +109,9 @@ mise run install
 ### macOS Apple Silicon
 
 The installer downloads a native binary without requiring Rust and installs
-`~/Applications/Termust.app`. Run the same command again to update, then quit
-and reopen Termust. The previous bundle is available at
+`~/Applications/Termust.app`. Run the same install command again to update. The
+launch command below opens the updated build alongside existing windows.
+The previous bundle is available at
 `~/Applications/.termust/previous.app`.
 
 Use `Cmd+T` for a tab, `Cmd+D` to split right, `Cmd+Shift+D` to split below,
@@ -116,7 +119,7 @@ and `Cmd+,` for Settings. Termust opens your account's login shell by default,
 including your Zsh startup files when the account uses Zsh.
 
 ```sh
-open ~/Applications/Termust.app
+open -n ~/Applications/Termust.app
 ```
 
 ## Configuration and existing sessions

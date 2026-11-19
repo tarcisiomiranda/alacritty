@@ -187,6 +187,7 @@ pub enum Message {
     IconDog,
     IconFox,
     IconRobot,
+    IconYorkie,
     IconRestore,
     IconHint,
     IconIntegrationFailed,
@@ -522,6 +523,7 @@ impl Locale {
             (Self::PtBr, Message::IconFox) => "Raposa",
             (Self::En, Message::IconRobot) => "Robot",
             (Self::PtBr, Message::IconRobot) => "Robô",
+            (Self::En | Self::PtBr, Message::IconYorkie) => "Yorkie",
             (Self::En, Message::IconRestore) => "Restore original icon",
             (Self::PtBr, Message::IconRestore) => "Restaurar ícone original",
             #[cfg(target_os = "macos")]
@@ -831,7 +833,7 @@ impl Locale {
 
 #[cfg(test)]
 impl Message {
-    const ALL: [Self; 186] = [
+    const ALL: [Self; 187] = [
         Self::AgentChats,
         Self::Applications,
         Self::PreferredEditor,
@@ -940,6 +942,7 @@ impl Message {
         Self::IconDog,
         Self::IconFox,
         Self::IconRobot,
+        Self::IconYorkie,
         Self::IconRestore,
         Self::IconHint,
         Self::IconIntegrationFailed,
@@ -1138,7 +1141,7 @@ mod tests {
                 assert!(!locale.text(message).trim().is_empty());
                 assert!(!locale.text(message).chars().any(char::is_control));
             }
-            if message != Message::Terminal {
+            if !matches!(message, Message::Terminal | Message::IconYorkie) {
                 assert_ne!(Locale::En.text(message), Locale::PtBr.text(message));
             }
         }

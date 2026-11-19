@@ -49,6 +49,19 @@ def click_cat(terminal, screenshot="picker"):
 
 
 class IconPersonalizationTests(unittest.TestCase):
+    def save_icon(self, terminal, launcher, preset):
+        terminal.x11.chord("Control_L", "Return")
+        marker = f"X-Termust-IconPreset={preset}\n"
+        productivity.smoke.wait_for(
+            lambda: tomllib.loads(terminal.config.read_text())["window"].get("icon") == preset
+            and marker in launcher.read_text(),
+            f"{preset} icon saved",
+        )
+        text = launcher.read_text()
+        self.assertIn("Name=My terminal\n", text)
+        icon_path = next(line[5:] for line in text.splitlines() if line.startswith("Icon="))
+        self.assertEqual(Path(icon_path).read_bytes(), (ROOT / f"extra/icons/{preset}.png").read_bytes())
+
     def test_preview_cancel_save_restart_and_restore_with_mouse_and_keyboard(self):
         for locale, width, height, scale in [("en", 1100, 800, 1), ("pt-BR", 737, 570, 1), ("pt-BR", 1100, 800, 2)]:
             with self.subTest(locale=locale, scale=scale), tempfile.TemporaryDirectory(prefix="termust-icons-") as directory:
@@ -70,7 +83,7 @@ class IconPersonalizationTests(unittest.TestCase):
                     original_icon = native_icon(terminal)
                     open_icons(terminal)
                     seen = {original_icon}
-                    for preset in ("cat", "dog", "fox", "robot"):
+                    for preset in ("cat", "dog", "fox", "robot", "yorkie"):
                         terminal.tabs(1)
                         terminal.x11.chord("Return")
                         wait_icon(terminal, preset)
@@ -86,14 +99,7 @@ class IconPersonalizationTests(unittest.TestCase):
                     open_icons(terminal)
                     click_cat(terminal)
                     wait_icon(terminal, "cat")
-                    terminal.tabs(5)
-                    terminal.x11.chord("Return")
-                    productivity.smoke.wait_for(lambda: tomllib.loads(terminal.config.read_text())["window"].get("icon") == "cat", "icon saved")
-                    self.assertIn("X-Termust-IconPreset=cat\n", launcher.read_text())
-                    self.assertIn("Name=My terminal\n", launcher.read_text())
-                    icon_path = next(line[5:] for line in launcher.read_text().splitlines() if line.startswith("Icon="))
-                    self.assertTrue(Path(icon_path).is_file())
-                    self.assertEqual(Path(icon_path).read_bytes(), (ROOT / "extra/icons/cat.png").read_bytes())
+                    self.save_icon(terminal, launcher, "cat")
                     cat_icon = native_icon(terminal)
                     terminal.x11.chord("Escape")
                     self.assertEqual(native_icon(terminal), cat_icon)
@@ -114,9 +120,18 @@ class IconPersonalizationTests(unittest.TestCase):
                     open_icons(terminal)
                     terminal.tabs(4)
                     terminal.x11.chord("Return")
-                    wait_icon(terminal, "termust")
+                    wait_icon(terminal, "yorkie")
+                    self.save_icon(terminal, launcher, "yorkie")
+                    yorkie_icon = native_icon(terminal)
+                    terminal.stop()
+                    terminal.start()
+                    wait_icon(terminal, "yorkie")
+                    self.assertEqual(native_icon(terminal), yorkie_icon)
+                    open_icons(terminal)
                     terminal.tabs(1)
                     terminal.x11.chord("Return")
+                    wait_icon(terminal, "termust")
+                    terminal.x11.chord("Control_L", "Return")
                     productivity.smoke.wait_for(lambda: tomllib.loads(terminal.config.read_text())["window"].get("icon") == "termust", "original icon saved")
                     self.assertIn("Icon=my-original-theme\n", launcher.read_text())
                     self.assertNotIn("X-Termust-", launcher.read_text())

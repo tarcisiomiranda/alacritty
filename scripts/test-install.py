@@ -39,17 +39,17 @@ class InstallerTests(unittest.TestCase):
         first = self.run_installer()
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         launcher = self.prefix / "share/applications/Termust.desktop"
-        icon = self.directory / "user data/cat.png"
+        icon = self.directory / "user data/yorkie.png"
         icon.parent.mkdir()
         icon.write_bytes(b"personal icon fixture")
         text = launcher.read_text().replace("Icon=Termust\n",
-            f"Icon={icon}\nX-Termust-IconPreset=cat\nX-Termust-OriginalIcon=Termust\n")
+            f"Icon={icon}\nX-Termust-IconPreset=yorkie\nX-Termust-OriginalIcon=Termust\n")
         launcher.write_text(text.replace("Name=Termust", "Name=Old name"))
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         text = launcher.read_text()
         self.assertIn(f"Icon={icon}\n", text)
-        self.assertIn("X-Termust-IconPreset=cat\n", text)
+        self.assertIn("X-Termust-IconPreset=yorkie\n", text)
         self.assertIn("X-Termust-OriginalIcon=Termust\n", text)
         self.assertIn("Name=Termust\n", text)
         self.assertIn("[Desktop Action new-window]", text)
@@ -165,6 +165,7 @@ class InstallerTests(unittest.TestCase):
             "assert arguments[arguments.index('--proto') + 1] == '=https'\n"
             "assert arguments[arguments.index('--proto-redir') + 1] == '=https'\n"
             "url = arguments[-1]\n"
+            "assert ('Cache-Control: no-cache' in arguments) == url.endswith('/latest-linux-x86_64.txt')\n"
             "assert url.startswith('https://downloads.example.test/file/bucket/')\n"
             "relative = urlsplit(url).path.removeprefix('/file/bucket/')\n"
             "with open(os.environ['FAKE_CURL_LOG'], 'a') as log: log.write(relative + '\\n')\n"
@@ -471,6 +472,7 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer(*arguments, remote=True, source=INSTALLER.read_text())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         requests = (self.directory / "requests").read_text().splitlines()
+        self.assertIn(f"Latest Linux x86_64 package: {VERSION}", result.stdout)
         self.assertEqual(requests, [
             "latest-linux-x86_64.txt",
             f"releases/{VERSION}/termust-linux-x86_64.tar.gz",
@@ -520,6 +522,29 @@ class InstallerTests(unittest.TestCase):
             result = self.run_installer()
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(binary.read_bytes(), BINARY)
+            self.assertIn(f"Termust PID {process.pid} is still running a previous build", result.stdout)
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+
+    def test_check_ignores_running_copy_with_identical_bytes_after_atomic_reinstall(self):
+        self.environment["XDG_DATA_HOME"] = str(self.prefix / "share")
+        self.environment["PATH"] = str(self.prefix / "bin") + os.pathsep + self.environment["PATH"]
+        self.assert_install_success()
+        binary = self.prefix / "bin/termust"
+        shutil.copy2(shutil.which("sleep"), binary)
+        receipt = self.prefix / "share/doc/termust/install.json"
+        data = json.loads(receipt.read_text())
+        data["binary_sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
+        receipt.write_text(json.dumps(data))
+        process = subprocess.Popen([str(binary), "30"])
+        try:
+            replacement = binary.with_suffix(".new")
+            shutil.copy2(binary, replacement)
+            os.replace(replacement, binary)
+            result = self.assert_install_success("--check")
+            self.assertNotIn("still running a previous build", result.stdout)
             self.assertIsNone(process.poll())
         finally:
             process.terminate()
@@ -641,16 +666,21 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(settings.read_text(), "[window]\nopacity=0.8\n")
 
     def test_reinstall_repairs_launcher_without_discarding_previous_rollback(self):
-        previous, _ = self.fixture_release(build_timestamp=1000)
-        self.assert_install_success()
-        self.fixture_release(build_timestamp=2000)
-        self.assert_install_success()
+        previous, old_version = self.fixture_release(build_timestamp=1000)
+        self.assertIn(f"Installed Termust {old_version}", self.assert_install_success().stdout)
+        _, new_version = self.fixture_release(build_timestamp=2000)
+        updated = self.assert_install_success()
+        self.assertIn(f"Updated Termust from {old_version} to {new_version}", updated.stdout)
+        binary = self.prefix / "bin/termust"
+        binary_inode = binary.stat().st_ino
         backup = self.prefix / "share/termust/rollback"
         before = {str(path.relative_to(backup)): path.read_bytes() for path in backup.rglob("*") if path.is_file()}
         self.assertIn("manifest.json", before)
         launcher = self.prefix / "share/applications/Termust.desktop"
         launcher.write_text("broken launcher\n")
-        self.assert_install_success()
+        reinstalled = self.assert_install_success()
+        self.assertIn(f"Termust {new_version} is already installed", reinstalled.stdout)
+        self.assertEqual(binary.stat().st_ino, binary_inode)
         self.assertIn("Name=Termust\n", launcher.read_text())
         after = {str(path.relative_to(backup)): path.read_bytes() for path in backup.rglob("*") if path.is_file()}
         self.assertEqual(after, before)

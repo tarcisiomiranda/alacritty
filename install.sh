@@ -175,12 +175,13 @@ def runtime_check(candidate, metadata):
         fail("missing runtime libraries: " + ", ".join(missing) + "\n" + dependency_hint())
 
 
-def download(url, target):
+def download(url, target, *, revalidate=False):
     if not shutil.which("curl"):
         fail("curl is required to download a release.\n" + dependency_hint())
+    headers = ["--header", "Cache-Control: no-cache"] if revalidate else []
     subprocess.run(["curl", "--fail", "--show-error", "--silent", "--location",
         "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "--retry", "3",
-        "--connect-timeout", "15", "--max-time", "600", "--output", str(target), url], check=True)
+        "--connect-timeout", "15", "--max-time", "600", *headers, "--output", str(target), url], check=True)
 
 
 def unpack(archive, checksum, target, root_name="termust"):
@@ -385,6 +386,19 @@ def refresh_integrations(prefix, desktop):
             warning("the desktop database could not be updated: " + result.stderr.strip())
 
 
+def previous_process(binary, installed_hash):
+    for process in Path("/proc").glob("[0-9]*"):
+        executable = process / "exe"
+        try:
+            if process.stat().st_uid != os.getuid() or os.readlink(executable) != f"{binary} (deleted)":
+                continue
+            if digest(executable.read_bytes()) != installed_hash:
+                return process.name
+        except OSError:
+            continue
+    return None
+
+
 def diagnose(prefix, strict):
     binary = prefix / "bin/termust"
     good = binary.is_file()
@@ -395,6 +409,10 @@ def diagnose(prefix, strict):
         receipt = installed_receipt(prefix)
         if receipt:
             print("Installed package: " + receipt["version"])
+            pid = previous_process(binary, receipt["binary_sha256"])
+            if pid:
+                print(f"Termust PID {pid} is still running a previous build. Its windows and tabs keep that build.")
+        print("Launch the installed build in a separate window: " + shlex.quote(str(binary)))
     selected = shutil.which("termust")
     if not selected or Path(selected).resolve() != binary.resolve():
         warning("shell PATH selects " + (selected or "no termust executable") + " instead of " + str(binary))
@@ -497,7 +515,8 @@ def install(package, prefix, version, metadata, archive_hash, desktop, allow):
             path = safe_destination(prefix, relative)
             previous_core[relative] = (path.read_bytes(), stat.S_IMODE(path.stat().st_mode)) if path.is_file() else None
         for relative in core_names:
-            write_atomic(safe_destination(prefix, relative), *files[relative])
+            if previous_core[relative] != files[relative]:
+                write_atomic(safe_destination(prefix, relative), *files[relative])
         if pending_backup:
             commit_previous(prefix, pending_backup)
     except (OSError, RuntimeError) as error:
@@ -528,11 +547,16 @@ def install(package, prefix, version, metadata, archive_hash, desktop, allow):
         except OSError as error:
             warning("previous fork integration could not be migrated: " + str(error))
     refresh_integrations(prefix, desktop)
-    print(("Reinstalled" if identical else "Installed") + f" Termust {version}\n{binary_version}")
+    if identical:
+        print(f"Termust {version} is already installed.")
+    elif previous.get("version"):
+        print(f"Updated Termust from {previous['version']} to {version}.")
+    else:
+        print(f"Installed Termust {version}.")
+    print(binary_version)
     if incomplete:
         warning("binary installed, but integration is incomplete. Fix the reported paths and run the installer again.")
     diagnose(prefix, False)
-    print("Open a new terminal window to use this version. Existing windows keep running their previous executable.")
 
 
 def macos_validate_app(app):
@@ -573,7 +597,7 @@ def macos_activate(app, directory, archive_hash, root, previous):
     else:
         os.rename(app, release)
     if previous == release:
-        print("Termust is already up to date.")
+        print(f"Termust package {archive_hash[:12]} is already installed at {destination}.")
         return
     if destination.exists() or destination.is_symlink():
         if previous is None or destination.resolve() != previous:
@@ -606,6 +630,9 @@ def macos_activate(app, directory, archive_hash, root, previous):
         except OSError as error:
             warning(f"could not create the previous-version shortcut: {error}")
         print(f"Previous application preserved at {previous}")
+        print(f"Updated Termust at {destination} to package {archive_hash[:12]}.")
+    else:
+        print(f"Installed Termust at {destination} (package {archive_hash[:12]}).")
 
 
 def macos_main():
@@ -658,13 +685,14 @@ def macos_main():
                     fail("--base-url must be a public HTTPS URL without a query or credentials.")
                 base = args.base_url.rstrip("/")
                 manifest_path = root / "latest.json"
-                download(base + "/latest-macos-arm64.json", manifest_path)
+                download(base + "/latest-macos-arm64.json", manifest_path, revalidate=True)
                 manifest = json.loads(manifest_path.read_text())
                 sha = manifest.get("sha256", "") if isinstance(manifest, dict) else ""
                 if (not isinstance(manifest, dict) or manifest.get("schema") != 1 or manifest.get("platform") != "macos-arm64"
                         or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha)
                         or manifest.get("archive") != f"macos/binary/{sha}.tar.gz"):
                     fail("invalid macOS release manifest.")
+                print(f"Latest macOS arm64 package: {sha[:12]}", flush=True)
                 archive = root / "application.tar.gz"
                 checksum = root / "application.sha256"
                 download(base + "/" + manifest["archive"], archive)
@@ -675,7 +703,7 @@ def macos_main():
             macos_validate_app(app)
             print(executable_version(app / "Contents/MacOS/termust"))
             macos_activate(app, directory, archive_hash=unpack_hash, root=root, previous=previous)
-    print(f"Installed {destination}. Open it from Finder or run: open '{destination}'")
+    print("Launch the installed build in a separate window: open -n " + shlex.quote(str(destination)))
 
 
 def main():
@@ -734,10 +762,11 @@ def main():
                     fail("--base-url must be a public HTTPS URL without a query or credentials.")
                 base = args.base_url.rstrip("/")
                 if not version:
-                    download(base + "/latest-linux-x86_64.txt", target / "latest")
+                    download(base + "/latest-linux-x86_64.txt", target / "latest", revalidate=True)
                     version = (target / "latest").read_text().strip()
                     if not version_id(version):
                         fail("the latest release pointer is invalid.")
+                    print(f"Latest Linux x86_64 package: {version}", flush=True)
                 if "-workspace." in version or "-workspace-" in version:
                     fail(f"pre-Termust releases use their original installer: {base}/releases/{version}/install.sh")
                 archive = target / "termust-linux-x86_64.tar.gz"
@@ -772,7 +801,7 @@ def preserve_personal_icon(current, replacement):
             key, value = line.split("=", 1)
             if key in ("Icon", "X-Termust-IconPreset", "X-Termust-OriginalIcon"):
                 values[key] = value
-    if values.get("X-Termust-IconPreset") not in ("cat", "dog", "fox", "robot"):
+    if values.get("X-Termust-IconPreset") not in ("cat", "dog", "fox", "robot", "yorkie"):
         return replacement
     icon = values.get("Icon", "").replace("\\\\", "\\")
     if not Path(icon).is_absolute() or not Path(icon).is_file():

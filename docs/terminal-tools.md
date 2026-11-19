@@ -106,9 +106,9 @@ interface at narrow window sizes.
 ## Personal icons
 
 Open **Settings → Appearance** and click the icon preview at the top to choose
-the original Termust icon, a cat, a dog, a fox or a robot. Click a card or use Tab
-and Enter to preview your choice. Save applies it to all Termust windows and
-remembers it after restart.
+the original Termust icon, a cat, a dog, a fox, a robot or **Yorkie**. Click a card
+or use Tab and Enter to preview your choice. Save applies it to all Termust
+windows and remembers it after restart.
 Cancel restores the saved choice. **Restore original icon** changes only the icon;
 press Save to keep that change.
 
@@ -126,8 +126,8 @@ application keep the original icon. The installed executable and macOS bundle
 resources are unchanged.
 
 The setting is also available as `window.icon`, with values `termust`, `cat`, `dog`,
-`fox` and `robot`. Presets are bundled and work offline. Personal photos and animated
-companions are not part of this version.
+`fox`, `robot` and `yorkie`. Presets are bundled and work offline. Personal photos
+and animated companions are not part of this version.
 
 ![Personal icon picker](images/terminal-tools/icon-personalization.en-dpi1-cat-preview.png)
 

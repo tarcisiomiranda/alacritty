@@ -21,6 +21,10 @@ constraints:
   - Preserve the operating system package and all existing terminal settings and sessions.
   - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
 implemented:
+  - Published the revised common installer to the canonical URL and both mirrors. Mutable release manifests request revalidation. The installer distinguishes fresh installations, upgrades and repeated installations and prints a command for a separate process.
+  - The public Linux installer reported a live older build after upgrading and on repeat installation and --check. A repeat kept the installed executable inode. Verified the GNOME favorite launches the Yorkie build while the previous session stays open.
+  - Verified the public macOS installer upgrading a copy of the older app and repeating without switching the bundle again. The open -n command ran both signed native builds concurrently in separate PTYs.
+  - Released Yorkie as Linux 0.18.0-termust.75332083.b535ae3aaaf0 and an Apple Silicon package using the tested working tree and matching public build source. Verified public updates from the previous Appearance packages on both platforms.
   - Published Linux 0.18.0-termust.0a5a85a8.fec0ade07b28 to the canonical bucket and both mirrors after all six distribution checks passed. Published the matching Apple Silicon bundle and source builder. The common installer upgraded both isolated installations successfully.
   - Published build 742b8c8 for Apple Silicon and upgraded an isolated install with the public install.sh. Verified the current and previous bundles, repeated installation, codesign, and login Zsh in the actual downloaded app. The workspace and prompt validation is recorded in specs/macos-apple-silicon.yaml.
   - Published icon personalization release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical bucket and both mirrors after six distro checks and portable icon tests passed; public Linux install reinstall receipt checksum and --check passed.
@@ -64,6 +68,11 @@ pending:
   - Validate saved-session restoration on the native macOS graphical desktop.
   - Address shell integration for macOS system Bash 3.2, which lacks the prompt features used by the current hooks.
 steps:
+  - id: update-feedback
+    desc: Resolve the current platform release on each update, report installed and previous builds and show how to open the updated executable alongside existing windows
+    status: done
+    verify: mise run test:install && mise run test:macos-release && mise run test:release-tools
+    note: "54 Linux installer, 15 macOS release and 19 publisher tests passed. Exact public curl upgrades passed on Linux and Apple Silicon. The revised installer is public on all three URLs."
   - id: macos-updates
     desc: Update existing macOS apps through an atomic launcher link and retain the previous bundle
     status: done
@@ -133,6 +142,7 @@ acceptance:
     status: done
     note: "mise run install, install:verify and the real GIO desktop launch passed."
 decisions:
+  - Keep active sessions running when updating and compare the installed Linux executable with any superseded copy still running from the same path.
   - macOS builds update their own latest manifest; they do not overwrite the common installer.
   - Keep immutable Linux installer hashes and verify the evolving common installer with its own checksum.
   - Build and ad hoc sign the macOS app on Apple Silicon; publish content-addressed archives before switching the macOS installer to the corresponding binary.

@@ -7,6 +7,7 @@ goal: Let users choose a predefined terminal icon with preview save cancel and p
 problem: The fixed application icon does not let people give their terminal a personal visual identity.
 behavior:
   - Begin with a curated set of static pets and characters with a live preview and an explicit restore-default action.
+  - Offer the Yorkie artwork inspired by the user's dog as a separate built-in preset.
   - Display the selected artwork and preset name in a clickable preview on the Appearance page.
   - Distinguish the application launcher icon the running window icon and a companion drawn inside Termust.
   - Keep local photo import and optional animation as later phases.
@@ -32,6 +33,8 @@ implemented:
   - Put a clickable thumbnail and the preset name at the top of Appearance above the aligned theme control.
   - Verified the thumbnail and gallery on Linux X11 with compact and high-DPI windows, plus AppKit icon replacement, cancellation, saving and reapplication after restart in a bundled Apple Silicon test build.
   - Published the Appearance preview for Linux x86_64 and macOS Apple Silicon from source commit 0a5a85a8. Verified both updates through the public installer in isolated destinations.
+  - Added the Yorkie PNG and multi-resolution Windows ICO. Verified selection, preview, save, and restart on Linux X11 and in an Apple Silicon AppKit fixture. The Linux installer retained the Yorkie launcher settings and Windows passed a cross-check.
+  - Published the Yorkie packages from the tested working tree with base revision 75332083. Verified upgrades through the common installer, including the exact Linux binary used for the gallery tests and the saved Yorkie setting in the downloaded Mac app.
 pending:
   - Photo import animation and graphical desktop-shell validation remain separate future work.
 steps:
@@ -61,6 +64,16 @@ steps:
     status: done
     verify: mise exec -- cargo test --locked -p termust icon
     note: "Linux X11 compact and HiDPI fixtures passed. Native Mac AppKit validated preview entry, save, cancel and restart."
+  - id: yorkie-preset
+    desc: Add the Yorkie artwork and verify the gallery, per-user icon integration and installer persistence
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon && mise run test:install && mise run test:macos-release
+    note: "Integrated gallery and persisted Yorkie in Linux X11, preserved launcher metadata in the installer, verified native AppKit on Apple Silicon and compiled the Windows target."
+  - id: yorkie-release
+    desc: Publish the Yorkie builds and verify upgrades from the previous public packages
+    status: done
+    verify: mise run release:verify
+    note: "Public Linux and Apple Silicon upgrades passed. The downloaded Linux binary matches the tested Yorkie gallery binary, and the downloaded Mac binary loads the Yorkie setting."
 acceptance:
   - id: matrix
     desc: Record a source-backed feasibility matrix for KDE GNOME Cinnamon XFCE Windows and macOS
@@ -75,7 +88,12 @@ acceptance:
     status: done
   - desc: Appearance shows the selected icon artwork and name, aligns the theme and icon controls, and opens the gallery when clicked or activated from the keyboard.
     status: done
+  - desc: Yorkie appears as its own gallery option, previews with its artwork and native icon, survives saving and reopening, and is retained by the Linux installer.
+    status: done
+  - desc: The common installer updates Linux x86_64 and macOS Apple Silicon to a package containing the Yorkie preset.
+    status: done
 decisions:
+  - Use the generated Yorkie artwork as a bundled PNG and Windows ICO. Store the selection as window.icon with the value yorkie.
   - Put the icon preview and theme at the top of Appearance so they are visible in compact windows. Use matching row widths and match keyboard order to the layout.
   - The initial candidate is static presets; animation must have an in-app fallback that does not depend on the desktop shell.
   - Recommend one icon choice per user for all Termust windows rather than independent system icons per tab.

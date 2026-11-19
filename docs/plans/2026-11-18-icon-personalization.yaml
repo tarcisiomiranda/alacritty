@@ -4,6 +4,8 @@ status: done
 created: 2026-11-18
 updated: 2026-11-19
 context:
+  - The installed Linux binary and common installer still selected the public Appearance build 0a5a85a8. The Yorkie preset was implemented in the local checkout.
+  - The user asked to add the generated Yorkie portrait from their photo to the Termust gallery.
   - The user asked for a visible icon preview in Appearance and clearer arrangement of theme and icon controls after finding the text-only entry.
   - The user wants selectable icons such as cats and dogs and later personal photos and possibly animation.
   - The product must cover KDE GNOME Cinnamon XFCE Windows and macOS where possible.
@@ -39,6 +41,12 @@ stages:
   - id: appearance-release
     desc: Push the Appearance source revision and publish matching Linux x86_64 and macOS Apple Silicon builds through the existing installer.
     status: done
+  - id: yorkie-preset
+    desc: Bundle the Yorkie PNG and ICO, integrate the gallery and installer, and verify selection across the available platforms.
+    status: done
+  - id: yorkie-release
+    desc: Publish both packages from the tested working tree and verify updates through the common installer.
+    status: done
 risks:
   - Runtime window icons and pinned launcher icons are different surfaces controlled by different components.
   - Arbitrary frame animation of system icons is not a portable desktop contract.
@@ -46,6 +54,7 @@ rollback:
   - Restore the default selection from settings and retain the original packaged artwork as the fallback.
   - Keep any launcher customization limited to the current user and preserve its original desktop entry fields.
 decisions:
+  - Record the base revision and working-tree build status for the Yorkie release. Keep the packaged source for the native builder with the public release.
   - Keep the Termust application identity stable and store personalized assets per user outside installed binaries and signed bundles.
   - Prefer static system icons and an optional animated companion inside the application for consistent behavior across platforms.
   - Start with one per-user selection applied to all windows because docks and pinned launchers commonly represent the application as a group.
@@ -156,7 +165,7 @@ result:
   - Optional animation inside Termust is the portable recommendation; universal animated system launcher icons are not a supportable promise.
   - Native macOS and Linux packages were published after the user authorized distribution; Windows has compile coverage and no new installer publication.
 implementation:
-  settings: window.icon accepts termust cat dog fox and robot; previews are temporary and Save publishes the choice to all open windows.
+  settings: window.icon accepts termust cat dog fox robot and yorkie. Previews are temporary and Save applies the choice to all open windows.
   gallery: Settings Appearance Application icon supports keyboard and mouse and skips clipped cards rather than distorting their artwork in compact windows.
   linux: Save changes only the main Desktop Entry icon fields preserving commands actions identity and custom labels; generated images are outside release directories.
   linux_update: The installer retains valid managed icon fields during reinstall and updates the rest of the launcher normally.
@@ -164,6 +173,8 @@ implementation:
   macos: NSApplication.applicationIconImage uses embedded PNG data on the main thread; restoring the original uses nil and leaves the signed bundle unchanged.
   packaging: The macOS source archive includes the PNG assets referenced by the portable module and a regression test checks their bytes.
 validation:
+  - command: Yorkie integration checks
+    result: The Linux X11 fixture passed selection, save, launcher update, and restart at three sizes. The native Mac fixture verified the AppKit icon before and after restart. Installer tests and Windows cross-check passed.
   - command: mise exec -- python3 -B scripts/test-icon-personalization.py
     result: Passed thumbnail painting and mouse entry from Appearance plus gallery keyboard navigation, preview, cancel, save, restart and original icon restoration across English, Brazilian Portuguese and DPI 2 X11 fixtures.
   - command: mise exec -- python3 -B scripts/test-ui-font.py
@@ -192,6 +203,20 @@ unverified:
   - Actual KDE GNOME Cinnamon and XFCE panels favorites caches and compositor-specific Wayland behavior require manual desktop-session testing.
   - Windows PowerShell shortcut updates and pinned-taskbar refresh have only been compiled and reviewed and need execution on Windows.
   - Inspect the visible Dock tile and pinned shortcut behavior in macOS with a manual desktop check.
+yorkie_release:
+  base_revision: 75332083fa213661a05c10db05fe88cea47a9283
+  source_dirty: true
+  linux_version: 0.18.0-termust.75332083.b535ae3aaaf0
+  linux_archive_sha256: 24c0510c89f7ca4d2546729df16766dc3f03981ce6b7e7f85cb40c42ef758c8d
+  linux_binary_sha256: e7789e99679f9158456d2c4be8f968d88a05c2acb1db802072f87738c1d3b218
+  macos_archive_sha256: 2bd129f9a1479c93d154fac72adcd43190387e0f0279b1a64f0de2796f0e06e8
+  macos_source_sha256: 4bb1fbda056fb59dc00aae2fa6f035cc4f6e4306c02f8482ba3b9e76d1c08034
+  installer_sha256: 78a37a463f2c6803889a0326f1c2ade48f9f7b67acc94581e83bcb1f69b41719
+  verified:
+    - Reran all six Linux compatibility checks with the new archive in prepared images identified by their verified digests after Fedora repository downloads stalled.
+    - Confirmed Yorkie preview, save, launcher icon and restart with the Linux archive binary. The public upgrade installed that exact binary and preserved the existing configuration.
+    - Upgraded the Mac fixture from the Appearance release and verified the signature, previous bundle, ARM64 binary and Yorkie preference.
+    - Verified the updated common installer and the public builder source archive containing the Yorkie artwork.
 appearance_release:
   source_commit: 0a5a85a8d9eeaba22981032a3953b4ca9c6a9666
   linux_version: 0.18.0-termust.0a5a85a8.fec0ade07b28

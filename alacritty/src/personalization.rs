@@ -17,10 +17,12 @@ pub enum IconPreset {
     Dog,
     Fox,
     Robot,
+    Yorkie,
 }
 
 impl IconPreset {
-    pub const ALL: [Self; 5] = [Self::Termust, Self::Cat, Self::Dog, Self::Fox, Self::Robot];
+    pub const ALL: [Self; 6] =
+        [Self::Termust, Self::Cat, Self::Dog, Self::Fox, Self::Robot, Self::Yorkie];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -29,6 +31,7 @@ impl IconPreset {
             Self::Dog => "dog",
             Self::Fox => "fox",
             Self::Robot => "robot",
+            Self::Yorkie => "yorkie",
         }
     }
 
@@ -39,6 +42,7 @@ impl IconPreset {
             Self::Dog => Message::IconDog,
             Self::Fox => Message::IconFox,
             Self::Robot => Message::IconRobot,
+            Self::Yorkie => Message::IconYorkie,
         })
     }
 
@@ -49,11 +53,13 @@ impl IconPreset {
             Self::Dog => include_bytes!("../../extra/icons/dog.png"),
             Self::Fox => include_bytes!("../../extra/icons/fox.png"),
             Self::Robot => include_bytes!("../../extra/icons/robot.png"),
+            Self::Yorkie => include_bytes!("../../extra/icons/yorkie.png"),
         }
     }
 
     fn image(self) -> &'static IconImage {
-        static IMAGES: [OnceLock<IconImage>; 5] = [const { OnceLock::new() }; 5];
+        static IMAGES: [OnceLock<IconImage>; IconPreset::ALL.len()] =
+            [const { OnceLock::new() }; IconPreset::ALL.len()];
         IMAGES[self as usize].get_or_init(|| IconImage::decode(self.png()))
     }
 
@@ -380,6 +386,7 @@ mod windows_launcher {
             IconPreset::Dog => include_bytes!("../../extra/icons/dog.ico"),
             IconPreset::Fox => include_bytes!("../../extra/icons/fox.ico"),
             IconPreset::Robot => include_bytes!("../../extra/icons/robot.ico"),
+            IconPreset::Yorkie => include_bytes!("../../extra/icons/yorkie.ico"),
         };
         fs::create_dir_all(icon.parent().unwrap())?;
         fs::create_dir_all(shortcut.parent().unwrap())?;

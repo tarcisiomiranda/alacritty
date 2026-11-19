@@ -28,14 +28,16 @@ def main():
     with tempfile.TemporaryDirectory(prefix="termust-publish-installer-") as temporary:
         checksum = Path(temporary) / "install.sh.sha256"
         checksum.write_text(sha + "  install.sh\n")
-        publisher.put(config, checksum, "install.sh.sha256", "text/plain; charset=utf-8")
-        publisher.put(config, installer, "install.sh", "text/x-shellscript; charset=utf-8")
-        publisher.put(config, installer, "install-macos.sh", "text/x-shellscript; charset=utf-8")
-    if publisher.download(config, "install.sh") != data:
-        raise RuntimeError("public installer differs from the local file")
-    if publisher.download(config, "install.sh.sha256").decode().split() != [sha, "install.sh"]:
-        raise RuntimeError("public installer checksum mismatch")
-    print(f"Common installer verified: {config['base_url']}/install.sh")
+        for target in [config, *publisher.mirror_targets(config)]:
+            publisher.put(target, checksum, "install.sh.sha256", "text/plain; charset=utf-8")
+            publisher.put(target, installer, "install.sh", "text/x-shellscript; charset=utf-8")
+            if target == config:
+                publisher.put(target, installer, "install-macos.sh", "text/x-shellscript; charset=utf-8")
+            if publisher.download(target, "install.sh") != data:
+                raise RuntimeError(f"Public installer differs from the local file in {target['bucket']}.")
+            if publisher.download(target, "install.sh.sha256").decode().split() != [sha, "install.sh"]:
+                raise RuntimeError(f"Public installer checksum mismatch in {target['bucket']}.")
+            print(f"Common installer verified: {target['base_url']}/install.sh")
 
 
 if __name__ == "__main__":

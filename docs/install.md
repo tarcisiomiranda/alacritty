@@ -18,10 +18,10 @@ Open `~/Applications/Termust.app` from Finder after installation.
 The installer verifies the downloaded archive and app signature and installs it
 without sudo or a Rust toolchain. Re-running the command updates the verified
 Termust app through an atomic launcher link and preserves the previous bundle
-at `~/Applications/.termust/previous.app`. Quit and reopen Termust to load the
-new bundle. Unrecognized apps and links outside the managed releases are
-rejected. The app is ad hoc signed. On macOS, `--prefix` selects the app directory,
-and `--check` verifies the app.
+at `~/Applications/.termust/previous.app`. Use `open -n ~/Applications/Termust.app`
+to open the updated app alongside existing windows. Unrecognized apps and links
+outside the managed releases are rejected. The app is ad hoc signed. On macOS,
+`--prefix` selects the app directory, and `--check` verifies the app.
 
 Termust starts the shell assigned to your macOS account as an interactive login
 shell. For Zsh, this includes `.zprofile` and `.zshrc`, where your prompt theme can
@@ -49,7 +49,9 @@ pinned releases. New releases are verified at the canonical location and both
 previous locations.
 
 The Linux installer installs `~/.local/bin/termust` and a user desktop entry named
-**Termust**. Open a new terminal window after installation.
+**Termust**. After updating, right-click the Termust launcher and choose **New Window**,
+or run `~/.local/bin/termust` to start the installed build. Clicking a running
+app in the dock can return you to a window opened before the update.
 The system package in `/usr/bin/alacritty` and your existing configuration and
 saved sessions are kept. Existing terminal processes continue running.
 
@@ -78,15 +80,17 @@ The release checks run on Ubuntu 22.04 and 24.04, Debian 12 and 13, and Fedora
 43 and 44. Each environment checks installation, repeat installation, PATH,
 receipt integrity, the desktop launcher, terminfo and a real graphical terminal
 running a shell. These tests use X11 with software rendering; they do not cover
-every GPU driver or Wayland desktop. ARM, musl/Alpine, macOS and Windows packages
-are not provided by this installer.
+every GPU driver or Wayland desktop. The Linux package targets x86_64 with glibc.
+The macOS package targets Apple Silicon.
 
 Before replacement, the installer checks SHA256, package metadata, glibc,
 runtime libraries and the new executable. Missing dependencies produce a
 suggested package-manager command for the detected distro. It never runs sudo
 or installs system packages automatically.
 
-Run the same command again to update. The release and its required glibc version
+Run the same command again to update. The installer prints the latest package for
+your platform, then reports whether it installed an update or found the same build.
+The release and its required glibc version
 are listed in the public `release.json` file inside its version directory.
 The version directory also contains `compatibility.json` with test results.
 Publishing is blocked if that report does not match the package and installer.
@@ -124,8 +128,9 @@ The check does not change files. It reports other Termust copies, PATH priority,
 receipt mismatches and desktop launcher conflicts. For a custom `--prefix`, add
 its `bin` directory first in PATH and its `share` directory to `XDG_DATA_DIRS`.
 The installer does not edit shell startup files or delete unknown installations.
-After an update, open a new terminal window. Existing windows keep their old
-executable until closed; Bash may also need `hash -r`, or Zsh `rehash`.
+After an update, the Linux installer and `--check` report any older process they
+can identify for the same installation. Its tabs keep using the old build. The
+printed launch command starts a separate process from the installed executable.
 
 Before replacing an existing executable, the installer saves one previous copy
 of the binary and managed integration files under `share/termust/rollback` in

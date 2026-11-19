@@ -2,9 +2,10 @@ plan: binary-distribution
 title: Public B2 installer and local release build
 status: done
 created: 2026-10-20
-updated: 2026-11-18
+updated: 2026-11-19
 goal: Make the improved terminal installable with curl or mise and use it on this workstation.
 context:
+  - The GNOME launcher's installed build and running process were both 0a5a85a8. The last local receipt predated publication of the Yorkie package by fifteen minutes.
   - The user prefers maintaining this fork after upstream declined the requested features.
   - Fedora currently launches /usr/bin/alacritty version 0.17.0.
   - B2 CLI 5 is available and authorized to create buckets and upload files.
@@ -17,6 +18,9 @@ out_of_scope:
   - Untested macOS, Windows or ARM packages and automatic system dependency installation.
   - Git commits, pushes and PR changes.
 stages:
+  - id: update-feedback
+    desc: Verify the real desktop install, report the active and installed builds, and validate the revised public installer
+    status: done
   - id: unified-installer
     desc: One install.sh for Linux and macOS with independent platform release pointers
     status: done
@@ -42,6 +46,9 @@ stages:
     desc: Publish the Termust bucket and preserve historical downloads and the old curl command
     status: done
 validation:
+  - All ten distribution checks ran with the revised installer and the published Yorkie archive in the six Linux images identified by the verified release report. All passed.
+  - Anonymous installs verified the official installer hash 9ba6a435aed211deb83e60a7a18ffa7d86abf6ca720e07ed24dc5e090066c099. On Linux the old process remained alive and was identified after the update. On Apple Silicon the update, repeat install, signature and launching the new bundle alongside the old one passed.
+  - On the GNOME workstation the public command updated 0a5a85a8 to 75332083. The desktop launcher started the matching executable. The installed binary displayed Yorkie in the gallery, saved it and restored it on restart in isolated UI tests.
   - Icon release 0.18.0-termust.64a3a8d1.c9b8aad893e5 passed all six distro checks and exact portable-binary icon tests before publication and anonymous verification in all three buckets on 2026-11-18.
   - The corresponding native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and common installer passed actual public install reinstall and --check plus strict bundle signature verification.
   - The same public install.sh command passed real installation on Linux x86_64 and macOS arm64; 52 Linux installer tests, 9 Mac release tests and 18 publisher tests passed.

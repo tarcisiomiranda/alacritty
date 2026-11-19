@@ -42,7 +42,7 @@ class ReleaseTests(unittest.TestCase):
         package.DIST = self.root / "source-package"
         package.main()
         with tarfile.open(package.DIST / "source.tar.gz") as archive:
-            for name in ("cat", "dog", "fox", "robot"):
+            for name in ("cat", "dog", "fox", "robot", "yorkie"):
                 entry = "termust-source/extra/icons/" + name + ".png"
                 self.assertEqual(archive.extractfile(entry).read(), (ROOT / "extra/icons" / (name + ".png")).read_bytes())
             self.assertIsNotNone(archive.getmember("termust-source/extra/logo/termust.png"))
@@ -174,7 +174,9 @@ class BinaryInstallerTests(unittest.TestCase):
     def run_command(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "curl":
-            data = json.dumps(self.manifest).encode() if command[-1].endswith(".json") else self.archive.read_bytes()
+            is_manifest = command[-1].endswith(".json")
+            self.assertEqual("Cache-Control: no-cache" in command, is_manifest)
+            data = json.dumps(self.manifest).encode() if is_manifest else self.archive.read_bytes()
             Path(command[command.index("--output") + 1]).write_bytes(data)
         return mock.Mock(returncode=0, stdout="termust 0.18.0-dev\n", stderr="")
 
@@ -210,13 +212,20 @@ class BinaryInstallerTests(unittest.TestCase):
 
     def test_updates_managed_link_and_reinstall_preserves_previous_version(self):
         previous = self.existing_app(managed=True)
-        INSTALLER["main"]()
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            INSTALLER["main"]()
         destination = self.home / "Applications/Termust.app"
+        self.assertIn(f"Updated Termust at {destination}", output.getvalue())
+        self.assertIn(f"Latest macOS arm64 package: {self.manifest['sha256'][:12]}", output.getvalue())
+        self.assertIn(f"open -n {destination}", output.getvalue())
         current = destination.resolve()
         backup = destination.parent / ".termust/previous.app"
         self.assertEqual((current / "Contents/MacOS/termust").read_bytes(), b"binary")
         self.assertEqual(backup.resolve(), previous.resolve())
-        INSTALLER["main"]()
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            INSTALLER["main"]()
+        self.assertIn("is already installed", output.getvalue())
+        self.assertNotIn("Updated Termust", output.getvalue())
         self.assertEqual(destination.resolve(), current)
         self.assertEqual(backup.resolve(), previous.resolve())
         self.assertEqual((previous / "Contents/MacOS/termust").read_bytes(), b"previous binary")

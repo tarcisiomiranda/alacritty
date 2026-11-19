@@ -8,11 +8,14 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
 use crate::config::UiConfig;
 use crate::localization::{Language, Locale, Message};
+use crate::personalization::IconPreset;
 use crate::settings::{
     SettingsValues, ThemeChoice, default_shortcuts, resolved_shortcuts, shortcut_binding,
     shortcut_conflict, shortcut_text,
 };
 use crate::tab_ui::{UiElement, UiKind, UiRect};
+
+const FIRST_ICON_CONTROL: usize = 600;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProductivityAction {
@@ -1098,12 +1101,11 @@ impl PreferencesDialog {
                 });
             },
             8 => {
-                use crate::personalization::IconPreset;
                 rows.push(Row::Label(t(Message::AppIcon).into()));
                 let control = |index: usize| {
                     let preset = IconPreset::ALL[index];
                     Control {
-                        id: 600 + index,
+                        id: FIRST_ICON_CONTROL + index,
                         kind: UiKind::IconCard(preset, self.values.icon == preset),
                         text: preset.label(self.locale).into(),
                         disabled: false,
@@ -1306,7 +1308,7 @@ impl PreferencesDialog {
                 };
                 self.panel.focus = match self.page {
                     2 => 26,
-                    8 => 600 + self.values.icon as usize,
+                    8 => FIRST_ICON_CONTROL + self.values.icon as usize,
                     _ => id,
                 };
                 self.panel.hovered = None;
@@ -1364,8 +1366,10 @@ impl PreferencesDialog {
             25 => self.values.copy_on_select = !self.values.copy_on_select,
             34 => self.values.agent_integration = !self.values.agent_integration,
             35 => self.values.agent_notifications = !self.values.agent_notifications,
-            39 => self.values.icon = crate::personalization::IconPreset::Termust,
-            600..=604 => self.values.icon = crate::personalization::IconPreset::ALL[id - 600],
+            39 => self.values.icon = IconPreset::Termust,
+            id if (FIRST_ICON_CONTROL..FIRST_ICON_CONTROL + IconPreset::ALL.len()).contains(&id) => {
+                self.values.icon = IconPreset::ALL[id - FIRST_ICON_CONTROL];
+            },
             400..=599 => {
                 use crate::desktop_apps::AppKind;
                 let (kind, first) =
@@ -2097,8 +2101,6 @@ impl ProductivityDialog {
 mod tests {
     #[test]
     fn appearance_icon_preview_is_visible_and_opens_the_gallery() {
-        use crate::personalization::IconPreset;
-
         for (columns, lines) in [(100, 32), (64, 28), (45, 18)] {
             let mut preferences = PreferencesDialog::new(
                 Rc::new(UiConfig::default()),
@@ -2123,14 +2125,14 @@ mod tests {
                 },
             );
             dialog.click(preview.rect.left + 1, preview.rect.top + 1, columns, lines);
-            assert_eq!(dialog.panel().focus, 602);
-            dialog.activate(601);
+            assert_eq!(dialog.panel().focus, FIRST_ICON_CONTROL + IconPreset::Dog as usize);
+            dialog.activate(FIRST_ICON_CONTROL + IconPreset::Yorkie as usize);
             dialog.activate(0);
             assert!(dialog.parts(columns, lines).iter().any(|(element, id)| {
                 *id == Some(38)
                     && matches!(
                         element.kind,
-                        UiKind::AppearanceChoice { icon: Some(IconPreset::Cat), .. }
+                        UiKind::AppearanceChoice { icon: Some(IconPreset::Yorkie), .. }
                     )
             }));
         }
@@ -2138,7 +2140,6 @@ mod tests {
 
     #[test]
     fn icon_gallery_preserves_other_drafts_and_keeps_cards_and_actions_reachable() {
-        use crate::personalization::IconPreset;
         for (columns, lines) in [(120, 40), (80, 32), (60, 28), (40, 24)] {
             let mut preferences = super::PreferencesDialog::new(
                 std::rc::Rc::new(crate::config::UiConfig::default()),
@@ -2148,13 +2149,14 @@ mod tests {
             preferences.values.font_size = 22.;
             preferences.activate(38);
             for (index, preset) in IconPreset::ALL.into_iter().enumerate() {
-                preferences.panel.focus = 600 + index;
-                preferences.activate(600 + index);
+                let id = FIRST_ICON_CONTROL + index;
+                preferences.panel.focus = id;
+                preferences.activate(id);
                 let rows = preferences.rows(columns, lines);
                 let geometry = super::Panel::geometry(&rows, columns, lines);
                 let parts =
                     preferences.panel.parts(&rows, "Settings", "Preview", "Help", columns, lines);
-                let (element, _) = parts.iter().find(|(_, id)| *id == Some(600 + index)).unwrap();
+                let (element, _) = parts.iter().find(|(_, control)| *control == Some(id)).unwrap();
                 assert!(element.rect.top >= geometry.body.top);
                 assert!(element.rect.top + element.rect.height <= geometry.footer.top);
                 assert_eq!(preferences.values.icon, preset);

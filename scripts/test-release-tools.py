@@ -235,6 +235,46 @@ class PublicationTests(unittest.TestCase):
         with mock.patch.object(PUBLISHER, "download", side_effect=lambda config, name: objects[name]):
             self.assertEqual(PUBLISHER.verify(self.config), self.manifest)
 
+    def test_standalone_installer_update_reaches_all_common_urls(self):
+        spec = importlib.util.spec_from_file_location("standalone_installer", ROOT / "scripts/publish-installer.py")
+        standalone = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(standalone)
+        self.config["mirrors"] = [
+            {"bucket": "previous", "base_url": "https://previous.example.test"},
+            {"bucket": "original", "base_url": "https://original.example.test"},
+        ]
+        mac_hash = hashlib.sha256(self.archive).hexdigest()
+        mac_name = f"macos/binary/{mac_hash}.tar.gz"
+        mac_manifest = {"schema": 1, "platform": "macos-arm64", "sha256": mac_hash, "archive": mac_name}
+        objects = {
+            ("fixture", mac_name): self.archive,
+            ("fixture", "latest-macos-arm64.json"): json.dumps(mac_manifest).encode(),
+        }
+        uploads = []
+
+        def put(target, path, name, content_type):
+            key = (target["bucket"], name)
+            objects[key] = path.read_bytes()
+            uploads.append(key)
+
+        with (
+            mock.patch.object(standalone, "ROOT", self.root),
+            mock.patch.object(standalone, "publisher", PUBLISHER),
+            mock.patch.object(PUBLISHER, "settings", return_value=self.config),
+            mock.patch.object(PUBLISHER, "put", side_effect=put),
+            mock.patch.object(PUBLISHER, "download", side_effect=lambda target, name: objects[target["bucket"], name]),
+        ):
+            standalone.main()
+        checksum = hashlib.sha256(self.installer).hexdigest()
+        for bucket in ("fixture", "previous", "original"):
+            self.assertEqual(objects[bucket, "install.sh"], self.installer)
+            self.assertEqual(objects[bucket, "install.sh.sha256"].decode().split(), [checksum, "install.sh"])
+        self.assertEqual(uploads, [
+            ("fixture", "install.sh.sha256"), ("fixture", "install.sh"), ("fixture", "install-macos.sh"),
+            ("previous", "install.sh.sha256"), ("previous", "install.sh"),
+            ("original", "install.sh.sha256"), ("original", "install.sh"),
+        ])
+
     def test_common_installer_can_evolve_without_changing_pinned_releases(self):
         objects = self.remote_objects()
         objects["install.sh"] = b"common installer with macOS support"
