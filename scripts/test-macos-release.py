@@ -259,7 +259,7 @@ class BinaryInstallerTests(unittest.TestCase):
         destination.symlink_to(outside)
         with self.assertRaisesRegex(RuntimeError, "outside the managed releases"):
             INSTALLER["main"]()
-        self.assertEqual(destination.resolve(), outside)
+        self.assertEqual(destination.resolve(), outside.resolve())
 
     def test_rejects_traversal(self):
         self.make_archive("Termust.app/../../outside")

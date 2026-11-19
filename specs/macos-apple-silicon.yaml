@@ -1,6 +1,6 @@
 spec: macos-apple-silicon
 title: Termust tabs panes and settings on Apple Silicon
-status: in_progress
+status: done
 created: 2026-11-19
 updated: 2026-11-19
 goal: Make the macOS binary expose the Termust tab bar pane controls and settings and start the account's configured login shell.
@@ -22,8 +22,11 @@ implemented:
   - Enabled the shared tab bar, pane menu, and settings with native macOS shortcuts.
   - Changed default macOS PTYs to prefer the shell registered for the account and pass the login command arguments directly.
   - Verified the account's interactive login Zsh and custom PS1 with an unset SHELL and an inherited SHELL pointing to Bash. Explicit per-profile shell and CLI command overrides still launched their configured commands.
+  - Published native build 742b8c8 under archive SHA-256 7f088a2515ae39b33ccfc3468163667c5d060cc66593527726e7e30c47963dea and repointed latest-macos-arm64.json.
+  - Upgraded an isolated install from 64a3a8d through the public installer with a system-only PATH. Verified the previous bundle, repeat install, signature, ARM64 executable, and Zsh startup with the downloaded binary.
+  - Fixed the installer test comparison of the resolved symlink target with macOS temporary paths under /var.
+  - Republished build-macos-release.sh on the Mac and verified public source archive SHA-256 fd488c1079509a1cc6718b0217af077d29fcd2c2641e86dcc3d4e3f1364a688c after all 15 release tests passed.
 pending:
-  - Verify the published archive by upgrading an isolated macOS installation from the previous release.
 steps:
   - id: workspace
     desc: Enable shared application tabs menus and pane bindings on native macOS windows
@@ -32,8 +35,9 @@ steps:
     note: "Linux and Apple Silicon Rust suites passed. Native AppKit keyboard and Winit mouse fixtures verified splits, settings, tabs and independent windows with Full and Transparent decorations."
   - id: macos-validation
     desc: Exercise the corrected window and verify the bundle workflow with an isolated macOS install
-    status: doing
+    status: done
     verify: mise run test:macos-release
+    note: "Canonical public install upgraded 64a3a8d to 742b8c8 on Apple Silicon with system PATH. Signature, previous bundle, repeated install and the prompt fixture on the actual release passed."
   - id: login-shell
     desc: Prefer the macOS account shell while keeping interactive login startup and explicit command overrides
     status: done
@@ -45,7 +49,7 @@ acceptance:
   - desc: Both split directions and settings are reachable via shortcuts and the context menu and existing tabs remain active.
     status: done
   - desc: The exact release app is tested and installer version selection is verified on Apple Silicon.
-    status: todo
+    status: done
   - desc: The native PTY uses the account's Zsh even with an inherited Bash and loads a custom PS1 from .zshrc with login and interactive options active.
     status: done
 decisions:

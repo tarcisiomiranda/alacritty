@@ -2,7 +2,7 @@ spec: binary-distribution
 title: Portable B2 packages and reliable installation updates
 status: in_progress
 created: 2026-10-20
-updated: 2026-11-18
+updated: 2026-11-19
 goal: Publish this fork in a dedicated B2 bucket and support curl installation and mise run install for local daily use.
 problem: The original Fedora-built package required glibc 2.43 and updates lacked downgrade protection rollback and launch-path diagnostics.
 behavior:
@@ -21,6 +21,7 @@ constraints:
   - Preserve the operating system package and all existing terminal settings and sessions.
   - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
 implemented:
+  - Published build 742b8c8 for Apple Silicon and upgraded an isolated install with the public install.sh. Verified the current and previous bundles, repeated installation, codesign, and login Zsh in the actual downloaded app. The workspace and prompt validation is recorded in specs/macos-apple-silicon.yaml.
   - Published icon personalization release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical bucket and both mirrors after six distro checks and portable icon tests passed; public Linux install reinstall receipt checksum and --check passed.
   - Published native macOS archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e from the pushed source commit and verified public installation reinstall diagnostics and codesign on Apple Silicon without Rust in the client PATH.
   - macOS installation updates existing managed apps or migrates real app bundles into versioned storage, preserving the previous bundle and leaving identical reinstalls unchanged.
@@ -59,7 +60,7 @@ implemented:
   - Installed the release into /home/tarcisiomiranda/.local with shell and Alacritty Workspace desktop integration.
   - Passed 18 installer tests, release graphical checks and a real desktop launch with tabs, saved session and settings.
 pending:
-  - Validate the macOS tab, pane, shell and saved-session workflows on a real graphical desktop.
+  - Validate saved-session restoration on the native macOS graphical desktop.
   - Address shell integration for macOS system Bash 3.2, which lacks the prompt features used by the current hooks.
 steps:
   - id: macos-updates

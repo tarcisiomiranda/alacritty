@@ -6,6 +6,8 @@ updated: 2026-11-19
 language: pt-BR
 goal: Compilar, instalar e usar o Termust nativo ARM64 no Mac com abas, grupos, painéis, menus e recuperação de estado.
 handoff:
+  - O manifesto público ARM64 aponta para o build 742b8c8, com SHA-256 7f088a2515ae39b33ccfc3468163667c5d060cc66593527726e7e30c47963dea. O instalador público atualizou uma instalação de teste no Mac, preservou a cópia anterior e passou em reinstalação e --check.
+  - A suíte Rust passou no Linux e no Mac. Dois cenários X11 de produtividade e atalhos repetiram falhas do binário anterior nas asserções de clique em Configurações e rótulo do atalho de renomeação.
   - Os ensaios de janela nativa verificaram abas internas, as duas divisões, menu, Configurações e janelas independentes com decorações Full e Transparent.
   - Com o shell da conta em /bin/zsh, o PTY de teste carregou todos os arquivos de inicialização de login e o PS1 de .zshrc, inclusive com SHELL herdado apontando para Bash. Configuração explícita de shell e comandos via CLI passaram.
   - Em 2026-11-19 o Mac já estava com o pacote ARM64 anunciado no manifesto. A barra de abas, o menu e os atalhos de divisão estavam desativados no código macOS.
@@ -14,7 +16,7 @@ handoff:
   - A instalação real do Mac foi atualizada pelo comando público unificado; repetição e --check passaram, preservando o hash do bundle anterior.
   - Corrigir reinstalação macOS para atualizar o link do app entre bundles versionados; validar instalação legada existente, repetição e falhas sem perda da versão anterior.
   - Instalador unificado publicado e validado no Mac e no Linux; releases macOS atualizam latest-macos-arm64.json sem trocar install.sh.
-  - Script de release atualizado no checkout do Mac; a atualização da cópia pública ficou pendente por falhas de conexão com a API B2.
+  - Script público build-macos-release.sh atualizado a partir do Mac e verificado com o arquivo de código-fonte fd488c1079509a1cc6718b0217af077d29fcd2c2641e86dcc3d4e3f1364a688c. Os 15 testes de release passaram no Mac e no Linux.
   - Binário ARM64 gerado no Mac publicado; o comando público curl instalou e verificou o app em um HOME temporário no Mac.
   - No Mac Apple Silicon com macOS 26.6.2, a suíte Rust passou e o Termust.app abriu e executou comando em PTY; faltam fluxos gráficos completos.
   - O Bash do sistema é 3.2 e não oferece os hooks usados pela integração; o Mac tem Bash 5.3 em /opt/homebrew/bin/bash para o teste de integração.
@@ -261,7 +263,7 @@ stages:
       - Preservar o instalador e todos os gates de compatibilidade Linux, com testes separados por plataforma.
   - id: native-validation
     desc: Validar a experiência gráfica real no Mac e registrar as evidências.
-    status: todo
+    status: doing
     work:
       - Criar automação macOS ou uma verificação manual reproduzível; não considerar Xvfb um teste da interface Cocoa.
       - Usar dados de exemplo e diretórios temporários; não registrar comandos ou conteúdo pessoal nos prints.
