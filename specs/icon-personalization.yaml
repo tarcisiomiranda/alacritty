@@ -31,6 +31,7 @@ implemented:
   - Verified anonymous public install reinstall and --check on Linux and macOS using temporary destinations; macOS also passed strict codesign verification without Rust in PATH.
   - Put a clickable thumbnail and the preset name at the top of Appearance above the aligned theme control.
   - Verified the thumbnail and gallery on Linux X11 with compact and high-DPI windows, plus AppKit icon replacement, cancellation, saving and reapplication after restart in a bundled Apple Silicon test build.
+  - Published the Appearance preview for Linux x86_64 and macOS Apple Silicon from source commit 0a5a85a8. Verified both updates through the public installer in isolated destinations.
 pending:
   - Photo import animation and graphical desktop-shell validation remain separate future work.
 steps:

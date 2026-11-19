@@ -1,6 +1,6 @@
 plan: icon-personalization
 title: Evaluate affectionate terminal personalization
-status: in_progress
+status: done
 created: 2026-11-18
 updated: 2026-11-19
 context:
@@ -38,7 +38,7 @@ stages:
     status: done
   - id: appearance-release
     desc: Push the Appearance source revision and publish matching Linux x86_64 and macOS Apple Silicon builds through the existing installer.
-    status: doing
+    status: done
 risks:
   - Runtime window icons and pinned launcher icons are different surfaces controlled by different components.
   - Arbitrary frame animation of system icons is not a portable desktop contract.
@@ -192,6 +192,19 @@ unverified:
   - Actual KDE GNOME Cinnamon and XFCE panels favorites caches and compositor-specific Wayland behavior require manual desktop-session testing.
   - Windows PowerShell shortcut updates and pinned-taskbar refresh have only been compiled and reviewed and need execution on Windows.
   - Inspect the visible Dock tile and pinned shortcut behavior in macOS with a manual desktop check.
+appearance_release:
+  source_commit: 0a5a85a8d9eeaba22981032a3953b4ca9c6a9666
+  linux_version: 0.18.0-termust.0a5a85a8.fec0ade07b28
+  linux_archive_sha256: 4a3302b7c7df48379407ed692745c8fa53616171086818e910afd5792b1c1127
+  linux_binary_sha256: e290eca47d5ac13604b442410ec8124c31cadcb93fb1c00312b1e9535ace0e13
+  macos_archive_sha256: b451c6d35665a5c1bdf4262184fb4edbe34c1e27d9911ed300b762656098ca9b
+  macos_source_sha256: 118102e703fda1075dc0e37f3400f7005e527d2c1439eaa262ccfd5ad718b660
+  verified:
+    - All six Linux distributions passed the installation and graphical launch checks with the released archive.
+    - The optimized Linux build passed icon and interface font checks for compact, wide and HiDPI windows.
+    - Public Linux upgrade passed installer diagnostics and preserved the saved icon setting in an isolated home.
+    - Apple Silicon passed the full Rust workspace suite and all 15 release tests. Public upgrade verified architecture, signature, previous bundle and interactive login Zsh.
+    - The canonical installer serves both builds. The Linux mirrors and the macOS source builder passed verification.
 publication:
   source_commit: 64a3a8d107856c11c0ecb9105943dae6d9dba441
   source_url: https://github.com/tarcisiomiranda/alacritty/tree/64a3a8d107856c11c0ecb9105943dae6d9dba441

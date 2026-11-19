@@ -21,6 +21,7 @@ constraints:
   - Preserve the operating system package and all existing terminal settings and sessions.
   - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
 implemented:
+  - Published Linux 0.18.0-termust.0a5a85a8.fec0ade07b28 to the canonical bucket and both mirrors after all six distribution checks passed. Published the matching Apple Silicon bundle and source builder. The common installer upgraded both isolated installations successfully.
   - Published build 742b8c8 for Apple Silicon and upgraded an isolated install with the public install.sh. Verified the current and previous bundles, repeated installation, codesign, and login Zsh in the actual downloaded app. The workspace and prompt validation is recorded in specs/macos-apple-silicon.yaml.
   - Published icon personalization release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical bucket and both mirrors after six distro checks and portable icon tests passed; public Linux install reinstall receipt checksum and --check passed.
   - Published native macOS archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e from the pushed source commit and verified public installation reinstall diagnostics and codesign on Apple Silicon without Rust in the client PATH.
