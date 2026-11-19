@@ -124,7 +124,7 @@ pub fn shortcut_text(key: &Key, mods: ModifiersState) -> Option<String> {
         (ModifiersState::CONTROL, "Ctrl"),
         (ModifiersState::ALT, "Alt"),
         (ModifiersState::SHIFT, "Shift"),
-        (ModifiersState::SUPER, "Super"),
+        (ModifiersState::SUPER, if cfg!(target_os = "macos") { "Cmd" } else { "Super" }),
     ] {
         if mods.contains(modifier) {
             parts.push(label.to_owned());

@@ -1,6 +1,6 @@
 # Settings and working environments
 
-Open **Settings / Configurações** from the right-click menu or press **Ctrl+,**.
+Open **Settings / Configurações** from the right-click menu or press **Ctrl+,** (**Cmd+,** on macOS).
 The unified preferences dialog opens directly, with pages for **Appearance**,
 **Terminal**, **Tabs**, **Sessions**, **Language** and **Shortcuts**. All pages
 support mouse and keyboard navigation, including compact windows.

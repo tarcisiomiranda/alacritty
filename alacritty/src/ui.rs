@@ -1,4 +1,5 @@
 use alacritty_terminal::vte::ansi::NamedColor;
+use winit::keyboard::ModifiersState;
 
 use crate::config::font::Font;
 use crate::display::SizeInfo;
@@ -7,6 +8,10 @@ use crate::renderer::rects::RenderRect;
 
 pub fn font(scale_factor: f32) -> Font {
     Font::default().with_size(crossfont::Size::new(11.).scale(scale_factor))
+}
+
+pub fn shortcut_pressed(modifiers: ModifiersState) -> bool {
+    modifiers.control_key() || (cfg!(target_os = "macos") && modifiers.super_key())
 }
 
 pub fn dialog_size(terminal: SizeInfo, cell: (f32, f32), scale_factor: f32) -> SizeInfo {

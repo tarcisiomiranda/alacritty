@@ -390,7 +390,7 @@ pub struct PaneRender<'a, T> {
 
 pub struct Display {
     pub window: Window,
-    pub tab_bar: Option<crate::tabs::TabBar>,
+    pub tab_bar: crate::tabs::TabBar,
     pub tab_dialog: Option<crate::tab_ui::TabDialog>,
     pub context_menu: Option<crate::context_menu::ContextMenu>,
     pub language_dialog: Option<crate::language_settings::LanguageDialog>,
@@ -463,7 +463,6 @@ impl Display {
         window: Window,
         gl_context: NotCurrentContext,
         config: &UiConfig,
-        _tabbed: bool,
     ) -> Result<Display, Error> {
         let raw_window_handle = window.raw_window_handle();
 
@@ -520,9 +519,7 @@ impl Display {
             config.window.dynamic_padding && config.window.dimensions().is_none(),
         );
 
-        if cfg!(not(target_os = "macos")) {
-            size_info.reserve_top_lines(crate::tabs::TabBar::ROWS);
-        }
+        size_info.reserve_top_lines(crate::tabs::TabBar::ROWS);
         info!("Cell size: {cell_width} x {cell_height}");
         info!("Padding: {} x {}", size_info.padding_x(), size_info.padding_y());
         info!("Width: {}, Height: {}", size_info.width(), size_info.height());
@@ -560,13 +557,11 @@ impl Display {
 
         #[allow(clippy::single_match)]
         #[cfg(not(windows))]
-        if !_tabbed {
-            match config.window.startup_mode {
-                #[cfg(target_os = "macos")]
-                StartupMode::SimpleFullscreen => window.set_simple_fullscreen(true),
-                StartupMode::Maximized if !is_wayland => window.set_maximized(true),
-                _ => (),
-            }
+        match config.window.startup_mode {
+            #[cfg(target_os = "macos")]
+            StartupMode::SimpleFullscreen => window.set_simple_fullscreen(true),
+            StartupMode::Maximized if !is_wayland => window.set_maximized(true),
+            _ => (),
         }
 
         let hint_state = HintState::new(config.hints.alphabet());
@@ -586,7 +581,7 @@ impl Display {
             renderer_preference: config.debug.renderer,
             surface: ManuallyDrop::new(surface),
             colors: List::from(&config.colors),
-            tab_bar: cfg!(not(target_os = "macos")).then(Default::default),
+            tab_bar: Default::default(),
             tab_dialog: None,
             context_menu: None,
             language_dialog: None,
@@ -792,9 +787,7 @@ impl Display {
         );
 
         // Update number of column/lines in the viewport.
-        if self.tab_bar.is_some() {
-            new_size.reserve_top_lines(crate::tabs::TabBar::ROWS);
-        }
+        new_size.reserve_top_lines(crate::tabs::TabBar::ROWS);
         let search_active = search_state.history_index.is_some();
         let message_bar_lines = message_buffer
             .message()
@@ -2001,7 +1994,7 @@ impl Display {
         use crate::tabs::{TabActivity, TabBar, TabButton};
         use crate::ui::{Palette, rounded};
 
-        let Some(bar) = &self.tab_bar else { return };
+        let bar = &self.tab_bar;
         let mut size = self.size_info;
         let height = size.cell_height() * TabBar::ROWS as f32;
         size.padding_y -= height;

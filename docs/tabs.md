@@ -1,30 +1,30 @@
 # Terminal tabs
 
-This version supports independent terminal sessions in one window on Linux,
-BSD and Windows. Each tab keeps its own shell, scrollback, selection and search.
-Sessions continue running while another tab is selected. macOS retains its
-native window tabs.
+Termust supports independent terminal sessions in one window on Linux, BSD,
+Windows and macOS. Each tab keeps its own shell, scrollback, selection and search.
+Sessions continue running while another tab is selected. On macOS, `Cmd+N`
+opens a new window and `Cmd+T` adds a tab to the current window.
 
-| Shortcut | Action |
-| --- | --- |
-| Ctrl+Shift+T | Create a tab |
-| Ctrl+Shift+W | Close the active tab |
-| F2 / Ctrl+Shift+R | Rename the active tab and open its settings |
-| Ctrl+Shift+S | Save all tabs in the current window |
-| Ctrl+Shift+O | Reopen the saved tabs in the current window |
-| Ctrl+Shift+D | Duplicate the active tab |
-| Ctrl+Shift+Alt+T | Reopen a recently closed tab |
-| Ctrl+Shift+PageUp / PageDown | Move the active tab |
-| Ctrl+Shift+P | Manage named workspaces |
-| Ctrl+, | Open settings |
-| Ctrl+Shift+Tab / Ctrl+PageUp | Select the previous tab |
-| Ctrl+Tab / Ctrl+PageDown | Select the next tab |
-| Alt+1 through Alt+8 | Select a numbered tab |
-| Alt+9 | Select the last tab |
+| Action | Linux, BSD and Windows | macOS |
+| --- | --- | --- |
+| Create a tab | Ctrl+Shift+T | Cmd+T |
+| Close the active tab | Ctrl+Shift+W | Cmd+W |
+| Rename the active tab and open its settings | F2 / Ctrl+Shift+R | F2 / Cmd+Shift+R |
+| Save all tabs in the current window | Ctrl+Shift+S | Cmd+Shift+S |
+| Reopen the saved tabs in the current window | Ctrl+Shift+O | Cmd+Shift+O |
+| Duplicate the active tab | Ctrl+Shift+D | Cmd+Shift+E |
+| Reopen a recently closed tab | Ctrl+Shift+Alt+T | Cmd+Shift+T |
+| Move the active tab | Ctrl+Shift+PageUp / PageDown | Cmd+Shift+PageUp / PageDown |
+| Manage named workspaces | Ctrl+Shift+P | Cmd+Shift+P |
+| Open settings | Ctrl+, | Cmd+, |
+| Select the previous tab | Ctrl+Shift+Tab / Ctrl+PageUp | Ctrl+Shift+Tab / Cmd+Shift+[ |
+| Select the next tab | Ctrl+Tab / Ctrl+PageDown | Ctrl+Tab / Cmd+Shift+] |
+| Select a numbered tab | Alt+1 through Alt+8 | Cmd+1 through Cmd+8 |
+| Select the last tab | Alt+9 | Cmd+9 |
 
 F2 opens tab settings at the shell prompt. Applications using the alternate
-screen, such as terminal editors and process monitors, keep their F2 key;
-use Ctrl+Shift+R to rename while they are open. The old shortcuts still work.
+screen, such as terminal editors and process monitors, keep their F2 key. Use
+Ctrl+Shift+R or Cmd+Shift+R on macOS to rename while they are open.
 Change or disable tab shortcuts in **Settings → Shortcuts**. Context menus show
 the effective shortcut, including custom bindings and the terminal's current mode.
 
@@ -82,7 +82,7 @@ or remove it from its group. Groups have unique names of up to 64 characters.
 An empty group disappears; its other tabs keep running when you switch views.
 
 New tabs inherit the active group. When one group is shown, next/previous tab,
-Alt+number and keyboard reordering apply to that group's tabs. Showing all tabs
+number shortcuts and keyboard reordering apply to that group's tabs. Showing all tabs
 restores navigation across the whole window. Dragging keeps each tab's group.
 Saved sessions, workspaces and automatic recovery keep membership and the
 selected group together with tab order and the active tab.

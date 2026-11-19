@@ -467,7 +467,9 @@ impl TabDialog {
             Key::Named(NamedKey::Space) if self.focus == 1 => self.toggle_replay(),
             Key::Character(text) if text.as_str() == " " && self.focus == 1 => self.toggle_replay(),
             Key::Character(text)
-                if text.eq_ignore_ascii_case("a") && modifiers.control_key() && self.focus == 0 =>
+                if text.eq_ignore_ascii_case("a")
+                    && crate::ui::shortcut_pressed(modifiers)
+                    && self.focus == 0 =>
             {
                 self.selected_all = true;
             },

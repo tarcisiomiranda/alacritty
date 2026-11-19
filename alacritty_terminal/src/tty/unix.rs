@@ -124,8 +124,6 @@ struct ShellUser {
 }
 
 impl ShellUser {
-    /// look for shell, username, longname, and home dir in the respective environment variables
-    /// before falling back on looking into `passwd`.
     fn from_env() -> Result<Self> {
         let mut buf = [0; 1024];
         let pw = get_pw_entry(&mut buf);
@@ -146,6 +144,17 @@ impl ShellUser {
             },
         };
 
+        #[cfg(target_os = "macos")]
+        let shell = pw
+            .as_ref()
+            .ok()
+            .map(|pw| pw.shell)
+            .filter(|shell| !shell.is_empty())
+            .map(str::to_owned)
+            .or_else(|| env::var("SHELL").ok().filter(|shell| !shell.is_empty()))
+            .unwrap_or_else(|| "/bin/zsh".into());
+
+        #[cfg(not(target_os = "macos"))]
         let shell = match env::var("SHELL") {
             Ok(shell) => shell,
             Err(_) => match pw {
@@ -172,7 +181,7 @@ fn default_shell_command(shell: &str, user: &str, home: &str) -> Command {
 
     // Exec the shell with argv[0] prepended by '-' so it becomes a login shell.
     // `login` normally does this itself, but `-l` disables this.
-    let exec = format!("exec -a -{} {}", shell_name, shell);
+    let login_shell_name = format!("-{shell_name}");
 
     // Since we use -l, `login` will not change directory to the user's home. However,
     // `login` only checks the current working directory for a .hushlogin file, causing
@@ -187,7 +196,16 @@ fn default_shell_command(shell: &str, user: &str, home: &str) -> Command {
     //
     // XXX: we use zsh here over sh due to `exec -a`.
     let flags = if has_home_hushlogin { "-qflp" } else { "-flp" };
-    login_command.args([flags, user, "/bin/zsh", "-fc", &exec]);
+    login_command.args([
+        flags,
+        user,
+        "/bin/zsh",
+        "-fc",
+        r#"exec -a "$1" "$2""#,
+        "termust",
+        &login_shell_name,
+        shell,
+    ]);
     login_command
 }
 
@@ -229,6 +247,9 @@ pub fn from_fd(config: &Options, window_id: u64, master: OwnedFd, slave: OwnedFd
     let window_id = window_id.to_string();
     builder.env("ALACRITTY_WINDOW_ID", &window_id);
     builder.env("TERMUST_WINDOW_ID", &window_id);
+    if cfg!(target_os = "macos") && config.shell.is_none() {
+        builder.env("SHELL", &user.shell);
+    }
     builder.env("USER", user.user);
     builder.env("HOME", user.home);
     // Set Window ID for clients relying on X11 hacks.

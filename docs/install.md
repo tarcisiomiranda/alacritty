@@ -11,18 +11,22 @@ curl -fsSL https://f005.backblazeb2.com/file/termust/install.sh | bash
 
 The installer detects the platform and downloads a native binary.
 
-## macOS Apple Silicon: experimental binary install
+## macOS Apple Silicon
 
 Open `~/Applications/Termust.app` from Finder after installation.
 
 The installer verifies the downloaded archive and app signature and installs it
 without sudo or a Rust toolchain. Re-running the command updates the verified
 Termust app through an atomic launcher link and preserves the previous bundle
-at `~/Applications/.termust/previous.app`. Running windows keep using their
-original bundle. Unrecognized apps and links outside the managed releases are
-rejected. The app is ad hoc signed, and full graphical
-features still need validation. On macOS, `--prefix` selects the app directory,
-and `--check` verifies the app. Linux rollback options do not apply.
+at `~/Applications/.termust/previous.app`. Quit and reopen Termust to load the
+new bundle. Unrecognized apps and links outside the managed releases are
+rejected. The app is ad hoc signed. On macOS, `--prefix` selects the app directory,
+and `--check` verifies the app.
+
+Termust starts the shell assigned to your macOS account as an interactive login
+shell. For Zsh, this includes `.zprofile` and `.zshrc`, where your prompt theme can
+be configured. Set `[terminal.shell]` in your Termust configuration to override
+the account shell.
 
 To build and publish the native binary from an Apple Silicon Mac, install Xcode
 Command Line Tools, a native Rust toolchain and the B2 CLI, then authorize B2

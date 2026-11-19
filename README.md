@@ -104,13 +104,16 @@ To build and install this checkout on Linux:
 mise run install
 ```
 
-### macOS Apple Silicon (experimental)
+### macOS Apple Silicon
 
 The installer downloads a native binary without requiring Rust and installs
-`~/Applications/Termust.app`. Run the same command again to update; the previous
-bundle remains available at `~/Applications/.termust/previous.app`. A basic
-launch was tested on macOS 26.6.2; full graphical workflows remain under
-validation.
+`~/Applications/Termust.app`. Run the same command again to update, then quit
+and reopen Termust. The previous bundle is available at
+`~/Applications/.termust/previous.app`.
+
+Use `Cmd+T` for a tab, `Cmd+D` to split right, `Cmd+Shift+D` to split below,
+and `Cmd+,` for Settings. Termust opens your account's login shell by default,
+including your Zsh startup files when the account uses Zsh.
 
 ```sh
 open ~/Applications/Termust.app
@@ -119,7 +122,8 @@ open ~/Applications/Termust.app
 ## Configuration and existing sessions
 
 Termust looks for `termust/termust.toml` in your configuration directory,
-such as `~/.config/termust/termust.toml`. You can also use **Settings** or `Ctrl+,`.
+such as `~/.config/termust/termust.toml`. You can also open **Settings** with
+`Ctrl+,` on Linux or `Cmd+,` on macOS.
 
 When no Termust configuration exists, it reads the existing Alacritty configuration.
 Existing saved tabs, recovery snapshots and workspaces are also available as a

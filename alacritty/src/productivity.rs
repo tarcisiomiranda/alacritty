@@ -753,7 +753,9 @@ impl TextInput {
             Key::Named(NamedKey::Space) => {
                 return self.key(&Key::Character(" ".into()), modifiers, limit);
             },
-            Key::Character(text) if modifiers.control_key() && text.eq_ignore_ascii_case("a") => {
+            Key::Character(text)
+                if crate::ui::shortcut_pressed(modifiers) && text.eq_ignore_ascii_case("a") =>
+            {
                 self.selected_all = true;
             },
             Key::Named(NamedKey::ArrowLeft) => {
@@ -1151,10 +1153,15 @@ impl PreferencesDialog {
                     t(Message::TabSettingsHint),
                     Panel::content_width(columns, lines, true),
                 ));
-                rows.push(Row::Label(format!("{}   Ctrl+Shift+D", t(Message::DuplicateTab))));
                 rows.push(Row::Label(format!(
-                    "{}   Ctrl+Shift+Alt+T",
-                    t(Message::ReopenClosedTab)
+                    "{}   {}",
+                    t(Message::DuplicateTab),
+                    self.shortcut_label("DuplicateTab"),
+                )));
+                rows.push(Row::Label(format!(
+                    "{}   {}",
+                    t(Message::ReopenClosedTab),
+                    self.shortcut_label("ReopenClosedTab"),
                 )));
             },
             5 => {
@@ -1917,11 +1924,11 @@ impl ProductivityDialog {
             }
         }
         if let Self::Preferences(dialog) = self {
-            if *key == Key::Named(NamedKey::Enter) && modifiers.control_key() {
+            if *key == Key::Named(NamedKey::Enter) && crate::ui::shortcut_pressed(modifiers) {
                 return dialog.activate(14);
             }
             if dialog.page == 2 {
-                if modifiers.control_key()
+                if crate::ui::shortcut_pressed(modifiers)
                     && matches!(key, Key::Character(text) if text.eq_ignore_ascii_case("f"))
                 {
                     dialog.panel.focus = 26;

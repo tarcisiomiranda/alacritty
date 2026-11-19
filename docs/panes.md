@@ -5,14 +5,14 @@ and choose **Split right / Dividir à direita** or **Split below / Dividir abaix
 The new shell inherits the focused pane's working directory and supported shell
 profile. Existing programs continue running in their own panes.
 
-| Shortcut | Action |
-| --- | --- |
-| Ctrl+Shift+E | Split to the right |
-| Ctrl+Shift+J | Split below |
-| Ctrl+Alt+Left / Right / Up / Down | Focus the neighboring pane |
-| Ctrl+Shift+Z | Maximize or restore the focused pane |
-| Ctrl+Alt+W | Close the focused pane |
-| Ctrl+Shift+W | Close the whole tab, including its panes |
+| Action | Linux, BSD and Windows | macOS |
+| --- | --- | --- |
+| Split to the right | Ctrl+Shift+E | Cmd+D |
+| Split below | Ctrl+Shift+J | Cmd+Shift+D |
+| Focus the neighboring pane | Ctrl+Alt+Left / Right / Up / Down | Cmd+Option+Left / Right / Up / Down |
+| Maximize or restore the focused pane | Ctrl+Shift+Z | Cmd+Shift+Z |
+| Close the focused pane | Ctrl+Alt+W | Cmd+Option+W |
+| Close the whole tab, including its panes | Ctrl+Shift+W | Cmd+W |
 
 Click inside a pane to focus it. A subtle one-pixel line separates panes; it does
 not reserve a whole text row or column. Drag the line or its invisible surrounding
@@ -20,7 +20,7 @@ margin to change the proportions.
 Maximizing temporarily hides neighboring panes; their processes continue running.
 Restoring returns to the previous arrangement. Each pane has independent output,
 selection, search, scrollback, shell state and command history. The blue border
-identifies the focused pane. Search with **Ctrl+Shift+F** stays inside that pane.
+identifies the focused pane. Search with **Ctrl+Shift+F** or **Cmd+F** on macOS stays inside that pane.
 
 Pane closure uses the same configurable confirmation as tabs: **Y / Enter**
 confirms, **N / Escape** cancels. Closing a pane expands its neighbor. Exiting

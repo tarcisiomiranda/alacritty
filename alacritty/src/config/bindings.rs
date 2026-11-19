@@ -554,11 +554,9 @@ pub fn default_key_bindings() -> Vec<KeyBinding> {
         Enter, ModifiersState::SHIFT,       +BindingMode::SEARCH, ~BindingMode::VI; SearchAction::SearchFocusPrevious;
     );
 
-    let f2_mode =
-        if cfg!(target_os = "macos") { BindingMode::empty() } else { BindingMode::ALT_SCREEN };
     bindings.extend(bindings!(
         KeyBinding;
-        F2, +f2_mode, ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOQ".into());
+        F2, +BindingMode::ALT_SCREEN, ~BindingMode::VI, ~BindingMode::SEARCH, ~BindingMode::REPORT_ALL_KEYS_AS_ESC, ~BindingMode::DISAMBIGUATE_ESC_CODES; Action::Esc("\x1bOQ".into());
     ));
     bindings.extend(platform_key_bindings());
 
@@ -647,15 +645,38 @@ pub fn platform_key_bindings() -> Vec<KeyBinding> {
 
 #[cfg(all(target_os = "macos", not(test)))]
 pub fn platform_key_bindings() -> Vec<KeyBinding> {
+    macos_keybindings()
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_keybindings() -> Vec<KeyBinding> {
     bindings!(
         KeyBinding;
         Insert, ModifiersState::SHIFT, ~BindingMode::VI, ~BindingMode::SEARCH; Action::Esc("\x1b[2;2~".into());
-        // Tabbing api.
         "t",    ModifiersState::SUPER;                                         Action::CreateNewTab;
+        "w",    ModifiersState::SUPER;                                         Action::CloseTab;
+        "r",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::RenameTab;
+        F2, ~BindingMode::ALT_SCREEN;                                          Action::RenameTab;
+        "s",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SaveSession;
+        "o",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::RestoreSession;
+        "e",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::DuplicateTab;
+        "t",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::ReopenClosedTab;
+        PageUp, ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::MoveTabLeft;
+        PageDown, ModifiersState::SUPER | ModifiersState::SHIFT;               Action::MoveTabRight;
+        "p",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::OpenWorkspaces;
+        ",",    ModifiersState::SUPER;                                         Action::OpenSettings;
+        "d",    ModifiersState::SUPER;                                         Action::SplitVertical;
+        "d",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SplitHorizontal;
+        "z",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::TogglePaneZoom;
+        "w",    ModifiersState::SUPER | ModifiersState::ALT;                   Action::ClosePane;
+        ArrowLeft,  ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneLeft;
+        ArrowRight, ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneRight;
+        ArrowUp,    ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneUp;
+        ArrowDown,  ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneDown;
         "]",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectNextTab;
         "[",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectPreviousTab;
-        Tab,    ModifiersState::SUPER;                                         Action::SelectNextTab;
-        Tab,    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectPreviousTab;
+        Tab,    ModifiersState::CONTROL;                                       Action::SelectNextTab;
+        Tab,    ModifiersState::CONTROL | ModifiersState::SHIFT;               Action::SelectPreviousTab;
         "1",    ModifiersState::SUPER;                                         Action::SelectTab1;
         "2",    ModifiersState::SUPER;                                         Action::SelectTab2;
         "3",    ModifiersState::SUPER;                                         Action::SelectTab3;
@@ -681,7 +702,6 @@ pub fn platform_key_bindings() -> Vec<KeyBinding> {
         "h",    ModifiersState::SUPER   | ModifiersState::ALT;                 Action::HideOtherApplications;
         "m",    ModifiersState::SUPER;                                         Action::Minimize;
         "q",    ModifiersState::SUPER;                                         Action::Quit;
-        "w",    ModifiersState::SUPER;                                         Action::Quit;
         "f",    ModifiersState::SUPER, ~BindingMode::SEARCH;                   Action::SearchForward;
         "b",    ModifiersState::SUPER, ~BindingMode::SEARCH;                   Action::SearchBackward;
         "+" => KeyLocation::Numpad, ModifiersState::SUPER;                     Action::IncreaseFontSize;
@@ -1324,6 +1344,8 @@ mod tests {
         let bindings = default_key_bindings();
         #[cfg(not(target_os = "macos"))]
         let bindings: Vec<_> = bindings.into_iter().chain(common_keybindings()).collect();
+        #[cfg(target_os = "macos")]
+        let bindings: Vec<_> = bindings.into_iter().chain(macos_keybindings()).collect();
         let trigger =
             BindingKey::Keycode { key: Key::Named(NamedKey::F2), location: KeyLocation::Any };
         let actions = |mode| {
@@ -1342,9 +1364,36 @@ mod tests {
             let terminal_actions =
                 if protocol.is_empty() { vec![Action::Esc("\x1bOQ".into())] } else { Vec::new() };
             assert_eq!(actions(protocol | BindingMode::ALT_SCREEN), terminal_actions);
-            let normal_actions =
-                if cfg!(target_os = "macos") { terminal_actions } else { vec![Action::RenameTab] };
-            assert_eq!(actions(protocol), normal_actions);
+            assert_eq!(actions(protocol), vec![Action::RenameTab]);
+        }
+    }
+
+    #[test]
+    fn macos_workspace_shortcuts_have_one_owner_in_normal_and_alternate_screens() {
+        let bindings: Vec<_> = default_key_bindings().into_iter().chain(macos_keybindings()).collect();
+        let command = ModifiersState::SUPER;
+        let command_shift = command | ModifiersState::SHIFT;
+        let character = |value: &str| Key::Character(value.into());
+        for (key, mods, action) in [
+            (character("d"), command, Some(Action::SplitVertical)),
+            (character("d"), command_shift, Some(Action::SplitHorizontal)),
+            (character(","), command, Some(Action::OpenSettings)),
+            (character("t"), command, Some(Action::CreateNewTab)),
+            (character("n"), command, Some(Action::CreateNewWindow)),
+            (character("w"), command, Some(Action::CloseTab)),
+            (character("q"), command, Some(Action::Quit)),
+            (Key::Named(NamedKey::Tab), ModifiersState::CONTROL, Some(Action::SelectNextTab)),
+            (Key::Named(NamedKey::Tab), command, None),
+        ] {
+            let trigger = BindingKey::Keycode { key, location: KeyLocation::Any };
+            for mode in [BindingMode::empty(), BindingMode::ALT_SCREEN] {
+                let actions: Vec<_> = bindings
+                    .iter()
+                    .filter(|binding| binding.is_triggered_by(mode, mods, &trigger))
+                    .map(|binding| binding.action.clone())
+                    .collect();
+                assert_eq!(actions, action.clone().into_iter().collect::<Vec<_>>());
+            }
         }
     }
 

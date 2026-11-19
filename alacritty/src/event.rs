@@ -383,7 +383,17 @@ impl ApplicationHandler<Event> for Processor {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        if cause != StartCause::Init || self.cli_options.daemon {
+        if cause != StartCause::Init {
+            return;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use winit::platform::macos::ActiveEventLoopExtMacOS;
+            event_loop.set_allows_automatic_window_tabbing(false);
+        }
+
+        if self.cli_options.daemon {
             return;
         }
 
@@ -1094,15 +1104,11 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     #[cfg(not(windows))]
-    fn create_new_window(&mut self, #[cfg(target_os = "macos")] tabbing_id: Option<String>) {
+    fn create_new_window(&mut self) {
         let mut options = WindowOptions::default();
         options.terminal_options.working_directory =
             foreground_process_path(self.master_fd, self.shell_pid).ok();
 
-        #[cfg(target_os = "macos")]
-        {
-            options.window_tabbing_id = tabbing_id;
-        }
 
         let _ = self.event_proxy.send_event(Event::new(EventType::CreateWindow(options), None));
     }
@@ -1129,12 +1135,8 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     fn select_tab(&mut self, action: TabAction) {
-        if let Some(bar) = &self.display.tab_bar {
-            if let Some(index) = bar.target(action) {
-                self.tab_actions.push(EventType::SelectTab(TabAction::Index(index)));
-            }
-        } else {
-            self.tab_actions.push(EventType::SelectTab(action));
+        if let Some(index) = self.display.tab_bar.target(action) {
+            self.tab_actions.push(EventType::SelectTab(TabAction::Index(index)));
         }
     }
 

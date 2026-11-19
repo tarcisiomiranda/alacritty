@@ -1,0 +1,58 @@
+spec: macos-apple-silicon
+title: Termust tabs panes and settings on Apple Silicon
+status: in_progress
+created: 2026-11-19
+updated: 2026-11-19
+goal: Make the macOS binary expose the Termust tab bar pane controls and settings and start the account's configured login shell.
+problem: The macOS build disables the Termust tab bar and its shortcuts. The default PTY spawn also prefers an inherited SHELL over the account's login shell, which can hide the expected prompt.
+behavior:
+  - Show the shared tab bar groups and context menu in each macOS window.
+  - Open independent terminal tabs with Command+T and new windows with Command+N.
+  - Split right with Command+D and below with Command+Shift+D and expose both actions in the context menu.
+  - Open settings with Command+Comma and use the effective bindings in menus and settings.
+  - Handle Command+W through the existing tab close confirmation and preserve the F2 key for alternate-screen programs.
+  - Use the macOS account's shell for default PTYs and load its interactive login configuration. Honor explicit shell and command overrides.
+constraints:
+  - Reuse the existing tab pane and dialog implementations and preserve non-macOS bindings.
+  - Use isolated test fixtures on the Mac and keep the public installer command and versioned bundle format.
+implemented:
+  - Compared the installed Apple Silicon app and public latest manifest and confirmed both select the e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e archive.
+  - Verified that the public install.sh matches the local file and found the macOS conditions suppressing the toolbar menu and bindings.
+  - Verified that a Finder-like launch on the old build loads all four Zsh startup files and a custom PS1 when SHELL is unset. Found that an inherited SHELL takes precedence over the account in the old PTY code.
+  - Enabled the shared tab bar, pane menu, and settings with native macOS shortcuts.
+  - Changed default macOS PTYs to prefer the shell registered for the account and pass the login command arguments directly.
+  - Verified the account's interactive login Zsh and custom PS1 with an unset SHELL and an inherited SHELL pointing to Bash. Explicit per-profile shell and CLI command overrides still launched their configured commands.
+pending:
+  - Verify the published archive by upgrading an isolated macOS installation from the previous release.
+steps:
+  - id: workspace
+    desc: Enable shared application tabs menus and pane bindings on native macOS windows
+    status: done
+    verify: mise exec -- cargo test --locked --workspace --quiet
+    note: "Linux and Apple Silicon Rust suites passed. Native AppKit keyboard and Winit mouse fixtures verified splits, settings, tabs and independent windows with Full and Transparent decorations."
+  - id: macos-validation
+    desc: Exercise the corrected window and verify the bundle workflow with an isolated macOS install
+    status: doing
+    verify: mise run test:macos-release
+  - id: login-shell
+    desc: Prefer the macOS account shell while keeping interactive login startup and explicit command overrides
+    status: done
+    verify: mise exec -- cargo test --locked -p alacritty_terminal --quiet
+    note: "Apple Silicon PTY verified Finder-like and inherited Bash launches with account Zsh, custom PS1, config override, and CLI override."
+acceptance:
+  - desc: Termust uses one visible tab bar and Command+T and Command+N create a tab and a window respectively.
+    status: done
+  - desc: Both split directions and settings are reachable via shortcuts and the context menu and existing tabs remain active.
+    status: done
+  - desc: The exact release app is tested and installer version selection is verified on Apple Silicon.
+    status: todo
+  - desc: The native PTY uses the account's Zsh even with an inherited Bash and loads a custom PS1 from .zshrc with login and interactive options active.
+    status: done
+decisions:
+  - Use the Termust tab model for all platforms and disable automatic Cocoa window tabbing.
+  - Keep Linux shortcuts and use the Mac Command key for application actions including the conventional Command+D and Command+Shift+D split shortcuts.
+  - Use Control+Tab and Command+Shift+brackets for tab cycling so Command+Tab can switch applications.
+  - Preserve the macOS login command and allow configured shell and command overrides to use their current arguments.
+risks:
+  - Shared renderer geometry must leave the platform title bar controls reachable when using transparent decorations.
+  - AppKit input permission may constrain unattended tests that post to the active user session.

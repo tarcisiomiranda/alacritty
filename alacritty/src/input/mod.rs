@@ -36,8 +36,6 @@ use alacritty_terminal::vi_mode::ViMotion;
 use alacritty_terminal::vte::ansi::{ClearMode, Handler};
 
 use crate::clipboard::Clipboard;
-#[cfg(target_os = "macos")]
-use crate::config::window::Decorations;
 use crate::config::{
     Action, BindingMode, MouseAction, MouseEvent, SearchAction, UiConfig, ViAction,
 };
@@ -120,9 +118,6 @@ pub trait ActionContext<T: EventListener> {
         self.terminal_mut().exit();
     }
     fn select_tab(&mut self, _selection: crate::tabs::TabAction) {}
-    #[cfg(target_os = "macos")]
-    fn create_new_window(&mut self, _tabbing_id: Option<String>) {}
-    #[cfg(not(target_os = "macos"))]
     fn create_new_window(&mut self) {}
     fn change_font_size(&mut self, _delta: f32) {}
     fn reset_font_size(&mut self) {}
@@ -421,11 +416,8 @@ impl<T: EventListener> Execute<T> for Action {
             },
             Action::ClearHistory => ctx.terminal_mut().clear_screen(ClearMode::Saved),
             Action::ClearLogNotice => ctx.pop_message(),
-            #[cfg(not(target_os = "macos"))]
             Action::CreateNewWindow => ctx.create_new_window(),
             Action::SpawnNewInstance => ctx.spawn_new_instance(),
-            #[cfg(target_os = "macos")]
-            Action::CreateNewWindow => ctx.create_new_window(None),
             Action::CloseTab => ctx.close_tab(),
             Action::RenameTab => ctx.rename_tab(),
             Action::SaveSession => ctx.save_session(),
@@ -456,64 +448,19 @@ impl<T: EventListener> Execute<T> for Action {
             },
             Action::TogglePaneZoom => ctx.pane_action(crate::panes::PaneAction::Zoom),
             Action::ClosePane => ctx.pane_action(crate::panes::PaneAction::Close),
-            #[cfg(not(target_os = "macos"))]
             Action::CreateNewTab => ctx.create_new_tab(),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectNextTab => ctx.select_tab(crate::tabs::TabAction::Next),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectPreviousTab => ctx.select_tab(crate::tabs::TabAction::Previous),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab1 => ctx.select_tab(crate::tabs::TabAction::Index(0)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab2 => ctx.select_tab(crate::tabs::TabAction::Index(1)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab3 => ctx.select_tab(crate::tabs::TabAction::Index(2)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab4 => ctx.select_tab(crate::tabs::TabAction::Index(3)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab5 => ctx.select_tab(crate::tabs::TabAction::Index(4)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab6 => ctx.select_tab(crate::tabs::TabAction::Index(5)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab7 => ctx.select_tab(crate::tabs::TabAction::Index(6)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab8 => ctx.select_tab(crate::tabs::TabAction::Index(7)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectTab9 => ctx.select_tab(crate::tabs::TabAction::Index(8)),
-            #[cfg(not(target_os = "macos"))]
             Action::SelectLastTab => ctx.select_tab(crate::tabs::TabAction::Last),
-            #[cfg(target_os = "macos")]
-            Action::CreateNewTab => {
-                // Tabs on macOS are not possible without decorations.
-                if ctx.config().window.decorations != Decorations::None {
-                    let tabbing_id = Some(ctx.window().tabbing_id());
-                    ctx.create_new_window(tabbing_id);
-                }
-            },
-            #[cfg(target_os = "macos")]
-            Action::SelectNextTab => ctx.window().select_next_tab(),
-            #[cfg(target_os = "macos")]
-            Action::SelectPreviousTab => ctx.window().select_previous_tab(),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab1 => ctx.window().select_tab_at_index(0),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab2 => ctx.window().select_tab_at_index(1),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab3 => ctx.window().select_tab_at_index(2),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab4 => ctx.window().select_tab_at_index(3),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab5 => ctx.window().select_tab_at_index(4),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab6 => ctx.window().select_tab_at_index(5),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab7 => ctx.window().select_tab_at_index(6),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab8 => ctx.window().select_tab_at_index(7),
-            #[cfg(target_os = "macos")]
-            Action::SelectTab9 => ctx.window().select_tab_at_index(8),
-            #[cfg(target_os = "macos")]
-            Action::SelectLastTab => ctx.window().select_last_tab(),
             _ => (),
         }
     }

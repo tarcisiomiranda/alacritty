@@ -480,7 +480,7 @@ impl WindowContext {
         let gl_context =
             renderer::platform::create_gl_context(&gl_display, &gl_config, raw_window_handle)?;
 
-        let display = Display::new(window, gl_context, &config, false)?;
+        let display = Display::new(window, gl_context, &config)?;
 
         let restore = options.terminal_options.command().is_none()
             && options.terminal_options.working_directory.is_none()
@@ -504,13 +504,6 @@ impl WindowContext {
         let mut identity = config.window.identity.clone();
         options.window_identity.override_identity_config(&mut identity);
 
-        // Check if new window will be opened as a tab.
-        // This must be done before `Window::new()`, which unsets `window_tabbing_id`.
-        #[cfg(target_os = "macos")]
-        let tabbed = options.window_tabbing_id.is_some();
-        #[cfg(not(target_os = "macos"))]
-        let tabbed = false;
-
         let window = Window::new(
             event_loop,
             &config,
@@ -525,7 +518,7 @@ impl WindowContext {
         let gl_context =
             renderer::platform::create_gl_context(&gl_display, gl_config, Some(raw_window_handle))?;
 
-        let display = Display::new(window, gl_context, &config, tabbed)?;
+        let display = Display::new(window, gl_context, &config)?;
 
         let mut window_context = Self::new(display, config, options, proxy, false)?;
 
@@ -550,7 +543,7 @@ impl WindowContext {
         let mut active = 0;
         let mut group_filter = None;
         let mut notice = None;
-        if restore && config.general.restore_session && display.tab_bar.is_some() {
+        if restore && config.general.restore_session {
             match Self::load_startup_session(&config) {
                 Ok(Some((snapshot, replay))) => {
                     active = snapshot.active;
@@ -1203,7 +1196,7 @@ impl WindowContext {
         }
         let x = ((self.pointer_position.x - size.padding_x() as f64) / size.cell_width() as f64)
             as usize;
-        self.display.tab_bar.as_ref()?.hit(x, size.columns())
+        self.display.tab_bar.hit(x, size.columns())
     }
 
     fn pane_drop_target(&self, source: TabId) -> Option<PaneDropTarget> {
@@ -1341,9 +1334,7 @@ impl WindowContext {
         if let Some(index) = origin {
             self.select_tab(index, proxy, scheduler);
         }
-        if let Some(bar) = &mut self.display.tab_bar {
-            bar.hover(None);
-        }
+        self.display.tab_bar.hover(None);
         self.pane_handle = None;
         self.display.window.set_mouse_cursor(CursorIcon::Default);
         self.damage_pane_controls();
@@ -1392,9 +1383,7 @@ impl WindowContext {
                     if let Some(TabButton::Select(index) | TabButton::Close(index)) = hit {
                         self.select_tab(index, proxy, scheduler);
                     }
-                    if let Some(bar) = &mut self.display.tab_bar {
-                        bar.hover(hit);
-                    }
+                    self.display.tab_bar.hover(hit);
                     drag.target = self.pane_drop_target(drag.pane);
                 }
                 self.display.window.set_mouse_visible(true);
@@ -1426,9 +1415,7 @@ impl WindowContext {
                     self.cancel_pane_move(drag, proxy, scheduler);
                 }
                 self.pane_handle = None;
-                if let Some(bar) = &mut self.display.tab_bar {
-                    bar.hover(None);
-                }
+                self.display.tab_bar.hover(None);
                 self.display.window.set_mouse_cursor(CursorIcon::Default);
                 self.damage_pane_controls();
                 true
@@ -2124,7 +2111,7 @@ impl WindowContext {
                 }
                 let modifiers = self.modifiers.state();
                 if !dialog.captures_shortcut()
-                    && modifiers.control_key()
+                    && crate::ui::shortcut_pressed(modifiers)
                     && matches!(&event.logical_key, Key::Character(key) if key.eq_ignore_ascii_case("v"))
                 {
                     dialog.paste(&clipboard.load(ClipboardType::Clipboard));
@@ -2378,9 +2365,6 @@ impl WindowContext {
 
     fn open_tab_dialog(&mut self, index: usize) {
         self.dismiss_close_confirmation();
-        if self.display.tab_bar.is_none() {
-            return;
-        }
         self.close_productivity(true);
         self.close_context_menu();
         self.close_language_settings();
@@ -2587,17 +2571,17 @@ impl WindowContext {
                     Key::Character(text) => Some(text.as_str()),
                     _ => None,
                 };
-                if modifiers.control_key()
+                if crate::ui::shortcut_pressed(modifiers)
                     && modifiers.shift_key()
                     && key.is_some_and(|key| key.eq_ignore_ascii_case("s"))
                 {
                     Some(DialogAction::Save)
-                } else if modifiers.control_key()
+                } else if crate::ui::shortcut_pressed(modifiers)
                     && modifiers.shift_key()
                     && key.is_some_and(|key| key.eq_ignore_ascii_case("o"))
                 {
                     Some(DialogAction::Restore)
-                } else if modifiers.control_key()
+                } else if crate::ui::shortcut_pressed(modifiers)
                     && key.is_some_and(|key| key.eq_ignore_ascii_case("v"))
                     && dialog.wants_paste()
                 {
@@ -2697,71 +2681,70 @@ impl WindowContext {
 
     fn refresh_tab_bar(&mut self) {
         let agents = self.agent_rows();
-        if let Some(bar) = &mut self.display.tab_bar {
-            bar.titles = self.tabs.iter().map(|tab| tab.display_title().to_owned()).collect();
-            bar.active = self.tabs.active_index;
-            bar.groups = self.tabs.iter().map(|tab| tab.group.clone()).collect();
-            bar.group_filter = self.group_filter.clone();
-            bar.group_label = self.group_filter.clone().unwrap_or_else(|| {
-                self.config.general.language.resolve().text(Message::AllTabs).into()
-            });
-            let statuses: Vec<_> = self
-                .tabs
-                .iter()
-                .map(|tab| {
-                    if !self.config.general.agent_integration {
-                        return None;
-                    }
-                    tab.panes
-                        .iter()
-                        .filter_map(|pane| pane.agent.as_ref()?.primary())
-                        .max_by_key(|status| (status.unread, status.state.priority()))
-                })
-                .collect();
-            bar.agent_states =
-                statuses.iter().map(|status| status.as_ref().map(|status| status.state)).collect();
-            bar.agent_labels = statuses
-                .iter()
-                .map(|status| {
-                    status
-                        .as_ref()
-                        .map(|status| {
-                            format!(
-                                "{} · {}",
-                                self.config.general.language.resolve().text(match status.state {
-                                    AgentState::Input => Message::AgentTabInput,
-                                    AgentState::Permission => Message::AgentTabPermission,
-                                    state => Self::agent_message(state),
-                                }),
-                                status.provider.label()
-                            )
-                        })
-                        .unwrap_or_default()
-                })
-                .collect();
-            bar.agent_unread = agents.iter().filter(|agent| agent.unread).count();
-            bar.agent_count = agents.len();
-            bar.agent_indicator =
-                agents.iter().map(|agent| agent.state).max_by_key(|state| state.priority());
-            bar.activities = self
-                .tabs
-                .iter()
-                .map(|tab| {
-                    let states: Vec<_> = tab.panes.iter().map(|pane| pane.activity).collect();
-                    if states.contains(&TabActivity::Running) {
-                        TabActivity::Running
-                    } else if states.contains(&TabActivity::Failed) {
-                        TabActivity::Failed
-                    } else if states.contains(&TabActivity::Success) {
-                        TabActivity::Success
-                    } else {
-                        TabActivity::Idle
-                    }
-                })
-                .collect();
-            self.dirty = true;
-            self.display.damage_tracker.frame().mark_fully_damaged();
-        }
+        let bar = &mut self.display.tab_bar;
+        bar.titles = self.tabs.iter().map(|tab| tab.display_title().to_owned()).collect();
+        bar.active = self.tabs.active_index;
+        bar.groups = self.tabs.iter().map(|tab| tab.group.clone()).collect();
+        bar.group_filter = self.group_filter.clone();
+        bar.group_label = self.group_filter.clone().unwrap_or_else(|| {
+            self.config.general.language.resolve().text(Message::AllTabs).into()
+        });
+        let statuses: Vec<_> = self
+            .tabs
+            .iter()
+            .map(|tab| {
+                if !self.config.general.agent_integration {
+                    return None;
+                }
+                tab.panes
+                    .iter()
+                    .filter_map(|pane| pane.agent.as_ref()?.primary())
+                    .max_by_key(|status| (status.unread, status.state.priority()))
+            })
+            .collect();
+        bar.agent_states =
+            statuses.iter().map(|status| status.as_ref().map(|status| status.state)).collect();
+        bar.agent_labels = statuses
+            .iter()
+            .map(|status| {
+                status
+                    .as_ref()
+                    .map(|status| {
+                        format!(
+                            "{} · {}",
+                            self.config.general.language.resolve().text(match status.state {
+                                AgentState::Input => Message::AgentTabInput,
+                                AgentState::Permission => Message::AgentTabPermission,
+                                state => Self::agent_message(state),
+                            }),
+                            status.provider.label()
+                        )
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        bar.agent_unread = agents.iter().filter(|agent| agent.unread).count();
+        bar.agent_count = agents.len();
+        bar.agent_indicator =
+            agents.iter().map(|agent| agent.state).max_by_key(|state| state.priority());
+        bar.activities = self
+            .tabs
+            .iter()
+            .map(|tab| {
+                let states: Vec<_> = tab.panes.iter().map(|pane| pane.activity).collect();
+                if states.contains(&TabActivity::Running) {
+                    TabActivity::Running
+                } else if states.contains(&TabActivity::Failed) {
+                    TabActivity::Failed
+                } else if states.contains(&TabActivity::Success) {
+                    TabActivity::Success
+                } else {
+                    TabActivity::Idle
+                }
+            })
+            .collect();
+        self.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
         if matches!(self.display.productivity_dialog, Some(ProductivityDialog::Agents(_))) {
             let rows = self.agent_rows();
             if let Some(ProductivityDialog::Agents(dialog)) = &mut self.display.productivity_dialog
@@ -3087,9 +3070,7 @@ impl WindowContext {
                 padding.1,
                 self.config.window.dynamic_padding,
             );
-            if self.display.tab_bar.is_some() {
-                full.reserve_top_lines(crate::tabs::TabBar::ROWS);
-            }
+            full.reserve_top_lines(crate::tabs::TabBar::ROWS);
             let message_lines = self.message_buffer.message().map_or(0, |message| {
                 message.text_with_locale(&full, self.config.general.language.resolve()).len()
             });
@@ -3273,9 +3254,7 @@ impl WindowContext {
     }
 
     fn cancel_mouse_drag(&mut self, scheduler: &mut Scheduler) {
-        if let Some(bar) = &mut self.display.tab_bar {
-            self.dirty |= bar.hover(None);
-        }
+        self.dirty |= self.display.tab_bar.hover(None);
         self.tab_drag = None;
         self.pane_drag = None;
         if self.pane_move.take().is_some() || self.pane_handle.take().is_some() {
@@ -3339,9 +3318,6 @@ impl WindowContext {
     }
 
     fn open_context_menu_from_event(&mut self, event: &WinitEvent<Event>) -> bool {
-        if self.display.tab_bar.is_none() {
-            return false;
-        };
         let WinitEvent::WindowEvent {
             event: WindowEvent::MouseInput { state: ElementState::Pressed, button, .. },
             ..
@@ -3354,7 +3330,7 @@ impl WindowContext {
             self.pointer_position.y >= 0. && self.pointer_position.y < size.padding_y() as f64;
         let (column, _) = self.pointer_cell();
         let hit = top
-            .then(|| self.display.tab_bar.as_ref().unwrap().hit(column, size.columns()))
+            .then(|| self.display.tab_bar.hit(column, size.columns()))
             .flatten();
         if *button == MouseButton::Left && hit == Some(TabButton::Agents) {
             self.tab_mouse_pressed = true;
@@ -3575,9 +3551,6 @@ impl WindowContext {
     }
 
     fn handle_tab_mouse(&mut self, event: &WinitEvent<Event>) -> bool {
-        if self.display.tab_bar.is_none() {
-            return false;
-        }
         if let WinitEvent::WindowEvent {
             event: WindowEvent::CursorMoved { position, .. }, ..
         } = event
@@ -3586,15 +3559,11 @@ impl WindowContext {
             let size = self.display.size_info;
             let x = position.x - size.padding_x() as f64;
             let hit = if x >= 0. && position.y >= 0. && position.y < size.padding_y() as f64 {
-                self.display
-                    .tab_bar
-                    .as_ref()
-                    .unwrap()
-                    .hit((x / size.cell_width() as f64) as usize, size.columns())
+                self.display.tab_bar.hit((x / size.cell_width() as f64) as usize, size.columns())
             } else {
                 None
             };
-            self.dirty |= self.display.tab_bar.as_mut().unwrap().hover(hit);
+            self.dirty |= self.display.tab_bar.hover(hit);
             self.display.window.set_mouse_visible(true);
             if self.tab_mouse_pressed {
                 if let Some(id) = self.tab_drag {
@@ -3604,8 +3573,6 @@ impl WindowContext {
                         let hit = self
                             .display
                             .tab_bar
-                            .as_ref()
-                            .unwrap()
                             .hit((x / size.cell_width() as f64) as usize, size.columns());
                         if let Some(TabButton::Select(to) | TabButton::Close(to)) = hit {
                             let from = self.tabs.iter().position(|tab| tab.id == id);
@@ -3631,7 +3598,7 @@ impl WindowContext {
             }
         }
         if matches!(event, WinitEvent::WindowEvent { event: WindowEvent::CursorLeft { .. }, .. }) {
-            self.dirty |= self.display.tab_bar.as_mut().unwrap().hover(None);
+            self.dirty |= self.display.tab_bar.hover(None);
         }
         let top = self.pointer_position.y >= 0.
             && self.pointer_position.y < self.display.size_info.padding_y() as f64;
@@ -3653,7 +3620,7 @@ impl WindowContext {
                     return true;
                 }
                 let column = (x / size.cell_width() as f64) as usize;
-                let bar = self.display.tab_bar.as_ref().unwrap();
+                let bar = &self.display.tab_bar;
                 let action = match (bar.hit(column, size.columns()), button) {
                     (Some(TabButton::Create), MouseButton::Left) => {
                         let mut options = WindowOptions::default();
@@ -3915,12 +3882,7 @@ impl WindowContext {
             },
             WinitEvent::UserEvent(Event { payload: EventType::MoveTab(previous), .. }) => {
                 let from = self.tabs.active_index;
-                let indices = self
-                    .display
-                    .tab_bar
-                    .as_ref()
-                    .map(|bar| bar.visible_indices())
-                    .unwrap_or_else(|| (0..self.tabs.len()).collect());
+                let indices = self.display.tab_bar.visible_indices();
                 let position = indices.iter().position(|index| *index == from).unwrap_or(0);
                 let target = if previous {
                     position.saturating_sub(1)

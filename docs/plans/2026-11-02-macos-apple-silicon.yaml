@@ -1,11 +1,16 @@
 plan: macos-apple-silicon
 title: Levar o Termust completo para macOS Apple Silicon
-status: draft
+status: in_progress
 created: 2026-11-02
-updated: 2026-11-03
+updated: 2026-11-19
 language: pt-BR
 goal: Compilar, instalar e usar o Termust nativo ARM64 no Mac com abas, grupos, painéis, menus e recuperação de estado.
 handoff:
+  - Os ensaios de janela nativa verificaram abas internas, as duas divisões, menu, Configurações e janelas independentes com decorações Full e Transparent.
+  - Com o shell da conta em /bin/zsh, o PTY de teste carregou todos os arquivos de inicialização de login e o PS1 de .zshrc, inclusive com SHELL herdado apontando para Bash. Configuração explícita de shell e comandos via CLI passaram.
+  - Em 2026-11-19 o Mac já estava com o pacote ARM64 anunciado no manifesto. A barra de abas, o menu e os atalhos de divisão estavam desativados no código macOS.
+  - O trabalho atual cobre a interface, os atalhos, a validação nativa e a correção do pacote selecionado pelo instalador único.
+  - A abertura padrão deve preferir o shell cadastrado no macOS ao SHELL herdado. O fluxo de login carrega .zprofile e .zshrc e deve preservar o PS1 definido pelo usuário.
   - A instalação real do Mac foi atualizada pelo comando público unificado; repetição e --check passaram, preservando o hash do bundle anterior.
   - Corrigir reinstalação macOS para atualizar o link do app entre bundles versionados; validar instalação legada existente, repetição e falhas sem perda da versão anterior.
   - Instalador unificado publicado e validado no Mac e no Linux; releases macOS atualizam latest-macos-arm64.json sem trocar install.sh.
@@ -131,6 +136,11 @@ current_blockers:
       - alacritty/src/macos/proc.rs
     evidence: ShellIntegration::prepare retorna None no macOS sem shell explicitamente configurado; a criação padrão usa /usr/bin/login e shell de login.
     impact: O shell padrão do Mac pode abrir normalmente sem registrar o último comando.
+  - id: default-shell-selection
+    files:
+      - alacritty_terminal/src/tty/unix.rs
+    evidence: O pacote anterior carrega o PS1 de um fixture Zsh quando SHELL não existe. A seleção do PTY usa SHELL antes do shell da conta.
+    impact: Um SHELL herdado de outro ambiente pode abrir um shell diferente e trocar o prompt.
   - id: packaging
     files:
       - Makefile
@@ -174,7 +184,7 @@ stages:
       - mise exec -- cargo test --locked --workspace --target aarch64-apple-darwin
   - id: unified-tabs
     desc: Ativar abas internas, grupos e painéis com o mesmo modelo de sessão do Linux.
-    status: todo
+    status: doing
     work:
       - Habilitar TabBar e a reserva superior desde a geometria inicial, inclusive antes do primeiro resize.
       - Roteiar criar, selecionar, numerar e fechar abas para Tabs<TerminalTab> no macOS.
