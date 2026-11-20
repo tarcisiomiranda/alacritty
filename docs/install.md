@@ -11,6 +11,23 @@ curl -fsSL https://f005.backblazeb2.com/file/termust/install.sh | bash
 
 The installer detects the platform and downloads a native binary.
 
+## In-app updates
+
+Install this release once with the command above and start the new Termust process.
+On Linux x86_64 and macOS Apple Silicon, Termust checks for updates in the background
+once a day. When an update is available, a message points you to **Settings → Terminal**.
+You can also choose **Check now** there at any time. Select **Install update** to
+download the displayed build. The installer verifies its SHA256 and keeps your open
+windows and shells running.
+
+Start a new Termust process to use the installed build. On Linux, open **New Window**
+from the desktop launcher. On macOS, you can run `open -n ~/Applications/Termust.app`
+to open it alongside your current session.
+
+To turn off automatic checks, clear the checkbox under **Settings → Terminal** and save,
+or set `check_updates = false` in the `[general]` section of your configuration.
+Installs from Cargo or a system package manager use their original update method.
+
 ## macOS Apple Silicon
 
 Open `~/Applications/Termust.app` from Finder after installation.

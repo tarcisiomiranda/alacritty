@@ -1,12 +1,12 @@
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use winit::event::KeyEvent;
 use winit::keyboard::{Key, ModifiersState, NamedKey, PhysicalKey};
-use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
-use crate::config::UiConfig;
+use crate::config::{KeyBinding, KeyLocation, UiConfig};
 use crate::localization::{Language, Locale, Message};
 use crate::personalization::IconPreset;
 use crate::settings::{
@@ -14,12 +14,18 @@ use crate::settings::{
     shortcut_conflict, shortcut_text,
 };
 use crate::tab_ui::{UiElement, UiKind, UiRect};
+#[cfg(termust_updater)]
+use crate::updates::Status as UpdateStatus;
 
 const FIRST_ICON_CONTROL: usize = 600;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProductivityAction {
     SaveSettings(SettingsValues),
+    #[cfg(termust_updater)]
+    CheckUpdates,
+    #[cfg(termust_updater)]
+    InstallUpdate(String),
     SaveWorkspace(String),
     OpenWorkspace(String),
     RemoveWorkspace(String),
@@ -111,7 +117,20 @@ impl Panel {
             if !line.is_empty() {
                 line.push(' ');
             }
-            line.push_str(word);
+            if word.width() <= width {
+                line.push_str(word);
+                continue;
+            }
+            let mut used = 0;
+            for ch in word.chars() {
+                let size = ch.width().unwrap_or(0);
+                if used > 0 && used + size > width {
+                    rows.push(Row::Label(std::mem::take(&mut line)));
+                    used = 0;
+                }
+                line.push(ch);
+                used += size;
+            }
         }
         if !line.is_empty() {
             rows.push(Row::Label(line));
@@ -828,16 +847,26 @@ impl TextInput {
     }
 }
 
+struct ShortcutSwap {
+    shortcut: String,
+    physical: Option<PhysicalKey>,
+    other: usize,
+}
+
 pub struct PreferencesDialog {
     pub original: Rc<UiConfig>,
     pub values: SettingsValues,
     pub status: Option<Message>,
+    #[cfg(termust_updater)]
+    pub update: UpdateStatus,
     pub locale: Locale,
     pub original_font_size: crossfont::Size,
     page: usize,
     shortcut_filter: TextInput,
     selected_shortcut: usize,
     capturing_shortcut: bool,
+    pending_swap: Option<ShortcutSwap>,
+    save_pressed: Option<Instant>,
     panel: Panel,
     family: TextInput,
     workspaces: Vec<String>,
@@ -854,10 +883,14 @@ impl PreferencesDialog {
             original_font_size: font_size,
             values,
             status: None,
+            #[cfg(termust_updater)]
+            update: UpdateStatus::Idle,
             page: 0,
             shortcut_filter: TextInput::new(String::new()),
             selected_shortcut: 0,
             capturing_shortcut: false,
+            pending_swap: None,
+            save_pressed: None,
             panel: Panel::default(),
             workspaces,
             applications: crate::desktop_apps::InstalledApps::detect(),
@@ -888,8 +921,8 @@ impl PreferencesDialog {
             ("ReopenClosedTab", Message::ReopenClosedTab, ""),
             ("MoveTabLeft", Message::MoveTab, " ←"),
             ("MoveTabRight", Message::MoveTab, " →"),
-            ("SplitVertical", Message::SplitVertical, ""),
-            ("SplitHorizontal", Message::SplitHorizontal, ""),
+            ("SplitVertical", Message::SplitVertical, " (vertical)"),
+            ("SplitHorizontal", Message::SplitHorizontal, " (horizontal)"),
             ("FocusPaneLeft", Message::FocusPane, " ←"),
             ("FocusPaneRight", Message::FocusPane, " →"),
             ("FocusPaneUp", Message::FocusPane, " ↑"),
@@ -902,21 +935,34 @@ impl PreferencesDialog {
         ]
     }
 
-    fn shortcut_label(&self, action: &str) -> String {
+    #[cfg(termust_updater)]
+    fn can_check_updates(&self) -> bool {
+        matches!(
+            self.update,
+            UpdateStatus::Idle
+                | UpdateStatus::Current
+                | UpdateStatus::Available { .. }
+                | UpdateStatus::Failed
+        )
+    }
+
+    fn shortcut_bindings(&self) -> Vec<KeyBinding> {
         let mut overrides = self.original.general.shortcuts.clone();
         overrides.extend(self.values.shortcut_overrides.clone());
+        resolved_shortcuts(&self.original, &overrides)
+    }
+
+    fn binding_label(&self, action: &str, bindings: &[KeyBinding]) -> String {
         let action =
             toml::Value::String(action.into()).try_into::<crate::config::Action>().unwrap();
-        let shortcuts: Vec<_> = resolved_shortcuts(&self.original, &overrides)
-            .into_iter()
-            .filter_map(|binding| {
-                if binding.action != action {
-                    return None;
-                }
-                let crate::config::BindingKey::Keycode { key, .. } = &binding.trigger else {
-                    return Some(format!("{:?}", binding.trigger));
-                };
-                shortcut_text(key, binding.mods)
+        let shortcuts: Vec<_> = bindings
+            .iter()
+            .filter(|binding| binding.action == action)
+            .filter_map(|binding| match &binding.trigger {
+                crate::config::BindingKey::Keycode { key, location } => {
+                    shortcut_text(key, binding.mods, *location)
+                },
+                trigger => Some(format!("{trigger:?}")),
             })
             .collect();
         if shortcuts.is_empty() {
@@ -926,26 +972,32 @@ impl PreferencesDialog {
         }
     }
 
-    fn filtered_shortcuts(&self) -> Vec<usize> {
+    fn shortcut_label(&self, action: &str) -> String {
+        self.binding_label(action, &self.shortcut_bindings())
+    }
+
+    fn filtered_shortcuts(&self) -> Vec<(usize, String)> {
         let query = self.shortcut_filter.text.trim().to_lowercase();
+        let bindings = self.shortcut_bindings();
         Self::shortcuts()
             .into_iter()
             .enumerate()
             .filter_map(|(index, (action, label, suffix))| {
-                let text = format!(
-                    "{}{} {} {}",
-                    self.locale.text(label),
-                    suffix,
-                    action,
-                    self.shortcut_label(action)
-                );
-                (query.is_empty() || text.to_lowercase().contains(&query)).then_some(index)
+                let shortcut = self.binding_label(action, &bindings);
+                if !query.is_empty() {
+                    let text = format!("{}{suffix} {action} {shortcut}", self.locale.text(label))
+                        .to_lowercase();
+                    if !query.split_whitespace().all(|word| text.contains(word)) {
+                        return None;
+                    }
+                }
+                Some((index, shortcut))
             })
             .collect()
     }
 
     fn filter_changed(&mut self) {
-        if let Some(index) = self.filtered_shortcuts().first() {
+        if let Some((index, _)) = self.filtered_shortcuts().first() {
             self.selected_shortcut = *index;
         }
         self.panel.offset.set(0);
@@ -953,18 +1005,68 @@ impl PreferencesDialog {
         self.status = None;
     }
 
+    fn swapped_shortcuts(
+        &self,
+        shortcut: &str,
+        physical: Option<PhysicalKey>,
+    ) -> Option<(usize, SettingsValues)> {
+        let (action, ..) = Self::shortcuts()[self.selected_shortcut];
+        let bindings = self.shortcut_bindings();
+        let previous = self.binding_label(action, &bindings);
+        shortcut_binding(action, &previous)?;
+        let (index, (other, ..)) =
+            Self::shortcuts().into_iter().enumerate().find(|(_, (name, ..))| {
+                *name != action && self.binding_label(name, &bindings) == shortcut
+            })?;
+        let mut values = self.values.clone();
+        values.set_shortcut(other, previous, self.values.shortcut_physical.get(action).copied());
+        values.set_shortcut(action, shortcut.into(), physical);
+        values.shortcut_changes_valid(&self.original).then_some((index, values))
+    }
+
+    fn confirm_swap(&mut self) {
+        if let Some(swap) = self.pending_swap.take() {
+            if let Some((_, values)) = self
+                .swapped_shortcuts(&swap.shortcut, swap.physical)
+                .filter(|(other, _)| *other == swap.other)
+            {
+                self.values = values;
+                self.finish_shortcut_capture();
+            } else {
+                self.status = Some(Message::ShortcutConflict);
+            }
+        }
+    }
+
     fn capture_shortcut(
         &mut self,
         key: &Key,
         modifiers: ModifiersState,
-        physical: Option<PhysicalKey>,
+        event_key: Option<(PhysicalKey, winit::keyboard::KeyLocation)>,
     ) {
+        if *key == Key::Named(NamedKey::Enter)
+            && modifiers.is_empty()
+            && self.pending_swap.is_some()
+        {
+            self.confirm_swap();
+            return;
+        }
         if *key == Key::Named(NamedKey::Escape) {
+            self.pending_swap = None;
             self.capturing_shortcut = false;
             self.status = None;
             return;
         }
-        let Some(shortcut) = shortcut_text(key, modifiers) else { return };
+        let location = event_key.map_or(KeyLocation::Any, |(_, location)| location.into());
+        let Some(shortcut) = shortcut_text(key, modifiers, location) else {
+            if !matches!(key, Key::Named(_)) {
+                self.pending_swap = None;
+                self.status = Some(Message::ShortcutInvalid);
+            }
+            return;
+        };
+        let physical = event_key.map(|(physical, _)| physical);
+        self.pending_swap = None;
         let (action, ..) = Self::shortcuts()[self.selected_shortcut];
         if shortcut_binding(action, &shortcut).is_none() {
             self.status = Some(Message::ShortcutInvalid);
@@ -974,18 +1076,24 @@ impl PreferencesDialog {
         overrides.extend(self.values.shortcut_overrides.clone());
         overrides.insert(action.into(), shortcut.clone());
         if shortcut_conflict(&self.original, &overrides, action, &shortcut, physical) {
+            if let Some((other, _)) = self.swapped_shortcuts(&shortcut, physical) {
+                self.pending_swap = Some(ShortcutSwap { shortcut, physical, other });
+            }
             self.status = Some(Message::ShortcutConflict);
             return;
         }
-        self.values.shortcut_overrides.insert(action.into(), shortcut);
-        if let Some(physical) = physical {
-            self.values.shortcut_physical.insert(action.into(), physical);
-        } else {
-            self.values.shortcut_physical.remove(action);
-        }
+        self.values.set_shortcut(action, shortcut, physical);
+        self.finish_shortcut_capture();
+    }
+
+    fn finish_shortcut_capture(&mut self) {
         self.capturing_shortcut = false;
-        if !self.filtered_shortcuts().contains(&self.selected_shortcut) {
+        self.panel.focus = 100 + self.selected_shortcut;
+        if !self.shortcut_filter.text.is_empty()
+            && !self.filtered_shortcuts().iter().any(|(index, _)| *index == self.selected_shortcut)
+        {
             self.shortcut_filter = TextInput::new(String::new());
+            self.panel.focus = 26;
         }
         self.panel.last_focus.set(None);
         self.status = Some(Message::ShortcutChanged);
@@ -1155,6 +1263,40 @@ impl PreferencesDialog {
                     Message::HideMouseTyping,
                 ));
                 rows.push(checkbox(25, self.values.copy_on_select, Message::CopyOnSelect));
+                #[cfg(termust_updater)]
+                {
+                    rows.push(Row::Label(String::new()));
+                    rows.push(Row::Label(t(Message::Updates).into()));
+                    let managed = !matches!(self.update, UpdateStatus::Unmanaged);
+                    if managed {
+                        rows.push(checkbox(
+                            40,
+                            self.values.check_updates,
+                            Message::AutoCheckUpdates,
+                        ));
+                    }
+                    let status = match &self.update {
+                        UpdateStatus::Idle => String::new(),
+                        UpdateStatus::Checking => t(Message::UpdateChecking).into(),
+                        UpdateStatus::Current => t(Message::UpdateCurrent).into(),
+                        UpdateStatus::Available { version } => {
+                            t(Message::UpdateAvailable).replace("{version}", version)
+                        },
+                        UpdateStatus::Installing => t(Message::UpdateInstalling).into(),
+                        UpdateStatus::Installed => t(Message::UpdateInstalled).into(),
+                        UpdateStatus::Failed => t(Message::UpdateFailed).into(),
+                        UpdateStatus::Unmanaged => t(Message::UpdateUnmanaged).into(),
+                    };
+                    rows.extend(Panel::labels(&status, Panel::content_width(columns, lines, true)));
+                    if managed {
+                        let mut check = Control::button(41, t(Message::CheckUpdatesNow));
+                        check.disabled = !self.can_check_updates();
+                        rows.push(Row::One(check));
+                    }
+                    if matches!(self.update, UpdateStatus::Available { .. }) {
+                        rows.push(Row::One(Control::button(42, t(Message::InstallUpdate))));
+                    }
+                }
             },
             4 => {
                 rows.push(checkbox(16, self.values.confirm_tab_close, Message::ConfirmTabClose));
@@ -1253,8 +1395,8 @@ impl PreferencesDialog {
                 if shortcuts.is_empty() {
                     rows.push(Row::Label(t(Message::ShortcutNoResults).into()));
                 }
-                for index in shortcuts.iter().copied() {
-                    let (action, label, suffix) = Self::shortcuts()[index];
+                for &(index, ref shortcut) in &shortcuts {
+                    let (_, label, suffix) = Self::shortcuts()[index];
                     let selected = index == self.selected_shortcut;
                     rows.push(Row::Shortcut {
                         control: Control {
@@ -1264,9 +1406,12 @@ impl PreferencesDialog {
                             disabled: false,
                         },
                         shortcut: if selected && self.capturing_shortcut {
-                            "…".into()
+                            self.pending_swap.as_ref().map_or_else(
+                                || t(Message::RecordShortcut).into(),
+                                |swap| swap.shortcut.clone(),
+                            )
                         } else {
-                            self.shortcut_label(action)
+                            shortcut.clone()
                         },
                     });
                 }
@@ -1279,7 +1424,12 @@ impl PreferencesDialog {
                     }),
                 );
                 clear.disabled = shortcuts.is_empty();
-                rows.push(Row::Toolbar(clear, Control::button(29, t(Message::Defaults))));
+                let secondary = if self.capturing_shortcut && self.pending_swap.is_some() {
+                    Control::button(27, t(Message::SwapShortcuts))
+                } else {
+                    Control::button(29, t(Message::Defaults))
+                };
+                rows.push(Row::Toolbar(clear, secondary));
             },
         }
         if self.page == 8 {
@@ -1293,7 +1443,43 @@ impl PreferencesDialog {
         rows
     }
 
+    pub fn save_pulse(&self) -> u8 {
+        let Some(start) = self.save_pressed else { return 0 };
+        let remaining = (1. - start.elapsed().as_secs_f32() / 0.36).max(0.);
+        (255. * remaining * remaining).ceil() as u8
+    }
+
+    pub fn settings_saved(&mut self, saved: bool) {
+        if saved {
+            self.values
+                .shortcut_overrides
+                .retain(|action, value| self.original.general.shortcuts.get(action) != Some(value));
+            self.values
+                .shortcut_physical
+                .retain(|action, _| self.values.shortcut_overrides.contains_key(action));
+        }
+        if self.status != Some(Message::SavingSettings) {
+            return;
+        }
+        self.save_pressed = Some(Instant::now());
+        self.status =
+            Some(if saved { Message::SettingsSaved } else { Message::SettingsSaveFailed });
+    }
+
     fn activate(&mut self, id: usize) -> Option<ProductivityAction> {
+        if id == 14 {
+            self.save_pressed = Some(Instant::now());
+            if self.capturing_shortcut {
+                self.panel.focus = 100 + self.selected_shortcut;
+                self.status.get_or_insert(Message::ShortcutCapture);
+                return None;
+            }
+        }
+        if id == 27 {
+            self.confirm_swap();
+            return None;
+        }
+        self.pending_swap = None;
         self.status = None;
         match id {
             0..=2 | 13 | 20 | 21 | 33 | 36 | 38 => {
@@ -1352,6 +1538,7 @@ impl PreferencesDialog {
                 } else if !self.values.shortcut_changes_valid(&self.original) {
                     self.status = Some(Message::ShortcutConflict);
                 } else {
+                    self.status = Some(Message::SavingSettings);
                     return Some(ProductivityAction::SaveSettings(self.values.clone()));
                 }
             },
@@ -1364,9 +1551,26 @@ impl PreferencesDialog {
             },
             24 => self.values.hide_mouse_when_typing = !self.values.hide_mouse_when_typing,
             25 => self.values.copy_on_select = !self.values.copy_on_select,
+            26 => self.capturing_shortcut = false,
             34 => self.values.agent_integration = !self.values.agent_integration,
             35 => self.values.agent_notifications = !self.values.agent_notifications,
             39 => self.values.icon = IconPreset::Termust,
+            #[cfg(termust_updater)]
+            40 if !matches!(self.update, UpdateStatus::Unmanaged) => {
+                self.values.check_updates = !self.values.check_updates
+            },
+            #[cfg(termust_updater)]
+            41 if self.can_check_updates() => {
+                self.update = UpdateStatus::Checking;
+                return Some(ProductivityAction::CheckUpdates);
+            },
+            #[cfg(termust_updater)]
+            42 => {
+                let UpdateStatus::Available { version } = &self.update else { return None };
+                let action = ProductivityAction::InstallUpdate(version.clone());
+                self.update = UpdateStatus::Installing;
+                return Some(action);
+            },
             id if (FIRST_ICON_CONTROL..FIRST_ICON_CONTROL + IconPreset::ALL.len()).contains(&id) => {
                 self.values.icon = IconPreset::ALL[id - FIRST_ICON_CONTROL];
             },
@@ -1393,8 +1597,7 @@ impl PreferencesDialog {
                     self.capturing_shortcut = false;
                 } else {
                     let (action, ..) = Self::shortcuts()[self.selected_shortcut];
-                    self.values.shortcut_overrides.insert(action.into(), String::new());
-                    self.values.shortcut_physical.remove(action);
+                    self.values.set_shortcut(action, String::new(), None);
                     self.status = Some(Message::ShortcutChanged);
                 }
             },
@@ -1836,6 +2039,46 @@ impl ProductivityDialog {
             columns,
             lines,
         );
+        if let Self::Preferences(dialog) = self {
+            for (element, id) in &mut parts {
+                if *id == Some(14) {
+                    let pulse = dialog.save_pulse();
+                    if pulse > 0 {
+                        element.kind = UiKind::PressedButton(pulse);
+                    }
+                    let label = match dialog.status {
+                        Some(Message::SavingSettings) => Message::SavingSettings,
+                        Some(Message::SettingsSaved | Message::IconIntegrationFailed) => {
+                            Message::SavedButton
+                        },
+                        Some(Message::SettingsSaveFailed) => Message::RetryButton,
+                        _ => continue,
+                    };
+                    element.text = locale.text(label).into();
+                } else if element.kind == UiKind::Status
+                    && matches!(
+                        dialog.status,
+                        Some(
+                            Message::SettingsSaveFailed
+                                | Message::SettingsInvalid
+                                | Message::ShortcutInvalid
+                                | Message::ShortcutConflict
+                                | Message::IconIntegrationFailed
+                        )
+                    )
+                {
+                    element.kind = UiKind::Error;
+                    if let Some(swap) = &dialog.pending_swap {
+                        let (_, label, suffix) = PreferencesDialog::shortcuts()[swap.other];
+                        element.text = format!(
+                            "{}{suffix} · {}",
+                            locale.text(label),
+                            locale.text(Message::ShortcutSwapHint)
+                        );
+                    }
+                }
+            }
+        }
         if let Self::Agents(dialog) = self {
             let mut statuses = Vec::new();
             for (element, id) in &mut parts {
@@ -1908,15 +2151,12 @@ impl ProductivityDialog {
                 if event.repeat {
                     return None;
                 }
-                let key = if (cfg!(target_os = "macos")
-                    || (cfg!(windows) && modifiers.control_key()))
-                    && modifiers.alt_key()
-                {
-                    event.key_without_modifiers()
-                } else {
-                    event.logical_key.clone()
-                };
-                dialog.capture_shortcut(&key, modifiers, Some(event.physical_key));
+                let key = crate::input::keyboard::binding_key(event, modifiers);
+                dialog.capture_shortcut(
+                    &key,
+                    modifiers,
+                    Some((event.physical_key, event.location)),
+                );
                 return None;
             }
         }
@@ -1948,10 +2188,9 @@ impl ProductivityDialog {
                     return None;
                 }
                 if dialog.panel.focus == 26 && *key == Key::Named(NamedKey::Enter) {
-                    if let Some(index) = dialog.filtered_shortcuts().first().copied() {
-                        dialog.panel.focus = 100 + index;
-                        dialog.selected_shortcut = index;
-                        dialog.capturing_shortcut = true;
+                    if let Some((index, _)) = dialog.filtered_shortcuts().first() {
+                        dialog.panel.focus = 100 + *index;
+                        return dialog.activate(100 + *index);
                     }
                     return None;
                 }
@@ -1968,7 +2207,7 @@ impl ProductivityDialog {
                     } else {
                         shortcuts.last()
                     };
-                    if let Some(index) = target {
+                    if let Some((index, _)) = target {
                         dialog.panel.focus = 100 + index;
                         dialog.panel.last_focus.set(None);
                     }
@@ -2006,6 +2245,7 @@ impl ProductivityDialog {
             if input.key(key, modifiers, limit) {
                 if let Self::Preferences(dialog) = self {
                     dialog.values.font_family = dialog.family.text.clone();
+                    dialog.status = None;
                 }
                 return None;
             }
@@ -2079,6 +2319,7 @@ impl ProductivityDialog {
             Self::Preferences(dialog) if dialog.panel.focus == 3 => {
                 dialog.family.key(&Key::Character(text.into()), ModifiersState::empty(), 128);
                 dialog.values.font_family = dialog.family.text.clone();
+                dialog.status = None;
             },
             Self::Workspaces(dialog) if dialog.panel.focus == 0 => {
                 dialog.name.key(&Key::Character(text.into()), ModifiersState::empty(), 80);
@@ -2508,6 +2749,60 @@ mod tests {
     }
 
     #[test]
+    fn split_shortcuts_swap_from_the_visible_button_and_report_save_results() {
+        let (right, below) = if cfg!(target_os = "macos") {
+            ("Cmd+D", "Shift+Cmd+D")
+        } else {
+            ("Ctrl+Shift+E", "Ctrl+Shift+J")
+        };
+        let mut config = UiConfig::default();
+        config.general.language = Language::PtBr;
+        config.general.shortcuts.insert("SplitVertical".into(), right.into());
+        config.general.shortcuts.insert("SplitHorizontal".into(), below.into());
+        let prefs = PreferencesDialog::new(Rc::new(config), crossfont::Size::new(11.), vec![]);
+        let mut dialog = ProductivityDialog::Preferences(Box::new(prefs));
+        dialog.activate(2);
+        let actions = PreferencesDialog::shortcuts();
+        let vertical = actions.iter().position(|(name, ..)| *name == "SplitVertical").unwrap();
+        let horizontal = actions.iter().position(|(name, ..)| *name == "SplitHorizontal").unwrap();
+        let ProductivityDialog::Preferences(prefs) = &mut dialog else { unreachable!() };
+        let previous = prefs.shortcut_label("SplitVertical");
+        let requested = prefs.shortcut_label("SplitHorizontal");
+        let binding = shortcut_binding("SplitHorizontal", &requested).unwrap();
+        let crate::config::BindingKey::Keycode { key, .. } = binding.trigger else {
+            unreachable!()
+        };
+        dialog.activate(100 + vertical);
+        dialog.logical_key(&key, binding.mods);
+        let control = |dialog: &ProductivityDialog, target| {
+            dialog.parts(98, 32).into_iter().find(|(_, id)| *id == Some(target)).unwrap().0
+        };
+        let swap = control(&dialog, 27);
+        assert_eq!(swap.text, "Trocar atalhos");
+        assert!(dialog.elements(98, 32).iter().any(|e| e.kind == UiKind::Error
+            && e.text.contains(Locale::PtBr.text(actions[horizontal].1))));
+        assert_eq!(dialog.activate(14), None);
+        dialog.click(swap.rect.left + 1, swap.rect.top, 98, 32);
+        assert!(!dialog.captures_shortcut());
+        let Some(ProductivityAction::SaveSettings(draft)) = dialog.activate(14) else { panic!() };
+        assert_eq!(draft.shortcut_overrides["SplitVertical"], requested);
+        assert_eq!(draft.shortcut_overrides["SplitHorizontal"], previous);
+        assert_eq!(control(&dialog, 14).text, "Salvando");
+        let ProductivityDialog::Preferences(prefs) = &mut dialog else { unreachable!() };
+        prefs.settings_saved(false);
+        assert_eq!(control(&dialog, 14).text, "Repetir");
+        assert!(matches!(control(&dialog, 14).kind, UiKind::PressedButton(_)));
+        dialog.activate(14);
+        let ProductivityDialog::Preferences(prefs) = &mut dialog else { unreachable!() };
+        let mut config = (*prefs.original).clone();
+        draft.apply(&mut config).unwrap();
+        prefs.rebase(Rc::new(config), 1.);
+        prefs.settings_saved(true);
+        assert!(prefs.values.shortcut_overrides.is_empty());
+        assert_eq!(control(&dialog, 14).text, "✓ Salvo");
+    }
+
+    #[test]
     fn shortcut_capture_rejects_conflicts_and_escape_cancels_only_capture() {
         let config = toml::from_str(
             "[keyboard]\nbindings=[{key='d',mods='Control|Shift',action='DuplicateTab'}]\n",
@@ -2894,6 +3189,103 @@ mod tests {
         assert_eq!(preferences.values.scrollback_lines, UiConfig::default().scrolling.history());
     }
 
+    #[cfg(termust_updater)]
+    #[test]
+    fn updates_require_an_explicit_install_and_preserve_terminal_drafts() {
+        let config = Rc::new(UiConfig::default());
+        let new_dialog = || {
+            let mut preferences =
+                PreferencesDialog::new(config.clone(), crossfont::Size::new(11.), Vec::new());
+            preferences.locale = Locale::PtBr;
+            ProductivityDialog::Preferences(Box::new(preferences))
+        };
+        let click = |dialog: &mut ProductivityDialog, id| {
+            dialog.panel_mut().focus = id;
+            let parts = dialog.parts(120, 40);
+            let (element, _) = parts.iter().find(|(_, control)| *control == Some(id)).unwrap();
+            dialog.click(element.rect.left, element.rect.top, 120, 40)
+        };
+        let mut dialog = new_dialog();
+        click(&mut dialog, 20);
+        let rows = dialog.rows(120, 40);
+        let controls: Vec<_> = Panel::controls(&rows).iter().map(|control| control.id).collect();
+        assert!(controls.windows(6).any(|ids| ids == [22, 23, 24, 25, 40, 41]));
+        assert!(!controls.contains(&42));
+        click(&mut dialog, 24);
+        click(&mut dialog, 40);
+        assert_eq!(click(&mut dialog, 41), Some(ProductivityAction::CheckUpdates));
+        assert_eq!(dialog.logical_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()), None);
+        assert_eq!(dialog.activate(42), None);
+
+        let ProductivityDialog::Preferences(preferences) = &mut dialog else { unreachable!() };
+        let version = "0.18.0-termust.75332083.b535ae3aaaf0";
+        preferences.update = UpdateStatus::Available { version: version.into() };
+        assert!(!preferences.values.check_updates);
+        assert_ne!(preferences.values.hide_mouse_when_typing, config.mouse.hide_when_typing);
+        let compact_width = Panel::content_width(42, 20, true);
+        let compact_labels: String = preferences
+            .rows(42, 20)
+            .into_iter()
+            .filter_map(|row| match row {
+                Row::Label(label) if label.width() <= compact_width => Some(label),
+                _ => None,
+            })
+            .collect();
+        assert!(compact_labels.contains(version));
+        assert!(dialog.elements(120, 40).iter().any(|element| element.text.contains(version)));
+        assert_eq!(click(&mut dialog, 42), Some(ProductivityAction::InstallUpdate(version.into())));
+        assert_eq!(dialog.logical_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()), None);
+        assert_eq!(dialog.activate(41), None);
+        assert_eq!(
+            dialog.logical_key(&Key::Named(NamedKey::Escape), ModifiersState::empty()),
+            Some(ProductivityAction::Cancel)
+        );
+        let mut reopened = new_dialog();
+        let ProductivityDialog::Preferences(preferences) = &reopened else { unreachable!() };
+        assert!(preferences.values.check_updates);
+        assert_eq!(preferences.values.hide_mouse_when_typing, config.mouse.hide_when_typing);
+        click(&mut reopened, 20);
+        click(&mut reopened, 40);
+        let Some(ProductivityAction::SaveSettings(values)) = click(&mut reopened, 14) else {
+            panic!()
+        };
+        assert!(!values.check_updates);
+    }
+
+    #[cfg(termust_updater)]
+    #[test]
+    fn updates_report_each_outcome_and_offer_retry_after_failure() {
+        let mut preferences = PreferencesDialog::new(
+            Rc::new(UiConfig::default()),
+            crossfont::Size::new(11.),
+            Vec::new(),
+        );
+        preferences.activate(20);
+        for (status, message, can_check) in [
+            (UpdateStatus::Checking, Message::UpdateChecking, false),
+            (UpdateStatus::Current, Message::UpdateCurrent, true),
+            (UpdateStatus::Installing, Message::UpdateInstalling, false),
+            (UpdateStatus::Installed, Message::UpdateInstalled, false),
+            (UpdateStatus::Unmanaged, Message::UpdateUnmanaged, false),
+            (UpdateStatus::Failed, Message::UpdateFailed, true),
+        ] {
+            preferences.update = status;
+            let rows = preferences.rows(120, 40);
+            let controls = Panel::controls(&rows);
+            assert_eq!(controls.iter().any(|c| c.id == 41 && !c.disabled), can_check);
+            assert!(!controls.iter().any(|c| c.id == 42));
+            let labels: Vec<_> = rows
+                .iter()
+                .filter_map(|row| match row {
+                    Row::Label(label) => Some(label.as_str()),
+                    _ => None,
+                })
+                .collect();
+            assert!(labels.join(" ").contains(preferences.locale.text(message)));
+        }
+        assert_eq!(preferences.activate(41), Some(ProductivityAction::CheckUpdates));
+    }
+
     #[test]
     fn shortcut_list_keeps_search_and_actions_visible_while_every_binding_is_editable() {
         for locale in [Locale::En, Locale::PtBr] {
@@ -2972,12 +3364,12 @@ mod tests {
             preferences.filter_changed();
             assert_eq!(preferences.filtered_shortcuts().len(), 1);
             assert_eq!(
-                PreferencesDialog::shortcuts()[preferences.filtered_shortcuts()[0]].0,
+                PreferencesDialog::shortcuts()[preferences.filtered_shortcuts()[0].0].0,
                 "RenameTab"
             );
             preferences.activate(26);
             assert!(!preferences.capturing_shortcut);
-            preferences.activate(100 + preferences.filtered_shortcuts()[0]);
+            preferences.activate(100 + preferences.filtered_shortcuts()[0].0);
             assert!(preferences.capturing_shortcut);
             preferences.capture_shortcut(&Key::Named(NamedKey::F8), ModifiersState::empty(), None);
             assert_eq!(preferences.values.shortcut_overrides["RenameTab"], "F8");

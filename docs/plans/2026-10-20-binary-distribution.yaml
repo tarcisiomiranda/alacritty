@@ -2,7 +2,7 @@ plan: binary-distribution
 title: Public B2 installer and local release build
 status: done
 created: 2026-10-20
-updated: 2026-11-19
+updated: 2026-11-20
 goal: Make the improved terminal installable with curl or mise and use it on this workstation.
 context:
   - The GNOME launcher's installed build and running process were both 0a5a85a8. The last local receipt predated publication of the Yorkie package by fifteen minutes.
@@ -18,6 +18,9 @@ out_of_scope:
   - Untested macOS, Windows or ARM packages and automatic system dependency installation.
   - Git commits, pushes and PR changes.
 stages:
+  - id: in-app-updates
+    desc: Add background checks and manual installation, validate both platforms, and verify the authorized public rollout
+    status: done
   - id: update-feedback
     desc: Verify the real desktop install, report the active and installed builds, and validate the revised public installer
     status: done
@@ -46,6 +49,9 @@ stages:
     desc: Publish the Termust bucket and preserve historical downloads and the old curl command
     status: done
 validation:
+  - All six Linux images passed installation and graphical checks on archive bfc5c2b9cdf9d983be0d27037d7a2980f442ba02649a669a58df1eadb033e26c. The canonical and mirror releases passed public verification. The workstation launcher selects the verified new build and the previous running process stayed open.
+  - The native Apple Silicon app detected the official update automatically. The public Linux and macOS upgrades preserved shell PIDs, launched separate new processes, verified the fresh background check and matched fresh installs from the common public installer.
+  - On X11 the default background check displayed the Portuguese notice only in the focused window. A PTY command spanning the notice kept its PID and no package changed until confirmation. A manual update in an isolated prefix kept the same live shell after activation.
   - All ten distribution checks ran with the revised installer and the published Yorkie archive in the six Linux images identified by the verified release report. All passed.
   - Anonymous installs verified the official installer hash 9ba6a435aed211deb83e60a7a18ffa7d86abf6ca720e07ed24dc5e090066c099. On Linux the old process remained alive and was identified after the update. On Apple Silicon the update, repeat install, signature and launching the new bundle alongside the old one passed.
   - On the GNOME workstation the public command updated 0a5a85a8 to 75332083. The desktop launcher started the matching executable. The installed binary displayed Yorkie in the gallery, saved it and restored it on restart in isolated UI tests.

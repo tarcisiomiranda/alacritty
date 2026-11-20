@@ -63,6 +63,8 @@ mod string;
 mod tab_ui;
 mod tabs;
 mod ui;
+#[cfg(termust_updater)]
+mod updates;
 mod window_context;
 
 mod gl {

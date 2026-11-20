@@ -1155,6 +1155,8 @@ impl Display {
             let bg = match message.ty() {
                 MessageType::Error => config.colors.normal.red,
                 MessageType::Warning => config.colors.normal.yellow,
+                #[cfg(termust_updater)]
+                MessageType::Info => config.colors.normal.cyan,
             };
 
             let x = 0;
@@ -1700,6 +1702,7 @@ impl Display {
             let button = matches!(
                 element.kind,
                 UiKind::PrimaryButton
+                    | UiKind::PressedButton(_)
                     | UiKind::SecondaryButton
                     | UiKind::DangerButton
                     | UiKind::AppearanceChoice { .. }
@@ -1723,6 +1726,13 @@ impl Display {
                 UiKind::Input => (p.text, p.input),
                 UiKind::Command => (p.text, p.surface),
                 UiKind::PrimaryButton if !element.disabled => (p.on_accent, p.accent),
+                UiKind::PressedButton(pulse) => {
+                    let amount = f32::from(pulse) / 255. * 0.52;
+                    let light = 255 - p.on_accent.r;
+                    let tint = Rgb::new(light, light, light);
+                    (p.on_accent, p.accent * (1. - amount) + tint * amount)
+                },
+                UiKind::Error => (p.danger, p.panel),
                 UiKind::SecondaryButton | UiKind::AppearanceChoice { .. } => {
                     (p.text, if active { p.hover } else { p.surface })
                 },
@@ -1917,7 +1927,10 @@ impl Display {
             }
             let bold = matches!(
                 element.kind,
-                UiKind::Title | UiKind::SelectedNavigation | UiKind::PrimaryButton
+                UiKind::Title
+                    | UiKind::SelectedNavigation
+                    | UiKind::PrimaryButton
+                    | UiKind::PressedButton(_)
             );
             self.renderer.draw_string_styled(
                 Point::new(

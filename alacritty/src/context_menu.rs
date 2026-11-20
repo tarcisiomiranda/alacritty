@@ -234,8 +234,8 @@ impl ContextMenu {
                         return None;
                     }
                     match &binding.trigger {
-                        BindingKey::Keycode { key, .. } => {
-                            crate::settings::shortcut_text(key, binding.mods)
+                        BindingKey::Keycode { key, location } => {
+                            crate::settings::shortcut_text(key, binding.mods, *location)
                         },
                         BindingKey::Scancode(key) => Some(format!("{key:?}")),
                     }

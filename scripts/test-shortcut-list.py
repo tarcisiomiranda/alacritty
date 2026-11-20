@@ -12,9 +12,10 @@ import unittest
 
 
 module = importlib.util.spec_from_file_location(
-    "shortcut_list_productivity", Path(__file__).with_name("test-productivity.py"))
-productivity = importlib.util.module_from_spec(module)
-module.loader.exec_module(productivity)
+    "shortcut_list_ui", Path(__file__).with_name("test-ui-font.py"))
+ui = importlib.util.module_from_spec(module)
+module.loader.exec_module(ui)
+productivity = ui.productivity
 smoke = productivity.smoke
 BINARY = None
 SCREENSHOT = None
@@ -62,28 +63,41 @@ def search(terminal, text):
     time.sleep(.1)
 
 
-def body_geometry(terminal):
-    columns, lines, _, _ = terminal.dimensions()
-    width = min(columns - 4, 104)
-    height = min(30, lines - (2 if lines >= 22 else 0))
-    left, top = (columns - width) // 2, (lines - height) // 2
-    wide = columns >= 90 and lines >= 22
-    control_height = 2 if lines >= 26 else 1
-    body_left = left + 2 + (23 if wide else 0)
-    body_top = top + (4 if wide else 8)
-    body_width = width - 6 - (23 if wide else 0)
-    footer_top = top + height - (2 * control_height + 3)
-    return body_left, body_top, body_width, footer_top - body_top - 1, control_height, footer_top
+def rendered_controls(terminal, frame):
+    width, _ = terminal.x11.geometry(terminal.window)
+    colors = terminal.runtime_config()["colors"]
+    background = ui.rgb(colors["primary"]["background"])
+    foreground = ui.rgb(colors["primary"]["foreground"])
+    accent = ui.rgb(colors["normal"]["blue"])
+    panel = tuple(round(a * .965 + b * .035) for a, b in zip(background, foreground))
+    selected = tuple(round(a * .84 + b * .16) for a, b in zip(panel, accent))
+    return ui.largest_region(frame, width, selected), ui.largest_region(frame, width, accent)
+
+
+def crop(frame, width, bounds):
+    left, top, right, bottom = bounds
+    return b"".join(frame[(y * width + left) * 3:(y * width + right + 1) * 3]
+        for y in range(top, bottom + 1))
 
 
 def click_result(terminal, shortcut_column=False):
-    left, top, width, _, control_height, _ = body_geometry(terminal)
-    column = left + (width - 3 if shortcut_column else 3)
-    terminal.click(column, top + control_height + 1)
+    frame = ui.pixels(terminal.capture("shortcut-target"))
+    (left, top, right, bottom), save_button = rendered_controls(terminal, frame)
+    x = left + (right - left) * (.85 if shortcut_column else .2)
+    terminal.x11.click(x, (top + bottom) / 2)
+    return save_button
 
 
-def save(terminal, action, value):
-    terminal.x11.chord("Control_L", "Return")
+def click_button(terminal, bounds):
+    left, top, right, bottom = bounds
+    terminal.x11.click((left + right) / 2, (top + bottom) / 2)
+
+
+def save(terminal, action, value, button=None):
+    if button is None:
+        terminal.x11.chord("Control_L", "Return")
+    else:
+        click_button(terminal, button)
     smoke.wait_for(lambda: terminal.runtime_config()["general"]["shortcuts"].get(action) == value,
         action + " saved from shortcut list")
     terminal.x11.chord("Escape")
@@ -120,6 +134,86 @@ class ShortcutListTests(unittest.TestCase):
             terminal.x11.chord("Return")
             smoke.wait_for(lambda: terminal.x11.title(terminal.window) == "Rename shortcut works",
                 "edited RenameTab shortcut opens the rename dialog after restart")
+
+    def test_split_shortcuts_swap_only_after_confirmation(self):
+        with fixture() as terminal:
+            resize(terminal, 1176, 790)
+            terminal.general(language="pt-BR")
+            original = terminal.config.read_bytes()
+            terminal.preferences("shortcuts")
+            search(terminal, "dividir vertical")
+            button = click_result(terminal)
+            terminal.x11.chord("Control_L", "Shift_L", "j")
+            click_button(terminal, button)
+            self.assertEqual(terminal.config.read_bytes(), original)
+            self.assertEqual(terminal.runtime_config()["general"]["shortcuts"], {})
+            terminal.x11.chord("Escape")
+            terminal.x11.chord("Return")
+            terminal.x11.chord("Control_L", "Shift_L", "j")
+            terminal.x11.chord("Return")
+            self.assertEqual(terminal.config.read_bytes(), original)
+            save(terminal, "SplitVertical", "Ctrl+Shift+J", button)
+            self.assertEqual(tomllib.loads(terminal.config.read_text())["general"]["shortcuts"],
+                {"SplitVertical": "Ctrl+Shift+J", "SplitHorizontal": "Ctrl+Shift+E"})
+            terminal.x11.chord("Control_L", "Shift_L", "j")
+            terminal.x11.chord("Control_L", "Shift_L", "e")
+            self.assert_split_layout(terminal, "vertical", "horizontal")
+
+    def test_split_bindings_apply_after_successful_mouse_save_and_restart(self):
+        with fixture() as terminal:
+            resize(terminal, 737, 570)
+            terminal.preferences("shortcuts")
+            for action, keys in (("split vertical", ("Control_L", "KP_Enter")),
+                    ("split horizontal", ("Control_L", "Shift_L", "F9"))):
+                search(terminal, action)
+                button = click_result(terminal, shortcut_column=True)
+                terminal.x11.chord(*keys)
+            original = terminal.config.read_bytes()
+            initial = ui.pixels(terminal.capture("splits-before-save"))
+            width, _ = terminal.x11.geometry(terminal.window)
+            terminal.config.chmod(0o444)
+            click_button(terminal, button)
+            time.sleep(.4)
+            failed = ui.pixels(terminal.capture("splits-save-failed"))
+            self.assertEqual(original, terminal.config.read_bytes())
+            self.assertEqual(terminal.runtime_config()["general"]["shortcuts"], {})
+            self.assertNotEqual(crop(initial, width, button), crop(failed, width, button))
+            terminal.config.chmod(0o600)
+            left, top, _, bottom = button
+            sample = f"1x1+{left + 6}+{(top + bottom) // 2}"
+            def fill():
+                return subprocess.check_output(["import", "-display", terminal.display, "-window",
+                    str(terminal.window), "-crop", sample, "-depth", "8", "rgb:-"], timeout=5)
+            accent = fill()
+            click_button(terminal, button)
+            smoke.wait_for(lambda: fill() != accent, "Save button animates on click")
+            smoke.wait_for(lambda: fill() == accent, "Save button settles")
+            saved = ui.pixels(terminal.capture("splits-saved"))
+            self.assertNotEqual(crop(failed, width, button), crop(saved, width, button))
+            self.assertNotEqual(crop(initial, width, button), crop(saved, width, button))
+            expected = {"SplitVertical": "Ctrl+NumpadEnter", "SplitHorizontal": "Ctrl+Shift+F9"}
+            self.assertEqual(terminal.runtime_config()["general"]["shortcuts"], expected)
+            self.assertEqual(tomllib.loads(terminal.config.read_text())["general"]["shortcuts"], expected)
+            terminal.x11.chord("Escape")
+            for restarted in (False, True):
+                if restarted:
+                    terminal.stop(crash=True)
+                    terminal.start()
+                    terminal.x11.chord("Control_L", "Shift_L", "t")
+                terminal.x11.chord("Control_L", "Shift_L", "e")
+                terminal.x11.chord("Control_L", "Shift_L", "j")
+                terminal.x11.chord("Control_L", "Return")
+                terminal.x11.chord("Control_L", "Shift_L", "F9")
+                terminal.x11.chord("Control_L", "KP_Enter")
+                self.assert_split_layout(terminal, "horizontal", "vertical")
+
+    def assert_split_layout(self, terminal, outer, inner):
+        session = terminal.snapshot()
+        tab = session["tabs"][session["active"]]
+        self.assertEqual(len(tab.get("panes", [])), 2)
+        split = tab["layout"]["split"]
+        self.assertEqual(split["axis"], outer)
+        self.assertEqual(split["second"]["split"]["axis"], inner)
 
     def test_empty_search_conflict_and_capture_cancel_preserve_the_session(self):
         with fixture() as terminal:
@@ -164,10 +258,12 @@ class ShortcutListTests(unittest.TestCase):
                         with self.subTest(locale=locale, width=width, action=action):
                             terminal.preferences("shortcuts")
                             search(terminal, action)
-                            click_result(terminal, shortcut_column)
-                            terminal.x11.chord("Control_L", "Shift_L", key)
-                            value = "Ctrl+Shift+" + key
-                            save(terminal, action, value)
+                            button = click_result(terminal, shortcut_column)
+                            modifiers = ("Control_L",) if width > 1000 else ("Control_L", "Shift_L")
+                            key = key if locale == "en" else ("F7" if key == "F9" else "F8")
+                            terminal.x11.chord(*modifiers, key)
+                            value = ("Ctrl+" if len(modifiers) == 1 else "Ctrl+Shift+") + key
+                            save(terminal, action, value, button)
                             self.assertEqual(tomllib.loads(terminal.config.read_text())["general"][
                                 "shortcuts"][action], value)
 
@@ -230,28 +326,25 @@ class ShortcutListTests(unittest.TestCase):
                             resize(terminal, width, height)
                             original = terminal.config.read_bytes()
                             terminal.preferences("shortcuts")
-                            left, top, body_width, body_height, control_height, footer = body_geometry(terminal)
-                            first = top + control_height + 1
-                            path = terminal.capture(f"shortcut-list-{theme}-{locale}-{width}")
-                            visible = sum(any(terminal.text_mask(terminal.pixels(path, left + 1,
-                                row, body_width - 2))) for row in range(first, top + body_height))
-                            self.assertGreaterEqual(visible, 8 if width > 1000 else 3,
-                                "Shortcut page still hides actions behind two-item pagination")
-                            footer_before = terminal.pixels(path, left, footer, body_width,
-                                2 * control_height)
-                            body_before = terminal.pixels(path, left, top, body_width, body_height)
+                            frame = ui.pixels(terminal.capture(f"shortcut-list-{theme}-{locale}-{width}"))
+                            row, button = rendered_controls(terminal, frame)
+                            left, first, right, bottom = row
+                            row_height = bottom - first + 1
+                            footer_top = button[1] - (button[3] - button[1] + 5)
+                            body = (left + 10, first, right - 10, footer_top - 16)
+                            footer = (0, footer_top, width - 1, button[3] + 1)
+                            visible = sum(any(terminal.text_mask(crop(frame, width,
+                                (left + 10, y, right - 10, y + row_height - 1))))
+                                for y in range(first, body[3] - row_height + 2, row_height))
+                            self.assertGreaterEqual(visible, 8 if width > 1000 else 3)
                             for _ in range(4):
-                                terminal.click(left + body_width // 2, first + 1, 5)
-                            scrolled = terminal.capture(f"shortcut-list-{theme}-{locale}-{width}-scrolled")
-                            self.assertNotEqual(body_before,
-                                terminal.pixels(scrolled, left, top, body_width, body_height))
-                            self.assertEqual(footer_before,
-                                terminal.pixels(scrolled, left, footer, body_width, 2 * control_height),
-                                "Shortcut scroll moved the Save/Cancel or reset controls")
+                                terminal.x11.click((left + right) / 2, first + row_height, 5)
+                            scrolled = ui.pixels(terminal.capture(f"shortcut-list-{theme}-{locale}-{width}-scrolled"))
+                            self.assertNotEqual(crop(frame, width, body), crop(scrolled, width, body))
+                            self.assertEqual(crop(frame, width, footer), crop(scrolled, width, footer))
                             search(terminal, "")
-                            restored = terminal.capture(f"shortcut-list-{theme}-{locale}-{width}-cleared")
-                            self.assertTrue(any(terminal.text_mask(terminal.pixels(restored,
-                                left + 1, first, body_width - 2))))
+                            restored = ui.pixels(terminal.capture(f"shortcut-list-{theme}-{locale}-{width}-cleared"))
+                            self.assertEqual(crop(frame, width, row), crop(restored, width, row))
                             terminal.x11.chord("Escape")
                             self.assertEqual(terminal.config.read_bytes(), original)
 

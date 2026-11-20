@@ -81,7 +81,7 @@ def main():
         if args.portable and (minimum_glibc != provenance["minimum_glibc"] or tuple(map(int, minimum_glibc.split("."))) > (2, 31)):
             raise SystemExit("Portable glibc baseline does not match the build metadata.")
         inputs = [ROOT / source for source in assets]
-        inputs += [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "scripts/package-release.py"]
+        inputs += [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "install.sh", ROOT / "scripts/package-release.py"]
         for crate in ("alacritty", "alacritty_terminal", "alacritty_config", "alacritty_config_derive"):
             inputs += list((ROOT / crate).rglob("*.rs")) + [ROOT / crate / "Cargo.toml"]
         build_timestamp = int(max(path.stat().st_mtime for path in inputs))

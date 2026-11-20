@@ -8,7 +8,9 @@ main() {
     python3 - "$@" <<'TERMUST_PYTHON'
 import argparse
 import configparser
+from contextlib import contextmanager
 import ctypes
+from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
@@ -24,10 +26,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 BASE_URL = "https://f005.backblazeb2.com/file/termust"
 RECEIPT = "share/doc/termust/install.json"
+LINUX_ARCHIVE = "termust-linux-x86_64.tar.gz"
+MAX_UPDATE_ARCHIVE = 128 * 1024 * 1024
+LAST_UTC_TIMESTAMP = int(datetime.max.replace(microsecond=0, tzinfo=timezone.utc).timestamp())
 FIXED_FILES = {
     "bin/termust", "share/applications/Termust.desktop",
     "share/icons/hicolor/scalable/apps/Termust.svg",
@@ -46,6 +52,14 @@ def warning(message):
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def file_digest(path):
+    checksum = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(chunk)
+    return checksum.hexdigest()
 
 
 def json_bytes(value):
@@ -184,13 +198,58 @@ def download(url, target, *, revalidate=False):
         "--connect-timeout", "15", "--max-time", "600", *headers, "--output", str(target), url], check=True)
 
 
+@contextmanager
+def install_lock(prefix, wait=0):
+    descriptor = os.open(prefix / ".termust-install.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "r+") as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            fail("installation lock is not owned exclusively by the current user.")
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    fail("another Termust installation is running for this prefix.")
+                time.sleep(0.1)
+        yield
+
+
+def update_download(relative, target, limit, timeout):
+    command = ["curl", "-q", "--fail", "--silent", "--show-error", "--proto", "=https",
+        "--tlsv1.2", "--max-redirs", "0", "--connect-timeout", "6", "--max-time", str(timeout),
+        "--max-filesize", str(limit), "--header", "Cache-Control: no-cache",
+        "--write-out", "\n%{http_code}", BASE_URL + "/" + relative]
+    with target.open("w+b") as output, subprocess.Popen(command, stdout=subprocess.PIPE) as process:
+        try:
+            while True:
+                chunk = process.stdout.read(65536)
+                if not chunk:
+                    break
+                if output.tell() + len(chunk) > limit + 4:
+                    fail("update download exceeds its size limit.")
+                output.write(chunk)
+            if process.wait() != 0 or output.tell() < 4:
+                fail("could not download the update from the Termust release server.")
+            size = output.tell() - 4
+            output.seek(size)
+            if output.read() != b"\n200":
+                fail("unexpected HTTP response from the Termust release server.")
+            output.truncate(size)
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def unpack(archive, checksum, target, root_name="termust"):
     if not archive.is_file() or not checksum.is_file():
         fail("the release archive or SHA256 file is missing.")
     match = re.fullmatch(r"([0-9a-fA-F]{64})(?:[ \t]+[^\r\n]+)?", checksum.read_text(encoding="ascii").strip())
     if not match:
         fail("invalid SHA256 file.")
-    actual = digest(archive.read_bytes())
+    actual = file_digest(archive)
     if actual != match[1].lower():
         fail("SHA256 checksum mismatch. The installed terminal was not changed.")
     with tarfile.open(archive, "r:gz") as package:
@@ -221,7 +280,9 @@ def unpack(archive, checksum, target, root_name="termust"):
 def read_metadata(package, version, binary):
     metadata_path = package / "release.json"
     metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
-    if metadata and (metadata.get("version") != version or metadata.get("binary_sha256") != digest(binary.read_bytes())):
+    if not isinstance(metadata, dict):
+        fail("invalid Linux release metadata.")
+    if metadata and (metadata.get("version") != version or metadata.get("binary_sha256") != file_digest(binary)):
         fail("release metadata does not match VERSION or executable checksum.")
     if metadata.get("platform", "linux-x86_64") != "linux-x86_64":
         fail("release metadata has an unsupported platform.")
@@ -234,15 +295,19 @@ def read_metadata(package, version, binary):
     return metadata
 
 
-def installed_receipt(prefix):
+def installed_receipt(prefix, *, reject_modified=True):
     path = prefix / RECEIPT
     if not path.exists():
         return {}
     safe_destination(prefix, RECEIPT)
     value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        fail("invalid Termust installation receipt.")
     binary = prefix / "bin/termust"
-    if not binary.is_file() or value.get("binary_sha256") != digest(binary.read_bytes()):
-        fail("installed executable does not match its receipt; inspect the installation before replacing it.")
+    if not binary.is_file() or value.get("binary_sha256") != file_digest(binary):
+        if reject_modified:
+            fail("installed executable does not match its receipt; inspect the installation before replacing it.")
+        return {}
     return value
 
 
@@ -568,6 +633,7 @@ def macos_validate_app(app):
     if not isinstance(bundle, dict) or bundle.get("CFBundleIdentifier") != "com.tarcisiomiranda.termust":
         fail(f"unrecognized application at {app}; no existing application was replaced.")
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
+    return bundle
 
 
 def macos_app_hash(app):
@@ -635,6 +701,36 @@ def macos_activate(app, directory, archive_hash, root, previous):
         print(f"Installed Termust at {destination} (package {archive_hash[:12]}).")
 
 
+def install_macos_archive(archive, checksum, root, directory, previous, manifest=None):
+    archive_hash = unpack(archive, checksum, root, "Termust.app")
+    app = root / "Termust.app"
+    bundle = macos_validate_app(app)
+    if manifest is not None and (bundle.get("CFBundleShortVersionString") != manifest["package_version"]
+            or bundle.get("CFBundleVersion") != str(manifest["build_timestamp"])):
+        fail("the macOS package version differs from the offered update.")
+    binary_version = executable_version(app / "Contents/MacOS/termust")
+    if manifest is not None and binary_version.split()[1:2] != [manifest["package_version"]]:
+        fail("the macOS package version differs from the offered update.")
+    print(binary_version)
+    macos_activate(app, directory, archive_hash=archive_hash, root=root, previous=previous)
+
+
+def install_linux_archive(archive, checksum, root, prefix, version, desktop, allow, manifest=None):
+    archive_hash = unpack(archive, checksum, root)
+    package = root / "termust"
+    binary = package / "bin/termust"
+    if not binary.is_file() or not os.access(binary, os.X_OK) or not (package / "VERSION").is_file():
+        fail("release is missing its executable or VERSION file.")
+    package_version = (package / "VERSION").read_text().strip()
+    if not version_id(package_version) or (version and version != package_version):
+        fail("release VERSION does not match the requested package.")
+    metadata = read_metadata(package, package_version, binary)
+    fields = ("platform", "version", "package_version", "binary_version", "binary_sha256", "build_timestamp")
+    if manifest is not None and any(metadata.get(key) != manifest[key] for key in fields):
+        fail("the Linux package metadata differs from the offered update.")
+    install(package, prefix, package_version, metadata, archive_hash, desktop, allow)
+
+
 def macos_main():
     parser = argparse.ArgumentParser(description="Install the native Termust app for macOS Apple Silicon without sudo or Rust.")
     parser.add_argument("--prefix", default=str(Path.home() / "Applications"), help="directory for Termust.app")
@@ -658,14 +754,7 @@ def macos_main():
     if args.checksum_file and not args.archive:
         fail("--checksum-file needs --archive.")
     directory.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(directory / ".termust-install.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as lock:
-        if os.fstat(lock.fileno()).st_uid != os.getuid() or os.fstat(lock.fileno()).st_nlink != 1:
-            fail("installation lock is not owned exclusively by the current user.")
-        try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            fail("another Termust installation is running for this prefix.")
+    with install_lock(directory):
         previous = None
         if destination.exists() or destination.is_symlink():
             previous = destination.resolve()
@@ -698,15 +787,169 @@ def macos_main():
                 download(base + "/" + manifest["archive"], archive)
                 checksum.write_text(sha + "\n")
             checksum = checksum or Path(str(archive) + ".sha256")
-            unpack_hash = unpack(archive, checksum, root, "Termust.app")
-            app = root / "Termust.app"
-            macos_validate_app(app)
-            print(executable_version(app / "Contents/MacOS/termust"))
-            macos_activate(app, directory, archive_hash=unpack_hash, root=root, previous=previous)
+            install_macos_archive(archive, checksum, root, directory, previous)
     print("Launch the installed build in a separate window: open -n " + shlex.quote(str(destination)))
 
 
+def sha256_id(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def release_order(version, timestamp):
+    if (not isinstance(version, str) or len(version) > 80 or type(timestamp) is not int
+            or not 0 < timestamp <= LAST_UTC_TIMESTAMP):
+        return None
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?", version, re.ASCII)
+    if not match:
+        return None
+    prerelease = match[4]
+    components = tuple((0, int(item)) if item.isdecimal() else (1, item)
+        for item in prerelease.split(".")) if prerelease else ()
+    return tuple(map(int, match.groups()[:3])), prerelease is None, components, timestamp
+
+
+def managed_update(prefix, target):
+    if (not target or not prefix.is_dir() or prefix.resolve() != prefix
+            or prefix.stat().st_uid != os.getuid()):
+        return None
+    if target == "linux-x86_64":
+        binary, receipt = prefix / "bin/termust", prefix / RECEIPT
+        if any(path.resolve() != path or not owned_file(path) for path in (binary, receipt)):
+            return None
+        data = installed_receipt(prefix, reject_modified=False)
+        order = release_order(data.get("package_version"), data.get("build_timestamp"))
+        if (type(data.get("schema_version")) is not int or data["schema_version"] != 1 or data.get("platform") != target
+                or not order or type(data.get("desktop")) is not bool
+                or not version_id(data.get("version")) or not sha256_id(data.get("archive_sha256"))
+                or not isinstance(data.get("binary_version"), str)
+                or data["binary_version"].split()[:2] != ["termust", data["package_version"]]):
+            return None
+        return {"id": data["version"], "sha256": data["archive_sha256"], "order": order, "desktop": data["desktop"]}
+    launcher = prefix / "Termust.app"
+    if not launcher.is_symlink() or launcher.lstat().st_uid != os.getuid():
+        return None
+    app = launcher.resolve()
+    release_id = app.parent.name
+    expected = prefix / ".termust/releases" / release_id / "Termust.app"
+    if (not sha256_id(release_id) or app != expected or prefix / os.readlink(launcher) != expected
+            or any(not path.is_dir() or path.stat().st_uid != os.getuid()
+                for path in (app, app.parent, app.parent.parent, app.parent.parent.parent))):
+        return None
+    bundle = macos_validate_app(app)
+    build = bundle.get("CFBundleVersion")
+    order = release_order(bundle.get("CFBundleShortVersionString"), int(build)) if (
+        isinstance(build, str) and re.fullmatch(r"[0-9]{1,19}", build)) else None
+    if order:
+        return {"id": release_id, "sha256": release_id, "order": order, "app": app}
+    return None
+
+
+def latest_update(root, target):
+    metadata_file = root / "manifest.json"
+    if target == "linux-x86_64":
+        pointer = root / "latest.txt"
+        update_download("latest-linux-x86_64.txt", pointer, 256, 15)
+        release_id = pointer.read_text(encoding="ascii").strip()
+        if not version_id(release_id):
+            fail("invalid Linux update pointer.")
+        update_download(f"releases/{release_id}/release.json", metadata_file, 65536, 15)
+    else:
+        update_download("latest-macos-arm64.json", metadata_file, 65536, 15)
+    data = json.loads(metadata_file.read_bytes())
+    if not isinstance(data, dict) or data.get("platform") != target or not sha256_id(data.get("sha256")):
+        fail("invalid Termust update manifest.")
+    sha = data["sha256"]
+    version = data.get("package_version")
+    order = release_order(version, data.get("build_timestamp"))
+    if target == "linux-x86_64":
+        if (not order or data.get("version") != release_id or data.get("archive") != LINUX_ARCHIVE
+                or not sha256_id(data.get("binary_sha256")) or not isinstance(data.get("binary_version"), str)
+                or data["binary_version"].split()[:2] != ["termust", version]
+                or type(data.get("size")) is not int or not 0 < data["size"] <= MAX_UPDATE_ARCHIVE):
+            fail("invalid Linux update manifest.")
+        archive = f"releases/{release_id}/{LINUX_ARCHIVE}"
+    else:
+        release_id = sha
+        archive = f"macos/binary/{sha}.tar.gz"
+        if (type(data.get("schema")) is not int or data["schema"] != 1 or data.get("archive") != archive
+                or (not order and ("package_version" in data or "build_timestamp" in data))):
+            fail("invalid macOS update manifest.")
+    label = ""
+    if order:
+        built = datetime.fromtimestamp(data["build_timestamp"], timezone.utc)
+        label = f"{version} ({built:%Y-%m-%d %H:%M:%S} UTC)"
+    return {"id": release_id, "sha256": sha, "version": label, "order": order, "archive": archive, "manifest": data}
+
+
+def check_update(prefix, target, local, root, requested=None):
+    if requested == (local["id"], local["sha256"]):
+        return {"status": "current"}
+    offer = latest_update(root, target)
+    if requested is not None and requested != (offer["id"], offer["sha256"]):
+        fail("the offered release changed; check for updates again.")
+    if local["id"] == offer["id"] and local["sha256"] != offer["sha256"]:
+        fail("the release checksum changed for an installed version.")
+    newer = (offer["order"] and offer["order"] > local["order"] and local["id"] != offer["id"]
+        and (offer["order"][0] != local["order"][0] or offer["order"][-1] >= local["order"][-1]))
+    if not newer:
+        return {"status": "current"}
+    if requested is None:
+        return {"status": "available", **{key: offer[key] for key in ("version", "id", "sha256")}}
+    archive, checksum = root / "package.tar.gz", root / "package.sha256"
+    manifest = offer["manifest"]
+    limit = manifest["size"] if target == "linux-x86_64" else MAX_UPDATE_ARCHIVE
+    update_download(offer["archive"], archive, limit, 180)
+    if target == "linux-x86_64" and archive.stat().st_size != limit:
+        fail("the Linux update archive has an unexpected size.")
+    checksum.write_text(offer["sha256"] + "\n", encoding="ascii")
+    if target == "linux-x86_64":
+        install_linux_archive(archive, checksum, root, prefix, offer["id"], local["desktop"], False, manifest)
+    else:
+        install_macos_archive(archive, checksum, root, prefix, local["app"], manifest)
+    return {"status": "installed"}
+
+
+def update_main():
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--prefix", required=True, type=Path)
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--update-status", action="store_true")
+    modes.add_argument("--apply-update", metavar="ID")
+    parser.add_argument("--expected-sha256")
+    args = parser.parse_args()
+    prefix = args.prefix
+    if not prefix.is_absolute() or any(ord(c) < 32 or ord(c) == 127 for c in str(prefix)):
+        fail("the updater requires an absolute installation prefix.")
+    if args.update_status and args.expected_sha256 is not None:
+        fail("--expected-sha256 requires --apply-update.")
+    if args.apply_update is not None and (not version_id(args.apply_update) or not sha256_id(args.expected_sha256)):
+        fail("the updater requires an exact release ID and SHA256.")
+    platforms = {("Linux", "x86_64"): "linux-x86_64", ("Darwin", "arm64"): "macos-arm64"}
+    target = platforms.get((platform.system(), platform.machine()))
+    if args.update_status:
+        local = managed_update(prefix, target)
+        if not local:
+            print(json.dumps({"status": "unmanaged"}))
+            return
+        with tempfile.TemporaryDirectory(prefix="termust-update-check-") as temporary:
+            result = check_update(prefix, target, local, Path(temporary))
+    else:
+        lock = prefix / ".termust-install.lock"
+        if (lock.resolve() != lock or not owned_file(lock)) and not managed_update(prefix, target):
+            fail("this installation is not managed by the Termust installer.")
+        with install_lock(prefix, wait=240):
+            local = managed_update(prefix, target)
+            if not local:
+                fail("this installation is not managed by the Termust installer.")
+            with tempfile.TemporaryDirectory(prefix=".termust-update-", dir=prefix) as temporary:
+                result = check_update(prefix, target, local, Path(temporary), (args.apply_update, args.expected_sha256))
+    print(json.dumps(result))
+
+
 def main():
+    if any(arg.split("=", 1)[0] in ("--update-status", "--apply-update") for arg in sys.argv[1:]):
+        update_main()
+        return
     if platform.system() == "Darwin":
         macos_main()
         return
@@ -740,14 +983,7 @@ def main():
     if args.rollback and not prefix.is_dir():
         fail("no previous installation is available for rollback.")
     prefix.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(prefix / ".termust-install.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "r+") as lock:
-        if os.fstat(lock.fileno()).st_uid != os.getuid() or os.fstat(lock.fileno()).st_nlink != 1:
-            fail("installation lock is not owned exclusively by the current user.")
-        try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            fail("another Termust installation is running for this prefix.")
+    with install_lock(prefix):
         if args.rollback:
             rollback(prefix)
             return
@@ -774,16 +1010,7 @@ def main():
                 download(f"{base}/releases/{version}/{archive.name}", archive)
                 download(f"{base}/releases/{version}/{checksum.name}", checksum)
             checksum = checksum or Path(str(archive) + ".sha256")
-            archive_hash = unpack(archive, checksum, target)
-            package = target / "termust"
-            binary = package / "bin/termust"
-            if not binary.is_file() or not os.access(binary, os.X_OK) or not (package / "VERSION").is_file():
-                fail("release is missing its executable or VERSION file.")
-            package_version = (package / "VERSION").read_text().strip()
-            if not version_id(package_version) or (version and version != package_version):
-                fail("release VERSION does not match the requested package.")
-            metadata = read_metadata(package, package_version, binary)
-            install(package, prefix, package_version, metadata, archive_hash, not args.no_desktop, args.allow_downgrade)
+            install_linux_archive(archive, checksum, target, prefix, version, not args.no_desktop, args.allow_downgrade)
 
 
 def desktop_command(executable):

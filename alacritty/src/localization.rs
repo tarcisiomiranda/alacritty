@@ -232,12 +232,30 @@ pub enum Message {
     GeneralPreferences,
     SettingsSaved,
     SettingsSaveFailed,
+    SavingSettings,
+    SavedButton,
+    RetryButton,
+    RecordShortcut,
+    SwapShortcuts,
+    ShortcutSwapHint,
     Terminal,
     Tabs,
     Sessions,
     ScrollbackLines,
     HideMouseTyping,
     CopyOnSelect,
+    Updates,
+    AutoCheckUpdates,
+    CheckUpdatesNow,
+    InstallUpdate,
+    UpdateChecking,
+    UpdateCurrent,
+    UpdateAvailable,
+    UpdateInstalling,
+    UpdateInstalled,
+    UpdateFailed,
+    UpdateUnmanaged,
+    UpdateNotice,
     TabSettingsHint,
     SettingsLanguageHint,
     SplitVertical,
@@ -458,8 +476,12 @@ impl Locale {
             (Self::PtBr, Message::ShortcutCancelCapture) => "Cancelar captura",
             (Self::En, Message::ShortcutCurrent) => "Current shortcut",
             (Self::PtBr, Message::ShortcutCurrent) => "Atalho atual",
-            (Self::En, Message::ShortcutsSubtitle) => "Customize shortcuts; changes apply on Save.",
-            (Self::PtBr, Message::ShortcutsSubtitle) => "Personalize e salve seus atalhos.",
+            (Self::En, Message::ShortcutsSubtitle) => {
+                "Click an action, press the new shortcut, then save."
+            },
+            (Self::PtBr, Message::ShortcutsSubtitle) => {
+                "Clique na ação, pressione o novo atalho e salve."
+            },
 
             (Self::En, Message::ScrollbackSaveHint) => "Applied when you save.",
             (Self::PtBr, Message::ScrollbackSaveHint) => "Aplicado ao salvar.",
@@ -478,6 +500,42 @@ impl Locale {
             (Self::PtBr, Message::HideMouseTyping) => "Ocultar mouse ao digitar",
             (Self::En, Message::CopyOnSelect) => "Copy selection to clipboard",
             (Self::PtBr, Message::CopyOnSelect) => "Copiar seleção automaticamente",
+            (Self::En, Message::Updates) => "Updates",
+            (Self::PtBr, Message::Updates) => "Atualizações",
+            (Self::En, Message::AutoCheckUpdates) => "Check automatically",
+            (Self::PtBr, Message::AutoCheckUpdates) => "Verificar automaticamente",
+            (Self::En, Message::CheckUpdatesNow) => "Check now",
+            (Self::PtBr, Message::CheckUpdatesNow) => "Verificar agora",
+            (Self::En, Message::InstallUpdate) => "Install update",
+            (Self::PtBr, Message::InstallUpdate) => "Instalar atualização",
+            (Self::En, Message::UpdateChecking) => "Checking for updates…",
+            (Self::PtBr, Message::UpdateChecking) => "Verificando atualizações…",
+            (Self::En, Message::UpdateCurrent) => "Termust is up to date.",
+            (Self::PtBr, Message::UpdateCurrent) => "O Termust está atualizado.",
+            (Self::En, Message::UpdateAvailable) => "Termust {version} is available.",
+            (Self::PtBr, Message::UpdateAvailable) => "O Termust {version} está disponível.",
+            (Self::En, Message::UpdateInstalling) => "Installing update…",
+            (Self::PtBr, Message::UpdateInstalling) => "Instalando atualização…",
+            (Self::En, Message::UpdateInstalled) => {
+                "Update installed. Reopen Termust to use the new version."
+            },
+            (Self::PtBr, Message::UpdateInstalled) => {
+                "Atualização instalada. Reabra o Termust para usar a nova versão."
+            },
+            (Self::En, Message::UpdateFailed) => "The update failed. Check again to retry.",
+            (Self::PtBr, Message::UpdateFailed) => "Falha na atualização. Verifique novamente.",
+            (Self::En, Message::UpdateUnmanaged) => {
+                "To update this copy of Termust, use the same method you used to install it."
+            },
+            (Self::PtBr, Message::UpdateUnmanaged) => {
+                "Para atualizar esta cópia do Termust, use o mesmo método da instalação."
+            },
+            (Self::En, Message::UpdateNotice) => {
+                "A Termust update is available. Open Settings → Terminal to install it."
+            },
+            (Self::PtBr, Message::UpdateNotice) => {
+                "Há uma atualização do Termust. Abra Configurações → Terminal para instalá-la."
+            },
             (Self::En, Message::TabSettingsHint) => {
                 "Manage names and command replay in tab settings."
             },
@@ -658,6 +716,18 @@ impl Locale {
             },
             (Self::En, Message::GeneralPreferences) => "Appearance and startup…  F2",
             (Self::PtBr, Message::GeneralPreferences) => "Aparência e inicialização…  F2",
+            (Self::En, Message::SavingSettings) => "Saving…",
+            (Self::PtBr, Message::SavingSettings) => "Salvando",
+            (Self::En, Message::SavedButton) => "✓ Saved",
+            (Self::PtBr, Message::SavedButton) => "✓ Salvo",
+            (Self::En, Message::RetryButton) => "Retry",
+            (Self::PtBr, Message::RetryButton) => "Repetir",
+            (Self::En, Message::SwapShortcuts) => "Swap shortcuts",
+            (Self::PtBr, Message::SwapShortcuts) => "Trocar atalhos",
+            (Self::En, Message::ShortcutSwapHint) => "Enter swaps shortcuts. Esc cancels.",
+            (Self::PtBr, Message::ShortcutSwapHint) => "Enter troca os atalhos. Esc cancela.",
+            (Self::En, Message::RecordShortcut) => "Press keys…",
+            (Self::PtBr, Message::RecordShortcut) => "Pressione as teclas…",
             (Self::En, Message::SettingsSaved) => "Settings saved.",
             (Self::PtBr, Message::SettingsSaved) => "Configurações salvas.",
             (Self::En, Message::SettingsSaveFailed) => {
@@ -833,7 +903,7 @@ impl Locale {
 
 #[cfg(test)]
 impl Message {
-    const ALL: [Self; 187] = [
+    const ALL: [Self; 205] = [
         Self::AgentChats,
         Self::Applications,
         Self::PreferredEditor,
@@ -987,12 +1057,30 @@ impl Message {
         Self::GeneralPreferences,
         Self::SettingsSaved,
         Self::SettingsSaveFailed,
+        Self::SavingSettings,
+        Self::SavedButton,
+        Self::RetryButton,
+        Self::RecordShortcut,
+        Self::SwapShortcuts,
+        Self::ShortcutSwapHint,
         Self::Terminal,
         Self::Tabs,
         Self::Sessions,
         Self::ScrollbackLines,
         Self::HideMouseTyping,
         Self::CopyOnSelect,
+        Self::Updates,
+        Self::AutoCheckUpdates,
+        Self::CheckUpdatesNow,
+        Self::InstallUpdate,
+        Self::UpdateChecking,
+        Self::UpdateCurrent,
+        Self::UpdateAvailable,
+        Self::UpdateInstalling,
+        Self::UpdateInstalled,
+        Self::UpdateFailed,
+        Self::UpdateUnmanaged,
+        Self::UpdateNotice,
         Self::TabSettingsHint,
         Self::SettingsLanguageHint,
         Self::SplitVertical,

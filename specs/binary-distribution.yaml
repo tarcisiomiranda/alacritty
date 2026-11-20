@@ -2,10 +2,11 @@ spec: binary-distribution
 title: Portable B2 packages and reliable installation updates
 status: in_progress
 created: 2026-10-20
-updated: 2026-11-19
+updated: 2026-11-20
 goal: Publish this fork in a dedicated B2 bucket and support curl installation and mise run install for local daily use.
 problem: The original Fedora-built package required glibc 2.43 and updates lacked downgrade protection rollback and launch-path diagnostics.
 behavior:
+  - Managed installations check the official Linux or Apple Silicon release periodically. Settings supports manual checks and installation after explicit confirmation, with existing PTYs continuing until the user relaunches.
   - Re-running the macOS installer updates the managed app or reports that it is current, preserving the previous bundle and live processes.
   - Use one install.sh command that detects Linux x86_64 or macOS Apple Silicon and downloads the matching binary.
   - Build and package an optimized Linux x86_64 binary with desktop, icon, terminfo, completions and license files.
@@ -14,13 +15,19 @@ behavior:
   - Verify SHA256 and run the candidate binary before atomically replacing the user executable.
   - Install into the user prefix and override the desktop launcher without changing shell or terminal configuration.
   - Support local builds and installation through mise run install.
+requirements:
+  - A saved opt-out disables automatic checks. Manual checks remain available for managed installations. Unsupported or modified copies use their original installation method.
+  - Merely discovering a release leaves the active package and shells untouched. Installing a confirmed update keeps the previous package and allows the new process to run alongside existing ones.
 constraints:
+  - The app runs its embedded installer in a background worker. Update checks use the fixed HTTPS feed and bounded metadata requests, and installation revalidates the chosen identity and SHA256 under the existing install lock.
   - Use the existing authorized B2 CLI credentials without printing or embedding secrets.
   - Use a new bucket dedicated to public application artifacts; do not change existing private buckets.
   - Public Linux binaries use the pinned Rust 1.89 Debian 11 builder and require glibc 2.31 or older; verify runtime compatibility before replacing a working binary.
   - Preserve the operating system package and all existing terminal settings and sessions.
   - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
 implemented:
+  - Released Linux package 0.18.0-termust.f654c640.f804fc477671 and Apple Silicon archive c35b04513293f809f15b2690f9b9ea2765358596873f6ceb45df833a9b7fbc52 on 2026-11-20. The public installer bootstrapped the same builds as the in-app update flow on each system. Verified the common installer SHA256 c8aa43b7e8c14237edb1680a0158be522c32e30ce10a480a418953369e464109 and the matching checksum-addressed macOS source.
+  - Managed Linux x86_64 and macOS Apple Silicon apps check the official feed daily and share a per-installation check cache. Terminal preferences offer a manual check, opt-out and explicit installation of the displayed build. Each installation pins and verifies the archive, preserves rollback and keeps active PTYs alive.
   - Published the revised common installer to the canonical URL and both mirrors. Mutable release manifests request revalidation. The installer distinguishes fresh installations, upgrades and repeated installations and prints a command for a separate process.
   - The public Linux installer reported a live older build after upgrading and on repeat installation and --check. A repeat kept the installed executable inode. Verified the GNOME favorite launches the Yorkie build while the previous session stays open.
   - Verified the public macOS installer upgrading a copy of the older app and repeating without switching the bundle again. The open -n command ran both signed native builds concurrently in separate PTYs.
@@ -68,6 +75,11 @@ pending:
   - Validate saved-session restoration on the native macOS graphical desktop.
   - Address shell integration for macOS system Bash 3.2, which lacks the prompt features used by the current hooks.
 steps:
+  - id: in-app-updates
+    desc: Verify update discovery, version ordering, pinned installation and the user-facing update controls
+    status: done
+    verify: mise run test:updates
+    note: "Verified daily checks and opt-out, pinned installation and live PTYs on Linux x86_64 and native Apple Silicon. The same public installer bootstrapped both releases and a fresh process confirmed the installed release in the background."
   - id: update-feedback
     desc: Resolve the current platform release on each update, report installed and previous builds and show how to open the updated executable alongside existing windows
     status: done
@@ -141,7 +153,13 @@ acceptance:
     desc: mise run install installs a release build and the desktop uses the user binary
     status: done
     note: "mise run install, install:verify and the real GIO desktop launch passed."
+  - id: app-update
+    desc: A managed installation discovers the official update and activates it on confirmation while the existing terminal remains responsive
+    status: done
+    note: "Anonymous HTTPS upgrades from the preceding Linux and macOS releases preserved the running shell PID and verified the new package on relaunch."
 decisions:
+  - Check at most once per day across launches of a managed installation, back off after offline checks, and allow a manual refresh at any time. Ask before downloading a release and use a new process to activate it without interrupting the running shells.
+  - Check the canonical HTTPS channel in a worker. Download the confirmed immutable archive and verify its SHA256 using the bundled installer. Compare the active installation before activation.
   - Keep active sessions running when updating and compare the installed Linux executable with any superseded copy still running from the same path.
   - macOS builds update their own latest manifest; they do not overwrite the common installer.
   - Keep immutable Linux installer hashes and verify the evolving common installer with its own checksum.

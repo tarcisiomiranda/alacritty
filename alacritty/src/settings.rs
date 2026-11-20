@@ -7,7 +7,7 @@ use toml_edit::Value;
 use winit::keyboard::{Key, ModifiersState, NamedKey, PhysicalKey};
 
 use crate::config::scrolling::MAX_SCROLLBACK_LINES;
-use crate::config::{Action, BindingKey, BindingMode, KeyBinding, UiConfig};
+use crate::config::{Action, BindingKey, BindingMode, KeyBinding, KeyLocation, UiConfig};
 use crate::language_settings::save_values;
 use crate::localization::Language;
 
@@ -99,7 +99,7 @@ pub fn shortcut_binding(action: &str, shortcut: &str) -> Option<KeyBinding> {
     Some(binding)
 }
 
-pub fn shortcut_text(key: &Key, mods: ModifiersState) -> Option<String> {
+pub fn shortcut_text(key: &Key, mods: ModifiersState, location: KeyLocation) -> Option<String> {
     let key =
         match key {
             Key::Character(text)
@@ -119,6 +119,24 @@ pub fn shortcut_text(key: &Key, mods: ModifiersState) -> Option<String> {
             Key::Named(key) => format!("{key:?}"),
             _ => return None,
         };
+    let key = if matches!(location, KeyLocation::Numpad) {
+        match key.as_str() {
+            "Enter" => "NumpadEnter".into(),
+            "Plus" => "NumpadAdd".into(),
+            "-" => "NumpadSubtract".into(),
+            "*" => "NumpadMultiply".into(),
+            "/" => "NumpadDivide".into(),
+            "." => "NumpadDecimal".into(),
+            "," => "NumpadComma".into(),
+            "=" => "NumpadEquals".into(),
+            digit if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() => {
+                format!("Numpad{digit}")
+            },
+            _ => key,
+        }
+    } else {
+        key
+    };
     let mut parts = Vec::new();
     for (modifier, label) in [
         (ModifiersState::CONTROL, "Ctrl"),
@@ -217,8 +235,10 @@ pub fn default_shortcuts() -> BTreeMap<String, String> {
                     if binding.action != action {
                         return None;
                     }
-                    let BindingKey::Keycode { key, .. } = &binding.trigger else { return None };
-                    shortcut_text(key, binding.mods)
+                    let BindingKey::Keycode { key, location } = &binding.trigger else {
+                        return None;
+                    };
+                    shortcut_text(key, binding.mods, *location)
                 })
                 .unwrap_or_default();
             (name.into(), value)
@@ -247,6 +267,7 @@ pub struct SettingsValues {
     pub confirm_tab_close: bool,
     pub agent_integration: bool,
     pub agent_notifications: bool,
+    pub check_updates: bool,
     pub editor: String,
     pub file_manager: String,
     pub scrollback_lines: u32,
@@ -273,6 +294,7 @@ impl SettingsValues {
             confirm_tab_close: config.general.confirm_tab_close,
             agent_integration: config.general.agent_integration,
             agent_notifications: config.general.agent_notifications,
+            check_updates: config.general.check_updates,
             editor: if crate::desktop_apps::known(
                 crate::desktop_apps::AppKind::Editor,
                 &config.general.editor,
@@ -325,6 +347,7 @@ impl SettingsValues {
             previous.agent_notifications,
             current.agent_notifications,
         );
+        update(&mut self.check_updates, previous.check_updates, current.check_updates);
         update(&mut self.editor, previous.editor, current.editor);
         update(&mut self.file_manager, previous.file_manager, current.file_manager);
         update(&mut self.scrollback_lines, previous.scrollback_lines, current.scrollback_lines);
@@ -389,6 +412,15 @@ impl SettingsValues {
         Ok(())
     }
 
+    pub fn set_shortcut(&mut self, action: &str, value: String, physical: Option<PhysicalKey>) {
+        self.shortcut_overrides.insert(action.into(), value);
+        if let Some(physical) = physical {
+            self.shortcut_physical.insert(action.into(), physical);
+        } else {
+            self.shortcut_physical.remove(action);
+        }
+    }
+
     pub fn shortcut_changes_valid(&self, config: &UiConfig) -> bool {
         let mut overrides = config.general.shortcuts.clone();
         overrides.extend(self.shortcut_overrides.clone());
@@ -421,6 +453,7 @@ impl SettingsValues {
             change(&["general", "confirm_tab_close"], Value::from(self.confirm_tab_close)),
             change(&["general", "agent_integration"], Value::from(self.agent_integration)),
             change(&["general", "agent_notifications"], Value::from(self.agent_notifications)),
+            change(&["general", "check_updates"], Value::from(self.check_updates)),
             change(&["general", "editor"], Value::from(self.editor.as_str())),
             change(&["general", "file_manager"], Value::from(self.file_manager.as_str())),
             change(&["scrolling", "history"], Value::from(i64::from(self.scrollback_lines))),
@@ -505,6 +538,7 @@ impl SettingsValues {
         values.scrollback_lines = config.scrolling.history();
         values.agent_integration = config.general.agent_integration;
         values.agent_notifications = config.general.agent_notifications;
+        values.check_updates = config.general.check_updates;
         values.editor = config.general.editor.clone();
         values.file_manager = config.general.file_manager.clone();
         values.shortcut_overrides.clear();
@@ -978,6 +1012,23 @@ opacity=0.55
         theme.theme = ThemeChoice::Light;
         theme.apply(&mut themed).unwrap();
         assert_eq!(applied.colors, themed.colors);
+    }
+
+    #[test]
+    fn update_preference_takes_effect_on_save_and_survives_reload() {
+        let mut config = UiConfig::default();
+        let mut values = SettingsValues::from_config(&config);
+        assert!(values.check_updates);
+        values.check_updates = false;
+        values.preview(&mut config).unwrap();
+        assert!(config.general.check_updates);
+        values.apply(&mut config).unwrap();
+        assert!(!config.general.check_updates);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("termust.toml");
+        values.save(&path).unwrap();
+        let saved: UiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(!saved.general.check_updates);
     }
 
     #[test]

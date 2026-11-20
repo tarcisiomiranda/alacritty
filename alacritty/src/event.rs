@@ -90,6 +90,8 @@ pub struct Processor {
 
     clipboard: Clipboard,
     scheduler: Scheduler,
+    #[cfg(termust_updater)]
+    updater: crate::updates::Updater,
     initial_window_options: Option<WindowOptions>,
     initial_window_error: Option<Box<dyn Error>>,
     windows: HashMap<WindowId, WindowContext, RandomState>,
@@ -132,6 +134,8 @@ impl Processor {
         Processor {
             initial_window_options,
             initial_window_error: None,
+            #[cfg(termust_updater)]
+            updater: crate::updates::Updater::new(),
             cli_options,
             proxy,
             scheduler,
@@ -313,7 +317,7 @@ impl Processor {
         )?;
 
         self.gl_config = Some(window_context.display.gl_context().config());
-        self.windows.insert(window_context.id(), window_context);
+        self.insert_window(window_context);
 
         Ok(())
     }
@@ -342,8 +346,44 @@ impl Processor {
             config_overrides,
         )?;
 
-        self.windows.insert(window_context.id(), window_context);
+        self.insert_window(window_context);
         Ok(())
+    }
+
+    fn insert_window(&mut self, window: WindowContext) {
+        #[cfg(termust_updater)]
+        let window = {
+            let mut window = window;
+            window.set_update_status(&self.updater.status, false);
+            window
+        };
+        self.windows.insert(window.id(), window);
+    }
+
+    #[cfg(termust_updater)]
+    fn refresh_update_status(&mut self, notify: bool) {
+        let recipient = if notify && self.config.general.check_updates {
+            self.windows
+                .values()
+                .filter_map(|window| window.update_notice_priority().map(|focused| (focused, window.id())))
+                .max_by_key(|(focused, _)| *focused)
+                .map(|(_, id)| id)
+        } else {
+            None
+        };
+        for (id, window) in &mut self.windows {
+            window.set_update_status(&self.updater.status, recipient.as_ref() == Some(id));
+        }
+    }
+
+    #[cfg(termust_updater)]
+    fn update_deadline(&mut self) -> Option<Instant> {
+        let enabled = self.config.general.check_updates && !self.windows.is_empty();
+        if self.updater.deadline(enabled).is_some_and(|time| time <= Instant::now()) {
+            self.updater.check(true, &self.proxy);
+            self.refresh_update_status(false);
+        }
+        self.updater.deadline(enabled)
     }
 
     /// Run the event loop.
@@ -518,6 +558,21 @@ impl ApplicationHandler<Event> for Processor {
             (EventType::SetStartupWorkspace(name), window_id) => {
                 self.set_startup_workspace(name, window_id.copied());
             },
+            #[cfg(termust_updater)]
+            (EventType::CheckUpdates, _) => {
+                self.updater.check(false, &self.proxy);
+                self.refresh_update_status(false);
+            },
+            #[cfg(termust_updater)]
+            (EventType::InstallUpdate(version), _) => {
+                self.updater.install(&version, &self.proxy);
+                self.refresh_update_status(false);
+            },
+            #[cfg(termust_updater)]
+            (EventType::UpdateFinished(result), _) => {
+                let notify = self.updater.complete(result, &self.proxy);
+                self.refresh_update_status(notify);
+            },
             (EventType::SetSettings(values), window_id) => {
                 self.set_settings(&values, window_id.copied());
             },
@@ -663,7 +718,10 @@ impl ApplicationHandler<Event> for Processor {
 
         // Update the scheduler after event processing to ensure
         // the event loop deadline is as accurate as possible.
-        let control_flow = match self.scheduler.update() {
+        let deadline = self.scheduler.update();
+        #[cfg(termust_updater)]
+        let deadline = deadline.into_iter().chain(self.update_deadline()).min();
+        let control_flow = match deadline {
             Some(instant) => ControlFlow::WaitUntil(instant),
             None => ControlFlow::Wait,
         };
@@ -738,6 +796,12 @@ pub enum EventType {
     RestoreSession,
     RestorePending,
     OpenSettings,
+    #[cfg(termust_updater)]
+    CheckUpdates,
+    #[cfg(termust_updater)]
+    InstallUpdate(String),
+    #[cfg(termust_updater)]
+    UpdateFinished(crate::updates::Completion),
     Pane(crate::panes::PaneAction),
     SetLanguage(crate::localization::Language),
     SetSettings(Box<crate::settings::SettingsValues>),
@@ -2227,6 +2291,10 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 },
                 #[cfg(unix)]
                 EventType::IpcConfig(_) | EventType::IpcGetConfig(..) | EventType::Shutdown => (),
+                #[cfg(termust_updater)]
+                EventType::CheckUpdates
+                | EventType::InstallUpdate(_)
+                | EventType::UpdateFinished(_) => (),
                 EventType::Message(_)
                 | EventType::ConfigReload(_)
                 | EventType::CreateWindow(_)

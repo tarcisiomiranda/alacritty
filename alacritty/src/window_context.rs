@@ -405,6 +405,8 @@ struct PaneMove {
 
 pub struct WindowContext {
     pub message_buffer: MessageBuffer,
+    #[cfg(termust_updater)]
+    update_status: crate::updates::Status,
     pub display: Display,
     pub dirty: bool,
     event_queue: Vec<WinitEvent<Event>>,
@@ -614,6 +616,8 @@ impl WindowContext {
             recovery_snapshot: None,
             recovery_failed: false,
             message_buffer: Default::default(),
+            #[cfg(termust_updater)]
+            update_status: Default::default(),
             window_config: Default::default(),
             event_queue: Default::default(),
             tab_actions: Default::default(),
@@ -667,6 +671,11 @@ impl WindowContext {
                     self.config = Rc::new(preview);
                 }
             }
+        }
+        #[cfg(termust_updater)]
+        if old_config.general.check_updates && !self.config.general.check_updates {
+            self.message_buffer.remove_target("termust.update");
+            self.display.pending_update.dirty = true;
         }
         let locale = self.config.general.language.resolve();
         if let Some(dialog) = &mut self.display.close_confirmation {
@@ -1942,6 +1951,37 @@ impl WindowContext {
         self.display.damage_tracker.frame().mark_fully_damaged();
     }
 
+    #[cfg(termust_updater)]
+    pub fn update_notice_priority(&self) -> Option<bool> {
+        self.config.general.check_updates.then(|| self.tabs.active.terminal.lock().is_focused)
+    }
+
+    #[cfg(termust_updater)]
+    pub fn set_update_status(&mut self, status: &crate::updates::Status, notify: bool) {
+        if self.update_status == *status && !notify {
+            return;
+        }
+        self.update_status = status.clone();
+        if let Some(ProductivityDialog::Preferences(dialog)) = &mut self.display.productivity_dialog
+        {
+            dialog.update = status.clone();
+        }
+        self.message_buffer.remove_target("termust.update");
+        if notify {
+            let text = self.config.general.language.resolve().text(Message::UpdateNotice);
+            let mut message = crate::message_bar::Message::new(
+                text.to_owned(),
+                crate::message_bar::MessageType::Info,
+            );
+            message.set_target("termust.update".into());
+            self.message_buffer.push(message);
+        }
+        self.dirty = true;
+        self.display.pending_update.dirty = true;
+        self.display.damage_tracker.frame().mark_fully_damaged();
+        self.display.window.request_redraw();
+    }
+
     fn open_preferences(&mut self) {
         self.dismiss_close_confirmation();
         self.close_productivity(true);
@@ -1953,6 +1993,10 @@ impl WindowContext {
             self.display.font_size,
             Self::workspace_names().unwrap_or_default(),
         );
+        #[cfg(termust_updater)]
+        {
+            dialog.update = self.update_status.clone();
+        }
         dialog.values.font_size =
             self.display.font_size.as_pt() / self.display.window.scale_factor as f32;
         self.display.productivity_dialog = Some(ProductivityDialog::Preferences(Box::new(dialog)));
@@ -2008,8 +2052,7 @@ impl WindowContext {
     pub fn settings_saved(&mut self, saved: bool) {
         match &mut self.display.productivity_dialog {
             Some(ProductivityDialog::Preferences(dialog)) => {
-                dialog.status =
-                    Some(if saved { Message::SettingsSaved } else { Message::SettingsSaveFailed });
+                dialog.settings_saved(saved);
                 if saved {
                     dialog.original_font_size = self.display.font_size;
                 }
@@ -2199,6 +2242,14 @@ impl WindowContext {
         }
         match action {
             Some(ProductivityAction::Cancel) => self.close_productivity(true),
+            #[cfg(termust_updater)]
+            Some(ProductivityAction::CheckUpdates) => {
+                let _ = proxy.send_event(Event::new(EventType::CheckUpdates, self.id()));
+            },
+            #[cfg(termust_updater)]
+            Some(ProductivityAction::InstallUpdate(version)) => {
+                let _ = proxy.send_event(Event::new(EventType::InstallUpdate(version), self.id()));
+            },
             Some(ProductivityAction::SaveSettings(values)) => {
                 self.preview_preferences();
                 let _ = proxy
@@ -3698,8 +3749,9 @@ impl WindowContext {
         // Force the display to process any pending display update.
         self.display.process_renderer_update();
 
-        // Request immediate re-draw if visual bell animation is not finished yet.
-        if !self.display.visual_bell.completed() {
+        let save_animating = matches!(&self.display.productivity_dialog,
+            Some(ProductivityDialog::Preferences(dialog)) if dialog.save_pulse() > 0);
+        if !self.display.visual_bell.completed() || save_animating {
             // We can get an OS redraw which bypasses alacritty's frame throttling, thus
             // marking the window as dirty when we don't have frame yet.
             if self.display.window.has_frame {

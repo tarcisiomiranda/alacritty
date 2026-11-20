@@ -17,6 +17,7 @@ module.loader.exec_module(productivity)
 smoke = productivity.smoke
 BINARY = None
 SCREENSHOT = None
+RENAME_MENU_ROW = 7
 
 
 @contextmanager
@@ -109,7 +110,7 @@ def assert_shell_ready(terminal, label):
 def shortcut_pixels(terminal, label):
     left, top = terminal.menu()
     path = terminal.capture(label)
-    pixels = terminal.pixels(path, left + 25, top + 4, 23)
+    pixels = terminal.pixels(path, left + 25, top + RENAME_MENU_ROW, 23)
     terminal.x11.chord("Escape")
     return terminal.text_mask(pixels)
 
@@ -194,7 +195,7 @@ class ShortcutTests(unittest.TestCase):
                     "disabled rename keys reached the application")
             assert_shell_ready(terminal, "after-disabled-shortcut")
             left, top = terminal.menu()
-            terminal.click(left + 5, top + 4)
+            terminal.click(left + 5, top + RENAME_MENU_ROW)
             apply_name(terminal, "Menu still works")
 
 

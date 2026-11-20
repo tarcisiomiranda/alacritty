@@ -54,7 +54,7 @@ class ReleaseTests(unittest.TestCase):
         self.source_archive = self.root / "source.tar.gz"
         template = (ROOT / "install.sh").read_bytes()
         create_archive(self.source_archive, {
-            "termust-source/extra/osx/Termust.app/Contents/Info.plist": b"plist",
+            "termust-source/extra/osx/Termust.app/Contents/Info.plist": (ROOT / "extra/osx/Termust.app/Contents/Info.plist").read_bytes(),
             "termust-source/extra/osx/Termust.app/Contents/Resources/icon": b"icon",
             "termust-source/LICENSE-APACHE": b"license", "termust-source/LICENSE-MIT": b"license",
             "termust-source/Cargo.lock": b"lock",
@@ -66,12 +66,16 @@ class ReleaseTests(unittest.TestCase):
         self.corrupt_download = False
         self.installer_env = None
         self.build_dir = None
+        self.signing_info = None
+        self.package_version = "0.19.0-dev"
+        self.build_timestamp = 1780000123
         patches = [
             mock.patch.object(BUILDER["platform"], "system", return_value="Darwin"),
             mock.patch.object(BUILDER["platform"], "machine", return_value="arm64"),
             mock.patch.object(BUILDER["shutil"], "which", return_value="/fixture/tool"),
             mock.patch.object(BUILDER["subprocess"], "run", side_effect=self.run_command),
             mock.patch.object(BUILDER["sys"], "argv", ["build"]),
+            mock.patch.object(BUILDER["time"], "time", return_value=self.build_timestamp + 0.75),
             mock.patch.dict(BUILDER, {"SOURCE_SHA256": self.source_hash}),
         ]
         for patch in patches:
@@ -94,6 +98,10 @@ class ReleaseTests(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"fixture binary")
             executable.chmod(0o755)
+        elif command[-1] == "--version":
+            return mock.Mock(returncode=0, stdout=f"termust {self.package_version} (fixture)\n")
+        elif command[:2] == ["codesign", "--force"]:
+            self.signing_info = plistlib.loads((Path(command[-1]) / "Contents/Info.plist").read_bytes())
         elif command[0] == "b2":
             self.objects[command[-1]] = Path(command[-2]).read_bytes()
         elif command[0] == "bash":
@@ -113,12 +121,32 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.installer_env["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
         digest = hashlib.sha256(self.objects[uploads[0]]).hexdigest()
         manifest = json.loads(self.objects["latest-macos-arm64.json"])
+        self.assertEqual(manifest["schema"], 1)
+        self.assertEqual(manifest["platform"], "macos-arm64")
+        self.assertEqual(manifest["package_version"], self.package_version)
+        self.assertIs(type(manifest["build_timestamp"]), int)
+        self.assertEqual(manifest["build_timestamp"], self.build_timestamp)
         self.assertEqual(manifest["sha256"], digest)
         self.assertEqual(manifest["archive"], uploads[0])
         self.assertFalse(any(name.endswith("install.sh") for name in uploads))
         self.assertTrue(any(command[:4] == ["mise", "exec", "rust@1.89.0", "--"] and "cargo" in command for command in self.calls))
         with tarfile.open(fileobj=io.BytesIO(self.objects[uploads[0]]), mode="r:gz") as tar:
             self.assertIn("Termust.app/Contents/MacOS/termust", tar.getnames())
+            info = plistlib.load(tar.extractfile("Termust.app/Contents/Info.plist"))
+        self.assertEqual(info, self.signing_info)
+        self.assertEqual(info["CFBundleIdentifier"], "com.tarcisiomiranda.termust")
+        self.assertEqual(info["CFBundleShortVersionString"], manifest["package_version"])
+        self.assertEqual(info["CFBundleVersion"], str(manifest["build_timestamp"]))
+
+    def test_mismatched_archived_build_is_not_published(self):
+        def archive_wrong_build(app, archive):
+            info = dict(self.signing_info, CFBundleVersion="1")
+            create_archive(archive, {"Termust.app/Contents/Info.plist": plistlib.dumps(info)})
+
+        with mock.patch.dict(BUILDER, {"archive_app": archive_wrong_build}):
+            with self.assertRaisesRegex(RuntimeError, "archived application version"):
+                BUILDER["main"]()
+        self.assertEqual(self.objects, {})
 
     def test_bad_public_archive_does_not_publish_installer(self):
         self.corrupt_download = True
@@ -146,7 +174,7 @@ class BinaryInstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.home = Path(self.temporary.name)
+        self.home = Path(self.temporary.name).resolve()
         self.archive = self.home / "binary.tar.gz"
         self.make_archive()
         self.manifest = {"schema": 1, "platform": "macos-arm64", "sha256": hashlib.sha256(self.archive.read_bytes()).hexdigest()}

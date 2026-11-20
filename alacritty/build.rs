@@ -6,6 +6,13 @@ use std::process::Command;
 use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(termust_updater)");
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    if matches!((os.as_str(), arch.as_str()), ("linux", "x86_64") | ("macos", "aarch64")) {
+        println!("cargo:rustc-cfg=termust_updater");
+    }
+
     let mut version = String::from(env!("CARGO_PKG_VERSION"));
     if let Some(commit_hash) = commit_hash() {
         version = format!("{version} ({commit_hash})");

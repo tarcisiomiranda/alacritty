@@ -2,10 +2,12 @@ spec: terminal-ui
 title: Clear and consistent native menus and controls
 status: done
 created: 2026-10-18
-updated: 2026-11-09
+updated: 2026-11-20
 goal: Make native menus and preferences easy to scan, navigate and click during everyday terminal use.
 problem: Uniform crowded controls obscure navigation and shortcut pagination hides actions and ignores clicks on its final entries.
 behavior:
+  - Capture a replacement shortcut from its visible row, save with the mouse or keyboard, and use it immediately and after restart.
+  - Animate the Save button on activation and show a localized result after persistence succeeds or fails.
   - Settings and shared productivity dialogs use an independent 11 point font and layout scaled only by display DPI.
   - Separate settings navigation from content and keep save and cancel actions anchored.
   - Group context actions and expose overflow through predictable scrolling and visible controls.
@@ -21,6 +23,8 @@ constraints:
   - Use the existing native renderer without adding a GUI toolkit or runtime dependency.
   - Install the authorized follow-up locally and publish through existing mise tasks; no commit or push.
 implemented:
+  - Split right and split below can exchange their shortcuts after explicit confirmation, and the editor also supports searching by orientation.
+  - Incomplete or conflicting captures keep their draft. Mouse and keyboard Save show a brief pulse, a localized confirmation after persistence, or a retry on error.
   - Published the verified UI change for native macOS Apple Silicon and Linux; the Mac installation was updated with the previous app bundle retained.
   - Settings and shared productivity dialogs use a dedicated default-font glyph cache at 11 logical points and independent DPI-aware layout and pointer coordinates.
   - Real graphical tests kept panel bounds, Save targets and UI text stable with terminal fonts at 11, 22 and 36 points in compact and wide windows at 1x and 2x DPI; preview, cancel and mouse Save passed.
@@ -45,8 +49,13 @@ implemented:
   - GNOME-sized preferences use bounded one-row numeric steppers, shorter actions, an inset footer and visible compact Escape help.
   - Final compact follow-up passed 423 workspace tests, ten localization checks, Clippy, full settings and menu regressions, and optimized graphical inspection at the user 737x570 dimensions.
 pending:
-  - None in the independent settings font scope.
+  - No pending work for shortcut editing or the settings font.
 steps:
+  - id: rebind-save-feedback
+    desc: Verify real key capture, effective saved shortcuts and visible success and failure feedback on Save
+    status: done
+    verify: mise run test:shortcut-list
+    note: "X11 verifies both pane axes, explicit swap, full keypad binding, read-only failure, animated mouse Save, retry and restart."
   - id: independent-ui-font
     desc: Give settings and shared productivity dialogs independent glyph metrics and matching pointer geometry
     status: done
@@ -117,6 +126,7 @@ acceptance:
     status: done
     note: "One-row tabs, inset close target and harmless right margin verified graphically. Shared theme colors verified in dark and light layouts and through live accent changes."
 decisions:
+  - Offer a swap only when both actions have one identifiable shortcut and both replacements pass conflict checks. Show the other action and require confirmation.
   - Both glyph caches share the renderer atlas, so clearing it invalidates and reloads both caches together.
   - The productivity draw pass binds its own size and glyph cache, then restores the terminal grid and projection before subsequent overlays.
   - Use the platform default monospace face at 11 logical points for productivity dialogs, independent of terminal family, font size and spacing.

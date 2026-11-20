@@ -1907,6 +1907,7 @@ dependencies = [
  "parking_lot",
  "png",
  "polling",
+ "rustix 1.1.2",
  "serde",
  "serde_json",
  "serde_yaml",

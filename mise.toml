@@ -12,6 +12,10 @@ description = "Build and install this checkout for the current user"
 depends = ["package"]
 run = "bash install.sh --archive dist/termust-linux-x86_64.tar.gz"
 
+[tasks."test:updates"]
+description = "Verify in-app update checks, confirmation and package activation"
+run = "cargo test --locked -p termust update && python3 -B scripts/test-updater.py"
+
 [tasks."test:install"]
 description = "Verify installer failures and local installation in temporary directories"
 run = "python3 -B scripts/test-install.py"

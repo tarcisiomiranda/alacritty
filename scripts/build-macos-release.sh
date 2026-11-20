@@ -13,11 +13,13 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 
 BASE_URL = "https://f005.backblazeb2.com/file/termust"
 BUCKET = "termust"
@@ -115,9 +117,20 @@ def main():
         print("Building Termust for macOS Apple Silicon; the first build can take several minutes.", flush=True)
         run([*prefix, "cargo", "build", "--locked", "--release", "--target", "aarch64-apple-darwin", "-p", "termust"], cwd=source, env=env)
         executable = root / "target/aarch64-apple-darwin/release/termust"
-        run([str(executable), "--version"])
+        version_output = run([str(executable), "--version"], text=True, stdout=subprocess.PIPE).stdout.strip()
+        version_parts = version_output.split()
+        if len(version_parts) < 2 or version_parts[0] != "termust":
+            raise RuntimeError("could not determine the Termust package version from the built executable.")
+        package_version = version_parts[1]
+        print(version_output)
         app = root / "Termust.app"
         shutil.copytree(source / "extra/osx/Termust.app", app, symlinks=False)
+        build_timestamp = int(time.time())
+        plist = app / "Contents/Info.plist"
+        info = plistlib.loads(plist.read_bytes())
+        info["CFBundleShortVersionString"] = package_version
+        info["CFBundleVersion"] = str(build_timestamp)
+        plist.write_bytes(plistlib.dumps(info, sort_keys=False))
         binary = app / "Contents/MacOS/termust"
         binary.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(executable, binary)
@@ -127,13 +140,21 @@ def main():
         run(["codesign", "--verify", "--deep", "--strict", str(app)])
         archive = root / "termust-macos-arm64.tar.gz"
         archive_app(app, archive)
+        with tarfile.open(archive, "r:gz") as package:
+            packed_info = plistlib.load(package.extractfile("Termust.app/Contents/Info.plist"))
+        if (packed_info.get("CFBundleShortVersionString") != package_version
+                or packed_info.get("CFBundleVersion") != str(build_timestamp)):
+            raise RuntimeError("archived application version differs from the release metadata.")
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         installer = source / "install.sh"
         checksum = root / "archive.sha256"
         checksum.write_text(digest + "\n")
         name = f"macos/binary/{digest}.tar.gz"
         manifest = root / "latest-macos-arm64.json"
-        manifest.write_text(json.dumps({"schema": 1, "platform": "macos-arm64", "archive": name, "sha256": digest}, indent=2) + "\n")
+        manifest.write_text(json.dumps({
+            "schema": 1, "platform": "macos-arm64", "archive": name, "sha256": digest,
+            "package_version": package_version, "build_timestamp": build_timestamp,
+        }, indent=2) + "\n")
         run(["b2", "file", "upload", "--no-progress", "--content-type", "application/gzip", "--cache-control", "public, max-age=31536000, immutable", BUCKET, str(archive), name])
         public_archive = root / "public.tar.gz"
         download(name, public_archive)
