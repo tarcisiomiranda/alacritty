@@ -111,6 +111,10 @@ class BrandingTests(unittest.TestCase):
         self.assertIn("termust", help_text.lower())
         with fixture() as terminal:
             terminal.config = config_at(terminal, "termust", 13)
+            terminfo = terminal.work / "terminfo"
+            subprocess.run(["tic", "-x", "-o", str(terminfo), str(ROOT / "extra/alacritty.info")],
+                check=True)
+            terminal.env["TERMINFO"] = str(terminfo)
             config = start(terminal, "Termust")
             self.assertEqual(config["font"]["size"], 13)
             self.assertEqual(terminal.x11.raw_title(terminal.window), "Termust")
@@ -124,14 +128,18 @@ class BrandingTests(unittest.TestCase):
             self.assertEqual(icon[2:], expected)
             probe = terminal.work / "environment"
             terminal.command("printf '%s\\n' \"$TERMUST_WINDOW_ID\" \"$ALACRITTY_WINDOW_ID\" "
-                f'\"$TERMUST_SOCKET\" \"$TERM\" > {shlex.quote(str(probe))}')
+                f'"$TERMUST_SOCKET" "$TERM" "$COLORTERM" > {shlex.quote(str(probe))}')
             smoke.wait_for(probe.exists, "Termust environment reached its shell")
-            window, legacy_window, socket, term = probe.read_text().splitlines()
+            window, legacy_window, socket, term, colorterm = probe.read_text().splitlines()
             self.assertEqual(window, str(terminal.window))
             self.assertEqual(window, legacy_window)
             self.assertEqual(socket, str(terminal.socket))
-            self.assertIn(term, ["alacritty", "xterm-256color"])
-            terminal.command("clear; printf '\\n  Termust\\n  Rust terminal with tabs and split panes.\\n'")
+            self.assertEqual(term, "xterm-256color")
+            self.assertEqual(colorterm, "truecolor")
+            cleared = terminal.work / "cleared"
+            terminal.command(f"clear && touch {shlex.quote(str(cleared))} && "
+                "printf '\\n  Termust\\n  Rust terminal with tabs and split panes.\\n'")
+            smoke.wait_for(cleared.exists, "clear recognizes the default terminal type")
             terminal.capture("termust-window")
             left, top = terminal.menu()
             self.assertGreater(left, 0)
@@ -141,12 +149,18 @@ class BrandingTests(unittest.TestCase):
     def test_legacy_configuration_and_session_are_preserved(self):
         with fixture() as terminal:
             terminal.config = config_at(terminal, "alacritty", 14)
+            terminal.config.write_text(terminal.config.read_text().replace(
+                "[env]\n", '[env]\nTERM = "alacritty"\n'))
             old_config = terminal.config.read_bytes()
             legacy = state_at(terminal, "alacritty", "Legacy project")
             old_session = legacy.read_bytes()
             config = start(terminal, "Legacy project")
             self.assertEqual(config["font"]["size"], 14)
             self.assertEqual(terminal.x11.raw_title(terminal.window), "Legacy project — Termust")
+            probe = terminal.work / "term"
+            terminal.command(f'printf "%s\\n" "$TERM" > {shlex.quote(str(probe))}')
+            smoke.wait_for(probe.exists, "explicit terminal type reached the shell")
+            self.assertEqual(probe.read_text().strip(), "alacritty")
             terminal.rename("Termust project")
             snapshot = terminal.snapshot()
             self.assertEqual(snapshot["tabs"][0]["title"], "Termust project")

@@ -2,9 +2,9 @@ spec: termust-branding
 title: Termust fork identity and gear logo
 status: done
 created: 2026-10-31
-updated: 2026-11-01
+updated: 2026-11-21
 goal: Ship the terminal as Termust with an original Rust-inspired gear and terminal logo.
-problem: The fork still uses the upstream identity despite adding a separate daily terminal workflow.
+problem: The fork needs a distinct identity and a default terminal type recognized by common SSH servers.
 behavior:
   - The executable, window, launcher, CLI and distribution identify the application as Termust.
   - A copper orange gear surrounds a terminal prompt in scalable native artwork.
@@ -14,8 +14,9 @@ requirements_functional:
   - Provide SVG and PNG icons, a wordmark and a visual preview at desktop sizes.
   - Install and publish the renamed package using the existing mise and B2 workflow.
   - Retain upstream attribution and the Apache license.
+  - Default new shells to xterm-256color and honor an explicit TERM in the env section.
 constraints:
-  - Preserve internal library names and the alacritty TERM protocol where required by compatibility.
+  - Preserve internal library names and provide the alacritty terminfo entries for explicit use.
   - Keep the existing public download endpoint and historical releases available.
   - Do not rename the active source directory or GitHub repository, or stage, commit or push.
 implemented:
@@ -32,8 +33,9 @@ implemented:
   - README explains Alacritty inspiration and source credit, partial AI assistance and respectful separation from upstream policy.
   - Native tabs, panes, multiple windows, menus and settings are illustrated by four actual screenshots with sample data.
   - Performance and low memory use are presented as goals with no unsupported comparative benchmark claims.
+  - New shells advertise xterm-256color even when Alacritty terminfo is installed, with truecolor support and explicit TERM overrides.
 pending:
-  - None in the current README scope.
+  - None.
 steps:
   - id: identity
     desc: Rename runtime and preserve legacy configuration and session compatibility
@@ -65,6 +67,11 @@ steps:
     status: done
     verify: git diff --check
     note: "Verified official upstream policy, visually inspected four actual screenshot assets, resolved fourteen local links/assets and checked Markdown fences; runtime unchanged."
+  - id: term-default
+    desc: Use a standard terminal type and verify shell startup and overrides
+    status: done
+    verify: mise exec -- cargo test --workspace --locked && mise exec -- cargo build --locked -p termust && mise exec -- python3 -B scripts/test-termust-branding.py
+    note: "The prior binary advertised alacritty when its terminfo was installed. The revised graphical test validates xterm-256color, clear, truecolor and explicit TERM overrides."
 acceptance:
   - id: termust
     desc: Termust launches with its icon and identity and still reads legacy user data
@@ -74,6 +81,10 @@ acceptance:
     desc: The installed and public Termust package matches the validated build
     status: done
     note: "Installed release receipt and launcher verified; public B2 bytes matched and the public pipe installer installed Termust successfully in isolated HOME."
+  - id: ssh-compatibility
+    desc: A new shell uses xterm-256color with the Alacritty entry present and respects explicit TERM configuration
+    status: done
+    note: "New shells advertised xterm-256color with Alacritty terminfo installed and used alacritty when it was explicitly configured."
 decisions:
   - Use native vector artwork to keep the logo crisp at launcher and documentation sizes.
   - Use a distinctive gear with a terminal prompt rather than copying the official Rust logo.
@@ -85,6 +96,12 @@ decisions:
   - Explain the project origins in simple English and link directly to the verified upstream contribution policy.
   - Describe responsiveness and low memory use as design goals, with no unmeasured comparative performance claims.
   - Show real isolated Termust windows with sample data, not private user sessions or mock interface images.
+  - Choose xterm-256color for its widespread terminfo availability and 256-color capabilities. Keep the packaged Alacritty entries available for opt-in use.
 risks:
   - Identity changes can strand saved data or cause desktop launcher collisions.
   - Protocol and internal names must not be blindly replaced as branding.
+validation:
+  - The workspace passed 501 Rust unit and reference tests and one doctest.
+  - Four X11 branding tests passed, including the default with local Alacritty terminfo present and the explicit override.
+  - Both clear and htop ran successfully in isolated Termust shells with xterm-256color.
+  - All 54 installer tests passed.

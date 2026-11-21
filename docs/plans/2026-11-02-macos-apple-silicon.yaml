@@ -237,7 +237,7 @@ stages:
       - Corrigir o Makefile para parametrizar deployment target e honrar CARGO_TARGET_DIR e o diretório ARM64 real.
       - Usar Cargo.lock, conferir bibliotecas com otool e evitar dependências acidentais de caminhos do Homebrew ou do computador de build.
       - Manter nome, identificador, executável e ícone Termust no bundle; revisar descrições de permissões herdadas somente conforme a necessidade real.
-      - Validar recursos terminfo, manuais e completions; TERM continua alacritty por compatibilidade.
+      - Validar recursos terminfo, manuais, completions e o padrão xterm-256color em TERM.
       - Criar tasks explícitas de build, app, DMG e verificação macOS sem transformar as tasks Linux em comandos ambíguos.
       - Corrigir as regras de instalação do Makefile, que usam uma variável INSTALL não definida, antes de depender delas.
       - Instalar inicialmente em ~/Applications/Termust.app e disponibilizar o comando por um link do usuário, sem substituir Alacritty ou outros terminais.

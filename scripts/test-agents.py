@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import tomllib
 import unittest
 
 
@@ -174,6 +175,18 @@ def overview(terminal, toolbar=False):
     time.sleep(.2)
 
 
+def chat_panel_pixels(terminal, path):
+    width, height = terminal.x11.geometry(terminal.window)
+    left, top = width // 2, int(terminal.dimensions()[3])
+    crop_width = width - left
+    crop = f"{crop_width}x{height // 3}+{left}+{top}"
+    pixels = subprocess.run(
+        ["convert", str(path), "-crop", crop, "+repage", "-depth", "8", "rgb:-"],
+        capture_output=True, check=True, timeout=5,
+    ).stdout
+    return pixels, (left, top, crop_width)
+
+
 def new_tab(terminal, title):
     terminal.x11.chord("Control_L", "Shift_L", "t")
     terminal.rename(title)
@@ -322,20 +335,27 @@ class AgentTests(unittest.TestCase):
             right_shell = terminal.report("parallel-right-shell")[0]
             right = start_agent(terminal, "codex", "parallel-right", record_input=True)
             overview(terminal, toolbar=True)
-            columns, _, _, _ = terminal.dimensions()
 
-            def frames(label, line):
-                return [terminal.pixels(terminal.capture(label), columns - 23, line, 20)
-                    for _ in range(4)]
+            def frames(label):
+                return {chat_panel_pixels(terminal, terminal.capture(label))[0] for _ in range(4)}
 
-            self.assertGreater(len(set(frames("chats-working", 4))), 1,
+            self.assertGreater(len(frames("chats-working")), 1,
                 "working animation stopped without new agent events")
+            change_state(left, "ready")
             change_state(right, "permission")
-            self.assertGreater(len(set(frames("chats-question", 4))), 1,
-                "waiting question did not pulse without new agent events")
+            self.assertGreater(len(frames("chats-permission")), 1,
+                "permission indicator did not pulse without new agent events")
             self.assertEqual(right["input"].read_bytes(), b"")
-            terminal.capture("chats-compact-waiting")
-            terminal.click(columns - 10, 4)
+            pixels, (left_edge, top, width) = chat_panel_pixels(
+                terminal, terminal.capture("chats-compact-waiting"))
+            permission_pixels = []
+            for offset in range(0, len(pixels), 3):
+                red, green, blue = pixels[offset:offset + 3]
+                if red > green + 8 and green > blue + 8:
+                    permission_pixels.append(offset // 3)
+            self.assertTrue(permission_pixels, "the yellow permission status was not rendered")
+            row, column = divmod(permission_pixels[len(permission_pixels) // 2], width)
+            terminal.x11.click(left_edge + column, top + row)
             smoke.wait_for(lambda: terminal.snapshot()["tabs"][0]["active_pane"] == 1,
                 "status click focuses the waiting split")
             self.assertEqual(right["input"].read_bytes(), b"", "click forwarded input to the permission")
@@ -343,11 +363,69 @@ class AgentTests(unittest.TestCase):
             smoke.wait_for(lambda: right["input"].read_bytes() == b"n",
                 "explicit input reaches the selected chat")
             change_state(right, "ready")
-            change_state(left, "ready")
             self.assertEqual(bar(terminal, "chats-ready"), bar(terminal, "chats-still"),
                 "idle chats keep animating")
             self.assertEqual(stop_agent(terminal, right, "parallel-focused-shell")[0], right_shell)
             left["control"].write_text("exit")
+
+    def test_tab_indicator_style_preserves_titles_and_applies_without_restarting(self):
+        with fixture() as terminal:
+            terminal.rename("Shell")
+            title = "Minecraft build review"
+            new_tab(terminal, title)
+            columns, _, _, _ = terminal.dimensions()
+            tab_width = min(30, (columns - 9) // 2)
+
+            def sample(label):
+                path = terminal.capture(label)
+                icon = terminal.pixels(path, tab_width + 1, -1, 1)
+                name = terminal.pixels(path, tab_width + 3, -1, tab_width - 7)
+                return icon, name
+
+            def choose_animation(enabled):
+                terminal.preferences("agents")
+                terminal.tabs(4 if enabled else 5)
+                terminal.x11.chord("space")
+                terminal.capture("indicator-settings")
+                terminal.x11.chord("Control_L", "Return")
+                smoke.wait_for(
+                    lambda: terminal.runtime_config()["general"]["agent_status_animation"] is enabled,
+                    "status indicator preference applied",
+                )
+                terminal.x11.chord("Escape")
+                saved = tomllib.loads(terminal.config.read_text())
+                self.assertIs(saved["general"]["agent_status_animation"], enabled)
+
+            _, original_title = sample("chat-title-before-agent")
+            agent = start_agent(terminal, "codex", "named-chat")
+            animated = [sample("chat-title-animated") for _ in range(4)]
+            self.assertTrue(all(name == original_title for _, name in animated),
+                "the working state reduced the rendered title")
+            self.assertGreater(len({icon for icon, _ in animated}), 1)
+
+            choose_animation(False)
+            static = [sample("chat-title-static") for _ in range(4)]
+            self.assertEqual(len({icon for icon, _ in static}), 1)
+            self.assertTrue(all(name == original_title for _, name in static),
+                "static icon mode changed the rendered title")
+            overview(terminal, toolbar=True)
+            popup = {
+                chat_panel_pixels(terminal, terminal.capture("static-chat-status"))[0]
+                for _ in range(4)
+            }
+            self.assertEqual(len(popup), 1, "chat list animates in static icon mode")
+            terminal.x11.chord("Escape")
+
+            choose_animation(True)
+            resumed = [sample("chat-title-animation-resumed") for _ in range(4)]
+            self.assertGreater(len({icon for icon, _ in resumed}), 1)
+            change_state(agent, "done")
+            finished = sample("chat-title-finished")
+            self.assertEqual(finished, sample("chat-title-finished"))
+            self.assertNotEqual(finished[0], static[0][0])
+            self.assertEqual(finished[1], original_title)
+            self.assertEqual(terminal.x11.title(terminal.window), title)
+            agent["control"].write_text("exit")
 
     def test_unsafe_records_are_ignored_and_native_setting_disables_new_shells(self):
         with fixture() as terminal:
@@ -395,18 +473,12 @@ class AgentTests(unittest.TestCase):
             time.sleep(.3)
             overview(terminal)
 
-            def status_pixels(path):
-                width, height = terminal.x11.geometry(terminal.window)
-                crop = f"{width // 2}x{height // 3}+{width // 2}+20"
-                return subprocess.run(["convert", str(path), "-crop", crop, "+repage",
-                    "-depth", "8", "rgb:-"], capture_output=True, check=True, timeout=5).stdout
-
-            english = status_pixels(terminal.capture("agents-overview-en"))
+            english, _ = chat_panel_pixels(terminal, terminal.capture("agents-overview-en"))
             terminal.general(language="pt-BR")
-            localized = status_pixels(terminal.capture("agents-live-language"))
+            localized, _ = chat_panel_pixels(terminal, terminal.capture("agents-live-language"))
             terminal.x11.chord("Escape")
             overview(terminal)
-            reopened = status_pixels(terminal.capture("agents-reopened-language"))
+            reopened, _ = chat_panel_pixels(terminal, terminal.capture("agents-reopened-language"))
             self.assertNotEqual(english, localized, "changing language left the open dialog unchanged")
             self.assertEqual(localized, reopened, "live dialog statuses differ from a newly opened localized dialog")
             change_state(editor, "permission")

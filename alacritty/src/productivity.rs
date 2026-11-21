@@ -1340,6 +1340,21 @@ impl PreferencesDialog {
                     self.values.agent_notifications,
                     Message::AgentNotifications,
                 ));
+                rows.push(Row::Label(t(Message::AgentStatusIndicator).into()));
+                let indicator = |id, animated, label| Control {
+                    id,
+                    kind: UiKind::Radio,
+                    text: format!(
+                        "{} {}",
+                        if self.values.agent_status_animation == animated { "●" } else { "○" },
+                        t(label),
+                    ),
+                    disabled: false,
+                };
+                rows.push(Row::Two(
+                    indicator(43, true, Message::AgentAnimatedIndicator),
+                    indicator(44, false, Message::AgentStaticIndicator),
+                ));
                 for message in
                     [Message::AgentSettingsHint, Message::AgentNewTabsHint, Message::AgentCodexHint]
                 {
@@ -1571,6 +1586,8 @@ impl PreferencesDialog {
                 self.update = UpdateStatus::Installing;
                 return Some(action);
             },
+            43 => self.values.agent_status_animation = true,
+            44 => self.values.agent_status_animation = false,
             id if (FIRST_ICON_CONTROL..FIRST_ICON_CONTROL + IconPreset::ALL.len()).contains(&id) => {
                 self.values.icon = IconPreset::ALL[id - FIRST_ICON_CONTROL];
             },
@@ -1909,24 +1926,17 @@ impl AgentDialog {
             }
         }
         for (index, agent) in self.agents.iter().enumerate() {
-            rows.push(Row::Shortcut {
-                control: Control {
-                    id: 100 + index,
-                    kind: if agent.unread { UiKind::SelectedItem } else { UiKind::MenuItem },
-                    text: format!(
-                        "{}{} · {}",
-                        if agent.unread { "● " } else { "" },
-                        agent.provider,
-                        agent.title
-                    ),
-                    disabled: false,
-                },
-                shortcut: format!(
-                    "{} {}",
-                    agent.state.animated_marker(crate::agent::animation_frame()),
-                    agent.status
+            rows.push(Row::One(Control {
+                id: 100 + index,
+                kind: if agent.unread { UiKind::SelectedItem } else { UiKind::MenuItem },
+                text: format!(
+                    "{}{} · {}",
+                    if agent.unread { "● " } else { "" },
+                    agent.provider,
+                    agent.title
                 ),
-            });
+                disabled: false,
+            }));
             if agent.limited {
                 rows.extend(Panel::labels(
                     t(Message::AgentLimited),
@@ -2088,32 +2098,16 @@ impl ProductivityDialog {
                 else {
                     continue;
                 };
-                let status = format!(
-                    "{} {}",
-                    agent.state.animated_marker(crate::agent::animation_frame()),
-                    agent.status
-                );
-                let status_width = status.width().min(element.rect.width.saturating_sub(4) / 2);
+                let status_width =
+                    (agent.status.width() + 2).min(element.rect.width.saturating_sub(4) / 2);
                 element.text = crate::string::StrShortener::new(
-                    &format!(
-                        "{}{} · {}",
-                        if agent.unread { "● " } else { "" },
-                        agent.provider,
-                        agent.title
-                    ),
+                    &element.text,
                     element.rect.width.saturating_sub(status_width + 4),
                     crate::string::ShortenDirection::Right,
                     Some('…'),
                 )
                 .collect();
                 if status_width > 0 {
-                    let text = crate::string::StrShortener::new(
-                        &status,
-                        status_width,
-                        crate::string::ShortenDirection::Right,
-                        Some('…'),
-                    )
-                    .collect();
                     statuses.push((
                         UiElement {
                             rect: UiRect {
@@ -2122,7 +2116,7 @@ impl ProductivityDialog {
                                 ..element.rect
                             },
                             kind: UiKind::AgentStatus(agent.state, agent.unread),
-                            text,
+                            text: agent.status.clone(),
                             focused: element.focused,
                             hovered: element.hovered,
                             disabled: false,

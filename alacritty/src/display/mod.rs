@@ -1215,12 +1215,13 @@ impl Display {
         if !self.pane_overlays.is_empty() {
             self.renderer.draw_rects(&self.size_info, &metrics, mem::take(&mut self.pane_overlays));
         }
-        self.draw_tab_bar(config);
+        let agent_frame = config.general.agent_status_animation.then(crate::agent::animation_frame);
+        self.draw_tab_bar(config, agent_frame);
         self.draw_render_timer(config);
 
         self.draw_tab_dialog(config);
         self.draw_language_dialog();
-        self.draw_productivity_dialog();
+        self.draw_productivity_dialog(agent_frame);
         self.draw_close_confirmation();
         self.draw_context_menu();
 
@@ -1648,7 +1649,11 @@ impl Display {
         self.renderer.set_viewport(&size);
     }
 
-    fn draw_ui_elements(&mut self, elements: Vec<crate::tab_ui::UiElement>) {
+    fn draw_ui_elements(
+        &mut self,
+        elements: Vec<crate::tab_ui::UiElement>,
+        agent_frame: Option<usize>,
+    ) {
         use crate::tab_ui::UiKind;
         use crate::ui::{Palette, rounded};
 
@@ -1765,7 +1770,7 @@ impl Display {
                 | UiKind::Scrollbar => (p.text, if active { p.hover } else { p.panel }),
                 UiKind::Shortcut => (p.muted, if active { p.hover } else { p.panel }),
                 UiKind::AgentStatus(state, selected) => (
-                    crate::ui::agent_color(state, &self.colors, crate::agent::animation_frame()),
+                    p.agent_color(state, &self.colors, agent_frame),
                     if selected {
                         p.selected
                     } else if active {
@@ -1847,7 +1852,12 @@ impl Display {
                 self.draw_appearance_choice(rect, label, &element.text, icon, (fg, p.muted, bg));
                 continue;
             }
-            let mut string: String = element.text.chars().filter(|ch| !ch.is_control()).collect();
+            let (mut string, trailing_padding) = match element.kind {
+                UiKind::AgentStatus(state, _) => {
+                    (format!("{} {}", state.marker(agent_frame), element.text), 2)
+                },
+                _ => (element.text.chars().filter(|ch| !ch.is_control()).collect(), 0),
+            };
             let scroll_arrow =
                 element.kind == UiKind::MenuItem && matches!(string.trim(), "↑" | "↓");
             if scroll_arrow {
@@ -1927,7 +1937,8 @@ impl Display {
             } else {
                 0
             };
-            let available = rect.width.saturating_sub(inset + usize::from(padded));
+            let available =
+                rect.width.saturating_sub(inset + usize::from(padded) + trailing_padding);
             if available == 0 {
                 continue;
             }
@@ -1992,7 +2003,7 @@ impl Display {
         let layout = dialog.layout(size.columns(), size.screen_lines());
         let elements = dialog.elements(size.columns(), size.screen_lines());
         self.draw_ui_panel(layout, true);
-        self.draw_ui_elements(elements);
+        self.draw_ui_elements(elements, None);
     }
 
     fn draw_close_confirmation(&mut self) {
@@ -2001,10 +2012,10 @@ impl Display {
         let layout = dialog.layout(size.columns(), size.screen_lines());
         let elements = dialog.elements(size.columns(), size.screen_lines());
         self.draw_ui_panel(layout, true);
-        self.draw_ui_elements(elements);
+        self.draw_ui_elements(elements, None);
     }
 
-    fn draw_productivity_dialog(&mut self) {
+    fn draw_productivity_dialog(&mut self, agent_frame: Option<usize>) {
         let Some(dialog) = &self.productivity_dialog else { return };
         let size = self.dialog_size_info();
         let layout = dialog.layout(size.columns(), size.screen_lines());
@@ -2014,7 +2025,7 @@ impl Display {
         mem::swap(&mut self.glyph_cache, &mut self.ui_glyph_cache);
         self.renderer.resize(&size);
         self.draw_ui_panel(layout, modal);
-        self.draw_ui_elements(elements);
+        self.draw_ui_elements(elements, agent_frame);
         self.size_info = terminal_size;
         mem::swap(&mut self.glyph_cache, &mut self.ui_glyph_cache);
         self.renderer.resize(&self.size_info);
@@ -2083,7 +2094,7 @@ impl Display {
             }
         }
         self.draw_ui_panel(layout, false);
-        self.draw_ui_elements(elements);
+        self.draw_ui_elements(elements, None);
         #[cfg(target_os = "linux")]
         self.renderer.draw_rects(&size, &self.glyph_cache.font_metrics(), app_icons);
     }
@@ -2094,10 +2105,10 @@ impl Display {
         let layout = dialog.layout(size.columns(), size.screen_lines());
         let elements = dialog.elements(size.columns(), size.screen_lines());
         self.draw_ui_panel(layout, true);
-        self.draw_ui_elements(elements);
+        self.draw_ui_elements(elements, None);
     }
 
-    fn draw_tab_bar(&mut self, config: &UiConfig) {
+    fn draw_tab_bar(&mut self, config: &UiConfig, agent_frame: Option<usize>) {
         use crate::tabs::{TabActivity, TabBar, TabButton};
         use crate::ui::{Palette, rounded};
 
@@ -2189,7 +2200,7 @@ impl Display {
                 p.panel
             };
             let column = layout.tab_start + slot * layout.width;
-            let marker = bar.marker(index);
+            let marker = bar.marker(index, agent_frame);
             let badge = if marker.is_empty() {
                 (layout.first + slot + 1).to_string()
             } else {
@@ -2201,15 +2212,7 @@ impl Display {
             self.renderer.set_viewport(&text_size);
             if show_badge {
                 let color = if let Some(Some(state)) = bar.agent_states.get(index) {
-                    match state {
-                        crate::agent::AgentState::Permission | crate::agent::AgentState::Input => {
-                            config.colors.normal.yellow
-                        },
-                        crate::agent::AgentState::Error => p.danger,
-                        crate::agent::AgentState::Done => config.colors.normal.green,
-                        crate::agent::AgentState::Working => p.accent,
-                        _ => p.muted,
-                    }
+                    p.agent_color(*state, &self.colors, agent_frame)
                 } else {
                     match bar.activities.get(index).copied().unwrap_or_default() {
                         TabActivity::Running => p.accent,
@@ -2328,17 +2331,16 @@ impl Display {
             } else if action == TabButton::Agents {
                 self.renderer.set_viewport(&text_size);
                 let state = bar.agent_indicator.unwrap_or(crate::agent::AgentState::Ready);
-                let frame = crate::agent::animation_frame();
                 let count = bar.agent_count.max(bar.agent_states.iter().flatten().count());
                 let text = format!(
                     "{}{}{}",
-                    state.animated_marker(frame),
+                    state.marker(agent_frame),
                     count.min(9),
                     if count > 9 { "+" } else { "" }
                 );
                 self.renderer.draw_string_styled(
                     Point::new(0, Column(column)),
-                    (crate::ui::agent_color(state, &self.colors, frame), p.panel, false),
+                    (p.agent_color(state, &self.colors, agent_frame), p.panel, false),
                     text.chars(),
                     &text_size,
                     &mut self.glyph_cache,

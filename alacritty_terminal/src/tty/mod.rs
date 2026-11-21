@@ -106,57 +106,8 @@ pub trait EventedPty: EventedReadWrite {
 
 /// Setup environment variables.
 pub fn setup_env() {
-    // Default to 'alacritty' terminfo if it is available, otherwise
-    // default to 'xterm-256color'. May be overridden by user's config
-    // below.
-    let terminfo = if terminfo_exists("alacritty") { "alacritty" } else { "xterm-256color" };
-    unsafe { env::set_var("TERM", terminfo) };
-
-    // Advertise 24-bit color support.
-    unsafe { env::set_var("COLORTERM", "truecolor") };
-}
-
-/// Check if a terminfo entry exists on the system.
-fn terminfo_exists(terminfo: &str) -> bool {
-    // Get first terminfo character for the parent directory.
-    let first = terminfo.get(..1).unwrap_or_default();
-    let first_hex = format!("{:x}", first.chars().next().unwrap_or_default() as usize);
-
-    // Return true if the terminfo file exists at the specified location.
-    macro_rules! check_path {
-        ($path:expr) => {
-            if $path.join(first).join(terminfo).exists()
-                || $path.join(&first_hex).join(terminfo).exists()
-            {
-                return true;
-            }
-        };
+    unsafe {
+        env::set_var("TERM", "xterm-256color");
+        env::set_var("COLORTERM", "truecolor");
     }
-
-    if let Some(dir) = env::var_os("TERMINFO") {
-        check_path!(PathBuf::from(&dir));
-    } else if let Some(home) = home::home_dir() {
-        check_path!(home.join(".terminfo"));
-    }
-
-    if let Ok(dirs) = env::var("TERMINFO_DIRS") {
-        for dir in dirs.split(':') {
-            check_path!(PathBuf::from(dir));
-        }
-    }
-
-    if let Ok(prefix) = env::var("PREFIX") {
-        let path = PathBuf::from(prefix);
-        check_path!(path.join("etc/terminfo"));
-        check_path!(path.join("lib/terminfo"));
-        check_path!(path.join("share/terminfo"));
-    }
-
-    check_path!(PathBuf::from("/etc/terminfo"));
-    check_path!(PathBuf::from("/lib/terminfo"));
-    check_path!(PathBuf::from("/usr/share/terminfo"));
-    check_path!(PathBuf::from("/boot/system/data/terminfo"));
-
-    // No valid terminfo path has been found.
-    false
 }

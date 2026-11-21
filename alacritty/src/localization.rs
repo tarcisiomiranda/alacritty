@@ -305,6 +305,9 @@ pub enum Message {
     AgentStartHint,
     AgentIntegration,
     AgentNotifications,
+    AgentStatusIndicator,
+    AgentAnimatedIndicator,
+    AgentStaticIndicator,
     AgentSettingsHint,
     AgentNewTabsHint,
     AgentCodexHint,
@@ -318,8 +321,6 @@ pub enum Message {
     AgentDone,
     AgentError,
     AgentUnknown,
-    AgentTabInput,
-    AgentTabPermission,
 }
 
 impl Locale {
@@ -378,6 +379,12 @@ impl Locale {
             (Self::PtBr, Message::AgentIntegration) => "Mostrar estado dos agentes nas abas",
             (Self::En, Message::AgentNotifications) => "Notify on waits and completion",
             (Self::PtBr, Message::AgentNotifications) => "Avisar sobre espera e conclusão",
+            (Self::En, Message::AgentStatusIndicator) => "Status indicator",
+            (Self::PtBr, Message::AgentStatusIndicator) => "Indicador de estado",
+            (Self::En, Message::AgentAnimatedIndicator) => "Animation",
+            (Self::PtBr, Message::AgentAnimatedIndicator) => "Animação",
+            (Self::En, Message::AgentStaticIndicator) => "Static icon",
+            (Self::PtBr, Message::AgentStaticIndicator) => "Ícone fixo",
             (Self::En, Message::AgentSettingsHint) => {
                 "See when an agent is working, needs a reply or permission, or has finished. \
                  Permission decisions stay with you."
@@ -405,10 +412,6 @@ impl Locale {
             (Self::PtBr, Message::AgentStatus) => "Estado",
             (Self::En, Message::AgentClose) => "Close",
             (Self::PtBr, Message::AgentClose) => "Fechar",
-            (Self::En, Message::AgentTabInput) => "Reply",
-            (Self::PtBr, Message::AgentTabInput) => "Resposta",
-            (Self::En, Message::AgentTabPermission) => "Permission",
-            (Self::PtBr, Message::AgentTabPermission) => "Permissão",
             (Self::En, Message::AgentReady) => "Ready",
             (Self::PtBr, Message::AgentReady) => "Pronto",
             (Self::En, Message::AgentWorking) => "Working",
@@ -935,7 +938,7 @@ impl Locale {
 
 #[cfg(test)]
 impl Message {
-    const ALL: [Self; 208] = [
+    const ALL: [Self; 209] = [
         Self::AgentChats,
         Self::Applications,
         Self::PreferredEditor,
@@ -954,6 +957,9 @@ impl Message {
         Self::AgentStartHint,
         Self::AgentIntegration,
         Self::AgentNotifications,
+        Self::AgentStatusIndicator,
+        Self::AgentAnimatedIndicator,
+        Self::AgentStaticIndicator,
         Self::AgentSettingsHint,
         Self::AgentNewTabsHint,
         Self::AgentCodexHint,
@@ -967,8 +973,6 @@ impl Message {
         Self::AgentDone,
         Self::AgentError,
         Self::AgentUnknown,
-        Self::AgentTabInput,
-        Self::AgentTabPermission,
         Self::TabGroups,
         Self::GroupsHint,
         Self::GroupName,

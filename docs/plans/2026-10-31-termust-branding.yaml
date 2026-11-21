@@ -2,12 +2,14 @@ plan: termust-branding
 title: Rename the fork to Termust
 status: done
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-21
 context:
   - The user chose an independent name because upstream does not accept AI-assisted contributions.
-goal: Deliver Termust with a gear logo and a consistent installed identity.
+  - A remote SSH host rejected the advertised alacritty terminal type in clear and htop.
+goal: Deliver Termust with a gear logo, consistent identity and a widely supported default terminal type.
 scope:
   - Runtime identity and compatible configuration and state discovery.
+  - Default TERM and explicit overrides for newly launched shells.
   - SVG and PNG artwork, README, launcher and completion assets.
   - Installer, release packaging, local install and B2 delivery.
 out_of_scope:
@@ -27,15 +29,23 @@ stages:
   - id: deliver
     desc: Install and publish the checked package
     status: done
+  - id: term-default
+    desc: Use xterm-256color by default and verify it in isolated real shells
+    status: done
 risks:
   - User data and desktop integration may still use the former product name.
 rollback:
   - Keep previous release artifacts, original assets and legacy user data.
+  - Configure TERM in the env section to select a different terminal type.
 decisions:
   - Original copper gear and terminal prompt artwork is the new visual identity.
   - Existing user settings and sessions receive compatibility discovery instead of destructive migration.
   - Termust configuration wins across file formats before legacy Alacritty discovery; explicit paths keep priority.
+  - Use xterm-256color even when the local Alacritty terminfo is present so SSH advertises a commonly available entry.
 validation:
+  - A real shell advertises xterm-256color with the local Alacritty entry present. The old binary failed that check.
+  - An explicit TERM setting reaches the shell. Both clear and htop succeeded with the default.
+  - The workspace, four X11 branding cases and 54 installer checks passed.
   - All 421 workspace tests and one doctest passed.
   - Clippy 1.89 and nightly rustfmt passed.
   - Original SVG, RGBA8 PNG, ICO and ICNS assets passed structural checks and visual inspection.

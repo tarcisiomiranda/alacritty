@@ -70,30 +70,34 @@ impl Palette {
             danger_hover: mix(panel, danger, 0.15),
         }
     }
-}
 
-pub fn agent_color(state: crate::agent::AgentState, colors: &List, frame: usize) -> Rgb {
-    use crate::agent::AgentState;
-    let palette = Palette::new(colors);
-    let color = match state {
-        AgentState::Input | AgentState::Permission => colors[NamedColor::Yellow],
-        AgentState::Working => palette.accent,
-        AgentState::Error => palette.danger,
-        AgentState::Done => colors[NamedColor::Green],
-        AgentState::Ready | AgentState::Unknown => palette.muted,
-    };
-    if !matches!(state, AgentState::Input | AgentState::Permission) {
-        return color;
+    pub fn agent_color(
+        &self,
+        state: crate::agent::AgentState,
+        colors: &List,
+        frame: Option<usize>,
+    ) -> Rgb {
+        use crate::agent::AgentState;
+        let color = match state {
+            AgentState::Input | AgentState::Permission => colors[NamedColor::Yellow],
+            AgentState::Working => self.accent,
+            AgentState::Error => self.danger,
+            AgentState::Done => colors[NamedColor::Green],
+            AgentState::Ready | AgentState::Unknown => self.muted,
+        };
+        let (Some(frame), AgentState::Input | AgentState::Permission) = (frame, state) else {
+            return color;
+        };
+        let amount = [0.55, 0.7, 0.85, 1., 1., 0.85, 0.7, 0.55][frame % 8];
+        let channel = |base: u8, target: u8| {
+            (f32::from(base) * (1. - amount) + f32::from(target) * amount).round() as u8
+        };
+        Rgb::new(
+            channel(self.panel.r, color.r),
+            channel(self.panel.g, color.g),
+            channel(self.panel.b, color.b),
+        )
     }
-    let amount = [0.55, 0.7, 0.85, 1., 1., 0.85, 0.7, 0.55][frame % 8];
-    let channel = |base: u8, target: u8| {
-        (f32::from(base) * (1. - amount) + f32::from(target) * amount).round() as u8
-    };
-    Rgb::new(
-        channel(palette.panel.r, color.r),
-        channel(palette.panel.g, color.g),
-        channel(palette.panel.b, color.b),
-    )
 }
 
 pub fn rounded(rect: RenderRect, radius: f32) -> Vec<RenderRect> {
@@ -160,16 +164,26 @@ mod tests {
     fn waiting_agents_pulse_while_finished_agents_remain_still() {
         use crate::agent::AgentState;
         let colors = List::from(&Colors::default());
-        for state in [AgentState::Input, AgentState::Permission] {
+        let palette = Palette::new(&colors);
+        for (state, marker) in [(AgentState::Input, "?"), (AgentState::Permission, "!")] {
             assert!(state.animated());
-            assert_eq!(state.animated_marker(0), "?");
-            assert_ne!(agent_color(state, &colors, 0), agent_color(state, &colors, 3));
+            assert_eq!(state.marker(Some(0)), marker);
+            assert_eq!(state.marker(None), marker);
+            assert_ne!(
+                palette.agent_color(state, &colors, Some(0)),
+                palette.agent_color(state, &colors, None)
+            );
+            assert_eq!(palette.agent_color(state, &colors, None), colors[NamedColor::Yellow]);
         }
-        assert_ne!(AgentState::Working.animated_marker(0), AgentState::Working.animated_marker(2));
+        assert_ne!(AgentState::Working.marker(Some(0)), AgentState::Working.marker(Some(2)));
+        assert_eq!(AgentState::Working.marker(None), "●");
         for state in [AgentState::Ready, AgentState::Unknown, AgentState::Done, AgentState::Error] {
             assert!(!state.animated());
-            assert_eq!(state.animated_marker(0), state.animated_marker(4));
-            assert_eq!(agent_color(state, &colors, 0), agent_color(state, &colors, 3));
+            assert_eq!(state.marker(Some(0)), state.marker(None));
+            assert_eq!(
+                palette.agent_color(state, &colors, Some(0)),
+                palette.agent_color(state, &colors, None)
+            );
         }
     }
 

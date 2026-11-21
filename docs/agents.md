@@ -1,17 +1,18 @@
 # Agents in Termust
 
 Open a new Termust window and run `claude`, `codex`, `agy` or `opencode` as usual.
-Termust shows the agent's state beside the tab name. Custom tab names stay in place.
+A single status icon sits beside the conversation name, leaving the rest of the
+label area available for the title.
 
 | Indicator | Meaning |
 | --- | --- |
-| Rotating blue circle / Working | The agent is thinking or running tools. |
-| Pulsing yellow question mark / Needs a reply | The agent needs an answer or another user action. |
-| Pulsing yellow question mark / Needs permission | A permission decision is waiting in that terminal. The tab retains its exclamation badge. |
-| Green check / Finished | The agent finished its turn. |
-| Red exclamation mark / Failed | The agent reported a failure or its process failed. |
-| Ready | The agent is open and ready for a prompt. |
-| Status unavailable | Detailed events have not arrived; the overview explains limited integration. |
+| Blue circle | The agent is thinking or running tools. |
+| Yellow `?` | The agent needs an answer or another user action. |
+| Yellow `!` | A permission decision is waiting in that terminal. |
+| Green `✓` | The agent finished its turn. |
+| Red `×` | The agent reported a failure or its process failed. |
+| Muted dot | The agent is ready for a prompt. |
+| Dotted circle | Detailed status is unavailable. The overview explains limited integration. |
 
 Click the small status-and-count button beside the tab controls to open
 **Chats / Conversas** in the upper right. The count includes agent panes across
@@ -25,10 +26,9 @@ Escape or a click outside closes it. Opening the list or selecting a chat never
 answers the agent's question or grants a permission. The same list is available
 through **Agents / Agentes** in the right-click menu.
 
-Working circles rotate and waiting question marks pulse while no new events
-arrive. Animation stops when every agent is idle or finished, integration is
-disabled, or the window is occluded. Animation uses a separate eight-frame
-timer and does not increase how often agent files are polled.
+In Animation mode, working circles rotate and reply and permission indicators
+pulse. Animation stops when every agent is idle or finished, integration is
+disabled, or the window is occluded.
 
 Waiting and completion states remain unread in the background. Opening the
 pane acknowledges them. An open agent keeps its current state; finished or
@@ -41,6 +41,11 @@ How this appears in the dock or taskbar depends on the desktop.
 ## Settings
 
 Open **Settings → Agents / Configurações → Agentes** with **Ctrl+,**.
+Under **Status indicator / Indicador de estado**, select **Animation / Animação**
+or **Static icon / Ícone fixo**, then choose **Save / Salvar**. Animation is the
+default. The choice applies to open tabs, the chat count button and the Chats
+list. In TOML, set `agent_status_animation = false` under `[general]` for static icons.
+
 Integration and attention notifications are enabled by default. Change the
 checkboxes and choose **Save**. Disabling notifications keeps the state visible.
 Integration changes apply to new terminal sessions; existing processes keep
@@ -88,8 +93,9 @@ integration does not turn on that saving option.
 ## Validation
 
 `mise run test:agents` exercises adapter behaviour and isolated graphical
-sessions, including independent panes, animations, compact chat lists, group filters, focus, acknowledgement,
-malformed events, integration settings and window attention. Tests use sample
+sessions, including readable tab names in both indicator modes, independent
+panes, compact chat lists, group filters, focus, acknowledgement, malformed
+events, integration settings and window attention. Tests use sample
 data. Real installed OpenCode and Antigravity startup checks run when available.
 On macOS, `mise run test:macos-gui` runs the same sample agent through the
 Claude proxy, raises a permission request and checks that the overview focuses

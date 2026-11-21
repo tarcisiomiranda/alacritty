@@ -858,6 +858,7 @@ impl WindowContext {
         scheduler.unschedule(timer);
         if self.occluded
             || !self.config.general.agent_integration
+            || !self.config.general.agent_status_animation
             || !self.tabs.iter().flat_map(|tab| tab.panes.iter()).any(|pane| {
                 pane.agent
                     .as_ref()
@@ -2788,7 +2789,7 @@ impl WindowContext {
         bar.group_label = self.group_filter.clone().unwrap_or_else(|| {
             self.config.general.language.resolve().text(Message::AllTabs).into()
         });
-        let statuses: Vec<_> = self
+        bar.agent_states = self
             .tabs
             .iter()
             .map(|tab| {
@@ -2799,27 +2800,7 @@ impl WindowContext {
                     .iter()
                     .filter_map(|pane| pane.agent.as_ref()?.primary())
                     .max_by_key(|status| (status.unread, status.state.priority()))
-            })
-            .collect();
-        bar.agent_states =
-            statuses.iter().map(|status| status.as_ref().map(|status| status.state)).collect();
-        bar.agent_labels = statuses
-            .iter()
-            .map(|status| {
-                status
-                    .as_ref()
-                    .map(|status| {
-                        format!(
-                            "{} · {}",
-                            self.config.general.language.resolve().text(match status.state {
-                                AgentState::Input => Message::AgentTabInput,
-                                AgentState::Permission => Message::AgentTabPermission,
-                                state => Self::agent_message(state),
-                            }),
-                            status.provider.label()
-                        )
-                    })
-                    .unwrap_or_default()
+                    .map(|status| status.state)
             })
             .collect();
         bar.agent_unread = agents.iter().filter(|agent| agent.unread).count();

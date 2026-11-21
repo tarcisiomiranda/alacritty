@@ -2,20 +2,21 @@ spec: agent-status
 title: Agent activity and attention in terminal tabs
 status: done
 created: 2026-11-03
-updated: 2026-11-03
-goal: Show reliable and simple agent progress, questions, permission requests and completion in tabs and panes.
-problem: A long-running agent looks like an ordinary running shell command even when it is waiting for the user.
+updated: 2026-11-20
+goal: Show agent progress, attention and completion while keeping conversation names readable in tabs.
+problem: Status and provider text consume the tab title area, causing renamed conversations to be truncated or disappear.
 behavior:
   - Automatically integrate supported installed harnesses inside new Termust shells without rewriting their user configuration.
   - Distinguish working, needs input, needs permission, finished, failed and limited integration.
-  - Display localized compact tab badges and a compact upper-right chat list that focuses the correct tab and pane.
-  - Count agent panes across all groups, animate working circles and pulse waiting question marks without new output.
+  - Give the tab title the full label area beside one status icon. Keep localized status and provider descriptions in the upper-right chat list.
+  - Count agent panes across all groups and animate working and waiting indicators without new output when animation is enabled.
   - Retain unread attention for background tabs and groups and offer configurable notifications without approving anything.
 requirements_functional:
   - Support Claude, Codex, OpenCode and the installed agy entry point according to their actual event capabilities.
   - Prefer official hooks and events; never infer approval or success from arbitrary terminal text or silence.
   - Keep custom tab names, groups, shell behavior, application key handling and existing harness configuration intact.
   - Provide simple native settings and transparent capability information when a harness cannot expose a state.
+  - Provide localized Animation and Static icon choices in Agents settings and apply the saved choice to open sessions.
 requirements_non_functional:
   - Use a bounded private per-pane channel carrying provider and state metadata only, without prompts, responses or credentials.
   - Reject stale sessions, malformed events, oversized records and unsafe files, and clear live status when its process exits.
@@ -27,12 +28,12 @@ implemented:
   - Private bounded per-pane metadata channels with atomic writes, ownership checks, monotonic records and process lifecycle handling.
   - Automatic PATH adapters discovered after shell startup without advertising missing executables or rewriting global agent settings.
   - Claude session hooks, native Codex OSC7501 events, AGY structured title callbacks and OpenCode client-side plugins.
-  - Localized compact tab state labels, unread background attention and a native overview that focuses stable tab and pane identities.
-  - Native Agents preferences for integration and window attention, with scoped saves and preserved appearance preview semantics.
+  - One status icon per agent tab, unread background attention and a native overview with localized descriptions and stable pane focus.
+  - Native Agents preferences for integration, window attention and a choice between Animation and Static icon that applies on Save.
   - Bounded native event parser, stale completion protection, safe cancellation and acknowledgement of finished processes.
   - Subtle total chat count across tab groups, rotating working circles and pulsing input and permission questions.
   - Upper-right compact chat popup with priority ordering, pane coordinates, titles, colored states, scrolling and stable click targets.
-  - Independent eight-frame animation timer that stops for idle or finished agents, disabled integration and occluded windows.
+  - Independent eight-frame timer for working and waiting states in Animation mode while the window is visible.
 pending:
   - None.
 steps:
@@ -71,6 +72,15 @@ steps:
     status: done
     verify: mise run install:verify
     note: "Instalado 0.18.0-termust.709cae5e.0285712a4f05; confere binario, recibo, PATH e atalho desktop."
+  - id: tab-indicator-style
+    desc: Implement compact tab indicators and the saved animation preference
+    status: done
+    verify: mise exec -- cargo test --locked -p termust
+  - id: tab-indicator-graphical
+    desc: Verify title space and both indicator modes through native settings
+    status: done
+    verify: mise run test:agents
+    note: "The native validation checks title pixels, live mode changes, saved TOML, static Chats and split focus through the rendered permission status."
 acceptance:
   - id: truthful-states
     desc: Supported events show correct states and unsupported states are clearly disclosed
@@ -92,6 +102,14 @@ acceptance:
     desc: A subtle animated chat count opens a compact priority list and clicking a row focuses its stable split without forwarding input
     status: done
     note: "Nove casos graficos completos e teste adicional em pt-BR contra o binario instalado confirmam animacoes, contagem de splits, prioridade e foco sem encaminhar entrada."
+  - id: readable-chat-tabs
+    desc: Both indicator modes leave the title area available for the conversation name and keep descriptions in Chats
+    status: done
+    note: "X11 pixel checks confirm the renamed tab retains its title area through working and completion, and Chats still renders its status descriptions."
+  - id: indicator-motion-choice
+    desc: Save the choice between animation and a static icon without restarting sessions
+    status: done
+    note: "Native settings switch both ways during the same chat and the saved value is available on disk and in the running configuration."
 decisions:
   - Reuse native agent events and pane IDs instead of inferring activity from terminal output.
   - Use an attention-sorted compact popup with chat counts, animated working circles and pulsing questions.
@@ -104,8 +122,12 @@ decisions:
   - agy capabilities must be identified from the installed program before promising CLI parity.
   - Use Codex native OSC7501 events for work, completion, permission and question states; preserve its command line and avoid installing new hooks or changing trust.
   - Notifications request native window attention and retain a tab badge; they never answer or grant a pending permission.
-  - Keep full waiting descriptions in the overview and shorter reply and permission labels in the compact tab bar.
+  - Default to animation to preserve the existing motion in Chats and make tab activity visible without text.
+  - Static icon mode stops status animation in tabs, the toolbar and Chats while preserving state colors and notifications.
+  - A finished or failed state uses a fixed mark in both modes.
 validation:
+  - All 10 isolated graphical agent cases and 21 bridge tests passed, including title rendering, both saved styles and permission row focus.
+  - The workspace passed 501 Rust unit and reference tests and one doctest.
   - Compact dashboard passed 475 Rust unit and reference tests plus one doctest, Rust 1.89 Clippy with warnings denied and scoped formatting.
   - All nine native graphical cases and 21 bridge tests passed after refreshing the preferences navigation for the Applications category.
   - Two simultaneous chat panes verified animation without new events, a pulsing permission question, direct mouse focus without input forwarding and still indicators after returning to ready.

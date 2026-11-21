@@ -132,7 +132,6 @@ pub struct TabBar {
     pub titles: Vec<String>,
     pub activities: Vec<TabActivity>,
     pub agent_states: Vec<Option<crate::agent::AgentState>>,
-    pub agent_labels: Vec<String>,
     pub agent_unread: usize,
     pub agent_count: usize,
     pub agent_indicator: Option<crate::agent::AgentState>,
@@ -176,9 +175,9 @@ impl TabBar {
             || matches!(self.hovered, Some(TabButton::Select(i) | TabButton::Close(i)) if i == index)
     }
 
-    pub fn marker(&self, index: usize) -> &'static str {
+    pub fn marker(&self, index: usize, frame: Option<usize>) -> &'static str {
         if let Some(Some(state)) = self.agent_states.get(index) {
-            return state.marker();
+            return state.marker(frame);
         }
         match self.activities.get(index).copied().unwrap_or_default() {
             TabActivity::Idle => "",
@@ -287,17 +286,6 @@ impl TabBar {
 
     pub fn label(&self, index: usize, width: usize) -> String {
         let title = self.titles.get(index).map(String::as_str).unwrap_or_default();
-        if let Some(agent) = self.agent_labels.get(index).filter(|value| !value.is_empty()) {
-            if width < 14 {
-                return Self::shorten_label(agent, width);
-            }
-            let name_width = (width / 3).max(4);
-            return format!(
-                "{} · {}",
-                Self::shorten_label(title, name_width),
-                Self::shorten_label(agent, width.saturating_sub(name_width + 3))
-            );
-        }
         Self::shorten_label(title, width)
     }
 
@@ -625,12 +613,11 @@ mod tests {
             group_filter: Some("code".into()),
             active: 0,
             agent_states: vec![None, Some(crate::agent::AgentState::Permission)],
-            agent_labels: vec![String::new(), "Permission · Claude".into()],
             agent_unread: 1,
             ..Default::default()
         };
         assert_eq!(bar.visible_indices(), vec![0]);
-        assert_eq!(bar.marker(1), "!");
+        assert_eq!(bar.marker(1, None), "!");
         for columns in 0..120 {
             let layout = bar.layout(columns);
             for column in layout.button_start + 6..(layout.button_start + 9).min(columns) {
@@ -638,7 +625,7 @@ mod tests {
             }
         }
         assert_eq!(bar.titles[1], "Worker");
-        assert!(bar.label(1, 23).contains("Permission"));
+        assert_eq!(bar.label(1, 6), "Worker");
     }
 
     #[test]
@@ -651,7 +638,7 @@ mod tests {
             (TabActivity::Failed, "!"),
         ] {
             bar.activities = vec![activity];
-            assert_eq!(bar.marker(0), marker);
+            assert_eq!(bar.marker(0, Some(0)), marker);
             assert_eq!(bar.label(0, 12), "shell");
         }
     }

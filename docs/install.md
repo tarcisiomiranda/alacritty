@@ -81,10 +81,14 @@ launcher and receipt are backed up under
 Other Alacritty installations and customized launchers are kept. Using
 `--no-desktop` skips this migration.
 
+Termust starts new shells with `TERM=xterm-256color`, a widely available terminal
+type on SSH servers. Set `TERM` under `[env]` in your Termust configuration to
+choose another type.
+
 When `tic` is available, the installer also adds the `alacritty` and
-`alacritty-direct` entries to `~/.terminfo`, where terminal applications can find
-them. Other user terminfo entries are kept. This user integration also applies
-when you choose a different installation prefix.
+`alacritty-direct` entries to `~/.terminfo` for applications or configurations
+that use them. Other user terminfo entries are kept, including when you choose a
+different installation prefix.
 
 The public package is for **Linux x86_64 with glibc**. It is built with Rust
 1.89 in a Debian 11 container, with a generic x86-64 CPU target. Its measured

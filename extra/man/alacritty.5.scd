@@ -98,6 +98,12 @@ This section documents the *[general]* table of the configuration file.
 
 	Default: _true_
 
+*agent_status_animation* = _true_ | _false_
+
+	Animate working and waiting indicators in the tab bar and Chats list by default.
+	Set this to false for static status icons. Change this option in native
+	preferences under Agents and save to apply it to open windows.
+
 *restore_session* = _true_ | _false_
 
 	Restore saved tabs on normal startup. An explicit command, directory,
@@ -171,6 +177,9 @@ This section documents the *[general]* table of the configuration file.
 All key-value pairs in the *[env]* section will be added as environment variables
 for any process spawned by Alacritty, including its shell. Some entries may
 override variables set by alacritty itself.
+
+Termust defaults *TERM* to _"xterm-256color"_ for compatibility with remote shells.
+Set *TERM* in *[env]* to select a different terminal type.
 
 Example:
 	*[env]*++

@@ -60,20 +60,13 @@ impl AgentState {
         matches!(self, Self::Working | Self::Input | Self::Permission)
     }
 
-    pub fn animated_marker(self, frame: usize) -> &'static str {
+    pub fn marker(self, frame: Option<usize>) -> &'static str {
         match self {
-            Self::Working => ["◐", "◓", "◑", "◒"][(frame / 2) % 4],
-            Self::Input | Self::Permission => "?",
-            _ => self.marker(),
-        }
-    }
-
-    pub fn marker(self) -> &'static str {
-        match self {
-            Self::Permission | Self::Error => "!",
+            Self::Permission => "!",
+            Self::Error => "×",
             Self::Input => "?",
             Self::Done => "✓",
-            Self::Working => "●",
+            Self::Working => frame.map_or("●", |frame| ["◐", "◓", "◑", "◒"][(frame / 2) % 4]),
             Self::Ready => "·",
             Self::Unknown => "◌",
         }

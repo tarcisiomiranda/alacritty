@@ -2,14 +2,16 @@ plan: agent-status
 title: Simple agent progress and attention in Termust
 status: done
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-20
 context:
   - Existing shell lifecycle integration exposes command running and exit status but not agent turn or approval state.
   - Claude, Codex, agy and OpenCode are installed on this computer.
-goal: Make agent work and user attention visible without requiring users to understand hooks.
+  - Tab labels share their width with the agent state and provider, which hides long conversation names.
+goal: Make agent work and user attention visible while leaving space for the conversation name.
 scope:
   - Official lifecycle adapters and a bounded private status channel per pane.
-  - Compact localized tab indicators and a native agent overview with focus actions.
+  - One status icon per chat tab with native choices for animation or a static icon.
+  - Localized status descriptions and pane focus actions in the agent overview.
   - Configurable attention notifications, isolated tests and real harness smoke checks.
 out_of_scope:
   - Approving tools, forwarding prompts, reading private reasoning or controlling an agent remotely.
@@ -30,6 +32,12 @@ stages:
   - id: compact-dashboard
     desc: Refine the chat button, attention list, status animation and pane focus
     status: done
+  - id: tab-indicator-style
+    desc: Reclaim title space and add a localized animation preference
+    status: done
+  - id: tab-indicator-validation
+    desc: Verify visible titles, static and animated states and preference persistence
+    status: done
 risks:
   - Per-session injection must preserve existing harness hooks and normal signal handling.
   - Unknown capabilities must not be presented as reliable waiting or permission detection.
@@ -45,7 +53,13 @@ decisions:
   - Refresh the overview on state, language, layout and lifecycle changes while preserving stable pane focus.
   - Keep the new chat list in the upper right within 56 columns and 16 rows, prioritizing permission and reply states.
   - Count per-pane chats across all groups and animate with a separate timer without extra file polling.
+  - Enable animated indicators by default and stop their timer in static icon mode.
+  - Keep the status description and provider in Chats and use the remaining tab space for its title.
 validation:
+  - All 10 agent GUI cases and 21 agent bridge tests passed.
+  - The workspace passed 501 Rust unit and reference tests and one doctest.
+  - The focused graphical checks passed for title rendering, preference persistence and motion in open sessions.
+  - The compact popup regression targets the rendered permission label so it uses the interface font geometry.
   - All nine graphical cases and 21 bridge tests passed; an additional Portuguese check against the installed binary confirmed animation and exact split focus.
   - Installed compact dashboard version 0.18.0-termust.709cae5e.0285712a4f05 with verified receipt, binary hash, PATH and desktop launcher.
   - Current local archive SHA256 is 188a8bf4bcfac58dff4882c4ca1963736db61c2211c511ff0bae82e69515adc9.

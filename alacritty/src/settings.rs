@@ -269,6 +269,7 @@ pub struct SettingsValues {
     pub confirm_tab_close: bool,
     pub agent_integration: bool,
     pub agent_notifications: bool,
+    pub agent_status_animation: bool,
     pub check_updates: bool,
     pub editor: String,
     pub file_manager: String,
@@ -296,6 +297,7 @@ impl SettingsValues {
             confirm_tab_close: config.general.confirm_tab_close,
             agent_integration: config.general.agent_integration,
             agent_notifications: config.general.agent_notifications,
+            agent_status_animation: config.general.agent_status_animation,
             check_updates: config.general.check_updates,
             editor: if crate::desktop_apps::known(
                 crate::desktop_apps::AppKind::Editor,
@@ -348,6 +350,11 @@ impl SettingsValues {
             &mut self.agent_notifications,
             previous.agent_notifications,
             current.agent_notifications,
+        );
+        update(
+            &mut self.agent_status_animation,
+            previous.agent_status_animation,
+            current.agent_status_animation,
         );
         update(&mut self.check_updates, previous.check_updates, current.check_updates);
         update(&mut self.editor, previous.editor, current.editor);
@@ -455,6 +462,10 @@ impl SettingsValues {
             change(&["general", "confirm_tab_close"], Value::from(self.confirm_tab_close)),
             change(&["general", "agent_integration"], Value::from(self.agent_integration)),
             change(&["general", "agent_notifications"], Value::from(self.agent_notifications)),
+            change(
+                &["general", "agent_status_animation"],
+                Value::from(self.agent_status_animation),
+            ),
             change(&["general", "check_updates"], Value::from(self.check_updates)),
             change(&["general", "editor"], Value::from(self.editor.as_str())),
             change(&["general", "file_manager"], Value::from(self.file_manager.as_str())),
@@ -540,6 +551,7 @@ impl SettingsValues {
         values.scrollback_lines = config.scrolling.history();
         values.agent_integration = config.general.agent_integration;
         values.agent_notifications = config.general.agent_notifications;
+        values.agent_status_animation = config.general.agent_status_animation;
         values.check_updates = config.general.check_updates;
         values.editor = config.general.editor.clone();
         values.file_manager = config.general.file_manager.clone();
@@ -662,18 +674,24 @@ PRESERVED='yes'
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let mut values = SettingsValues::from_config(&config);
         assert!(values.agent_integration && values.agent_notifications);
+        assert!(values.agent_status_animation);
         values.agent_integration = false;
         values.agent_notifications = false;
+        values.agent_status_animation = false;
         values.preview(&mut config).unwrap();
         assert!(config.general.agent_integration && config.general.agent_notifications);
+        assert!(config.general.agent_status_animation);
         values.apply(&mut config).unwrap();
         assert!(!config.general.agent_integration && !config.general.agent_notifications);
+        assert!(!config.general.agent_status_animation);
         values.save(&path).unwrap();
         let source = std::fs::read_to_string(&path).unwrap();
         let saved: toml::Value = toml::from_str(&source).unwrap();
         assert!(source.contains("# preserve"));
         assert_eq!(saved["general"]["agent_integration"].as_bool(), Some(false));
         assert_eq!(saved["general"]["agent_notifications"].as_bool(), Some(false));
+        let reloaded: UiConfig = toml::from_str(&source).unwrap();
+        assert!(!reloaded.general.agent_status_animation);
         assert_eq!(saved["env"]["TERMUST_AGENT_SENTINEL"].as_str(), Some("keep"));
         assert_eq!(saved["font"]["normal"]["style"].as_str(), Some("Bold"));
     }
@@ -685,9 +703,11 @@ PRESERVED='yes'
         values.agent_integration = true;
         let mut reloaded = original.clone();
         reloaded.general.agent_notifications = false;
+        reloaded.general.agent_status_animation = false;
         values.rebase(&original, &reloaded);
         assert!(values.agent_integration);
         assert!(!values.agent_notifications);
+        assert!(!values.agent_status_animation);
     }
 
     #[test]
