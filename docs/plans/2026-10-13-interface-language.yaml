@@ -1,0 +1,41 @@
+plan: interface-language
+title: Native language configuration
+status: done
+created: 2026-10-13
+updated: 2026-10-13
+goal: Add selectable, persistent interface languages.
+context:
+  - Menus and tab settings currently use fixed Portuguese text.
+  - Alacritty already supports TOML configuration reload and native overlay controls.
+scope:
+  - Central language catalogs and locale resolution.
+  - A language setting in TOML and a native settings dialog.
+  - Safe configuration updates and live UI changes.
+  - Regression checks for both languages and unsupported locales.
+out_of_scope:
+  - Translating shell output or third-party terminal applications.
+  - Changing process locale variables for existing or new shells.
+  - Replacing the system executable.
+stages:
+  - id: catalog
+    desc: Language types and translated messages
+    status: done
+  - id: settings
+    desc: Native settings and configuration persistence
+    status: done
+  - id: verification
+    desc: Unit, graphical and documentation checks
+    status: done
+risks:
+  - Translations may change element widths and menu placement.
+  - Persistence must not discard comments or unrelated configuration.
+rollback:
+  - Remove only the new localization setting, catalogs and language controls from the working tree.
+decisions:
+  - English is the fallback and system locale is the initial language selection.
+  - Portuguese and English are available explicitly from the configuration UI.
+  - Native TOML configuration remains the single source of truth.
+  - Preserve drafts on unrelated reloads and restart monitoring when settings create a configuration file.
+  - Translate built-in search labels and truncation indicators and preserve terminal content and query strings.
+  - Validation passed with 331 workspace tests, Rust 1.89 Clippy and all four native X11 regression scripts.
+  - English and Portuguese full panels, menus and search bars were inspected visually.

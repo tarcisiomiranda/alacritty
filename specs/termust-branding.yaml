@@ -1,0 +1,90 @@
+spec: termust-branding
+title: Termust fork identity and gear logo
+status: done
+created: 2026-10-31
+updated: 2026-11-01
+goal: Ship the terminal as Termust with an original Rust-inspired gear and terminal logo.
+problem: The fork still uses the upstream identity despite adding a separate daily terminal workflow.
+behavior:
+  - The executable, window, launcher, CLI and distribution identify the application as Termust.
+  - A copper orange gear surrounds a terminal prompt in scalable native artwork.
+  - Existing Alacritty configuration and saved sessions remain available through compatibility fallbacks.
+requirements_functional:
+  - Provide the termust executable and a distinct Termust desktop identity and icon.
+  - Provide SVG and PNG icons, a wordmark and a visual preview at desktop sizes.
+  - Install and publish the renamed package using the existing mise and B2 workflow.
+  - Retain upstream attribution and the Apache license.
+constraints:
+  - Preserve internal library names and the alacritty TERM protocol where required by compatibility.
+  - Keep the existing public download endpoint and historical releases available.
+  - Do not rename the active source directory or GitHub repository, or stage, commit or push.
+implemented:
+  - Termust is the Cargo package and executable, window title and class, IPC and logging identity.
+  - Native gear assets include SVG, RGBA PNG, wordmarks, preview, ICO and ICNS.
+  - Configuration discovery prefers Termust across supported file formats and preserves explicit and legacy configuration paths.
+  - Legacy saved tabs, recovery and workspaces are read without destructive migration and new state is stored separately.
+  - Installer, launcher, completions, manual pages, release workflow and fork documentation use the Termust identity.
+  - Local installation, desktop integration and public B2 package verification passed for 0.18.0-termust.c14a29f6.e07015affb51.
+  - All 421 workspace tests, one doctest and 23 installer checks passed, along with native graphical suites and independent review.
+  - GNOME follow-up added branded native captions, standard new-window action and backed-up migration of the old managed fork command and launcher.
+  - Follow-up release 0.18.0-termust.c14a29f6.5904ffa2ef24 passed 423 workspace tests, 30 installer checks and graphical verification, and was installed and publicly verified.
+  - A new Termust process was launched through its canonical desktop entry on the user Wayland session while the previous terminal remained running.
+  - README explains Alacritty inspiration and source credit, partial AI assistance and respectful separation from upstream policy.
+  - Native tabs, panes, multiple windows, menus and settings are illustrated by four actual screenshots with sample data.
+  - Performance and low memory use are presented as goals with no unsupported comparative benchmark claims.
+pending:
+  - None in the current README scope.
+steps:
+  - id: identity
+    desc: Rename runtime and preserve legacy configuration and session compatibility
+    status: done
+    verify: mise exec -- cargo test --workspace
+    note: "Final workspace run passed 421 tests and one doctest; Clippy 1.89 and nightly rustfmt passed. Native configuration takes priority across TOML/YAML; explicit config paths remain authoritative."
+  - id: artwork
+    desc: Create original scalable gear logo and integrate native application assets
+    status: done
+    verify: mise exec -- python3 -B scripts/verify-branding.py
+    note: "Inspected dark/light preview and small icon sizes; validated SVG, RGBA8 PNG, ICO, ICNS, launcher and completions."
+  - id: distribution
+    desc: Update installer, desktop identity and package integration
+    status: done
+    verify: mise run test:install
+    note: "23 installer checks passed, including coexistence and incompatible legacy version guidance."
+  - id: delivery
+    desc: Install and publish Termust and verify the public package
+    status: done
+    verify: mise run release:verify
+    note: "mise run publish uploaded and publicly verified the exact installed package and installer, release 0.18.0-termust.c14a29f6.e07015affb51."
+  - id: gnome-followup
+    desc: Align GNOME launches and inherited default titles with the Termust identity
+    status: done
+    verify: mise exec -- python3 -B scripts/test-termust-branding.py
+    note: "Four real-window caption cases and installer migration passed; GNOME 50.6 new-window action behavior checked in installed shell source. Exact release installed and published; canonical desktop launch confirmed on user Wayland session without closing the old process."
+  - id: readme-story
+    desc: Explain Alacritty origins and respectful AI-policy separation and show native features with actual screenshots
+    status: done
+    verify: git diff --check
+    note: "Verified official upstream policy, visually inspected four actual screenshot assets, resolved fourteen local links/assets and checked Markdown fences; runtime unchanged."
+acceptance:
+  - id: termust
+    desc: Termust launches with its icon and identity and still reads legacy user data
+    status: done
+    note: "Actual X11 class, default title and exact embedded icon pixels verified; legacy data fallback and native precedence verified graphically and in Rust tests."
+  - id: install
+    desc: The installed and public Termust package matches the validated build
+    status: done
+    note: "Installed release receipt and launcher verified; public B2 bytes matched and the public pipe installer installed Termust successfully in isolated HOME."
+decisions:
+  - Use native vector artwork to keep the logo crisp at launcher and documentation sizes.
+  - Use a distinctive gear with a terminal prompt rather than copying the official Rust logo.
+  - Retain the existing B2 bucket URL as a stable download endpoint.
+  - Keep Alacritty internal source paths and library crates while renaming the application package.
+  - Append Termust to custom native window captions while preserving logical tab and shell titles.
+  - Use the GNOME new-window desktop action to avoid duplicate launch menu items.
+  - Redirect only the proven previous managed fork binary after backing it up and installing the new canonical launcher.
+  - Explain the project origins in simple English and link directly to the verified upstream contribution policy.
+  - Describe responsiveness and low memory use as design goals, with no unmeasured comparative performance claims.
+  - Show real isolated Termust windows with sample data, not private user sessions or mock interface images.
+risks:
+  - Identity changes can strand saved data or cause desktop launcher collisions.
+  - Protocol and internal names must not be blindly replaced as branding.

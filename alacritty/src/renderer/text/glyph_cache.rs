@@ -271,9 +271,13 @@ impl GlyphCache {
     /// Reset currently cached data in both GL and the registry to default state.
     pub fn reset_glyph_cache<L: LoadGlyph>(&mut self, loader: &mut L) {
         loader.clear();
-        self.cache = Default::default();
+        self.clear_cached_glyphs();
 
         self.load_common_glyphs(loader);
+    }
+
+    pub fn clear_cached_glyphs(&mut self) {
+        self.cache.clear();
     }
 
     /// Update the inner font size.

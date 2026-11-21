@@ -1,0 +1,36 @@
+spec: upstream-sync
+title: Integrate upstream master while preserving local work
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+goal: Merge origin/master into docs/terminal-workspace and restore local staged and unstaged changes.
+problem: The working branch lacks three upstream commits and contains substantial uncommitted work.
+behavior:
+  - Include upstream binding serialization and keyboard stack fixes.
+  - Preserve the fork contribution guide and its local changes.
+constraints:
+  - Do not publish or push changes.
+  - Do not include unrelated local work in the upstream merge commit.
+implemented:
+  - Saved original HEAD, index and local patches under /tmp/alacritty-upstream-sync.C8phsd.
+pending:
+  - None.
+steps:
+  - id: integrate
+    desc: Back up local changes, merge upstream and restore staged and unstaged work
+    status: done
+    note: "Merged origin/master; restored local work and verified the original staged patch hash. Preserved the Termust guide and applied the upstream TOC to its historical copy."
+  - id: verify
+    desc: Run the workspace tests after integration
+    status: done
+    verify: mise exec -- cargo test --workspace --locked
+acceptance:
+  - desc: Upstream master is an ancestor of the current branch and local work is preserved
+    status: done
+    note: "Merge 709cae5e contains upstream aecf0f60. Local changes restored; staged patch matches its original SHA-256; workspace tests and doctest passed."
+decisions:
+  - Treat the pull request as authorization to merge origin/master into the current branch.
+  - Include 54214706 because it precedes the two newly fetched commits.
+  - Preserve the Termust contribution guide and record the upstream table of contents in its historical copy if necessary.
+risks:
+  - Restoring local changes can conflict with the upstream contribution guide update.

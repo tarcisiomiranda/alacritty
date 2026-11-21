@@ -20,6 +20,11 @@ pub struct General {
     pub restore_session: bool,
     pub session_autosave: bool,
     pub confirm_tab_close: bool,
+    pub agent_integration: bool,
+    pub agent_notifications: bool,
+    pub check_updates: bool,
+    pub editor: String,
+    pub file_manager: String,
     pub startup_session: Option<String>,
 
     /// Configuration file imports.
@@ -47,6 +52,11 @@ impl Default for General {
             restore_session: true,
             session_autosave: false,
             confirm_tab_close: true,
+            agent_integration: true,
+            agent_notifications: true,
+            check_updates: true,
+            editor: "auto".into(),
+            file_manager: "auto".into(),
             startup_session: None,
             live_config_reload: true,
             ipc_socket: true,

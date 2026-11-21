@@ -1,0 +1,127 @@
+spec: agent-status
+title: Agent activity and attention in terminal tabs
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+goal: Show reliable and simple agent progress, questions, permission requests and completion in tabs and panes.
+problem: A long-running agent looks like an ordinary running shell command even when it is waiting for the user.
+behavior:
+  - Automatically integrate supported installed harnesses inside new Termust shells without rewriting their user configuration.
+  - Distinguish working, needs input, needs permission, finished, failed and limited integration.
+  - Display localized compact tab badges and a compact upper-right chat list that focuses the correct tab and pane.
+  - Count agent panes across all groups, animate working circles and pulse waiting question marks without new output.
+  - Retain unread attention for background tabs and groups and offer configurable notifications without approving anything.
+requirements_functional:
+  - Support Claude, Codex, OpenCode and the installed agy entry point according to their actual event capabilities.
+  - Prefer official hooks and events; never infer approval or success from arbitrary terminal text or silence.
+  - Keep custom tab names, groups, shell behavior, application key handling and existing harness configuration intact.
+  - Provide simple native settings and transparent capability information when a harness cannot expose a state.
+requirements_non_functional:
+  - Use a bounded private per-pane channel carrying provider and state metadata only, without prompts, responses or credentials.
+  - Reject stale sessions, malformed events, oversized records and unsafe files, and clear live status when its process exits.
+  - Avoid a persistent daemon, extra network server and an LLM dependency for status detection.
+constraints:
+  - Never approve permissions, change harness approval policy or interfere with the user's live agent sessions.
+  - Do not commit or push; preserve prior staged and unstaged work.
+implemented:
+  - Private bounded per-pane metadata channels with atomic writes, ownership checks, monotonic records and process lifecycle handling.
+  - Automatic PATH adapters discovered after shell startup without advertising missing executables or rewriting global agent settings.
+  - Claude session hooks, native Codex OSC7501 events, AGY structured title callbacks and OpenCode client-side plugins.
+  - Localized compact tab state labels, unread background attention and a native overview that focuses stable tab and pane identities.
+  - Native Agents preferences for integration and window attention, with scoped saves and preserved appearance preview semantics.
+  - Bounded native event parser, stale completion protection, safe cancellation and acknowledgement of finished processes.
+  - Subtle total chat count across tab groups, rotating working circles and pulsing input and permission questions.
+  - Upper-right compact chat popup with priority ordering, pane coordinates, titles, colored states, scrolling and stable click targets.
+  - Independent eight-frame animation timer that stops for idle or finished agents, disabled integration and occluded windows.
+pending:
+  - None.
+steps:
+  - id: capabilities
+    desc: Verify installed versions and actual hooks or event APIs for all four harnesses
+    status: done
+    note: "Verified installed Claude2.1.316 hooks, Codex0.166 nativeOSC7501 actualquestion/permission/done, AGY1.4.12 titlecallback and OpenCode2.2.5 clientplugin; no global configuration mutations or approval bypass."
+  - id: bridge
+    desc: Implement private per-pane state channel and isolated harness adapters
+    status: done
+    verify: mise exec -- python3 -B scripts/test-agent-bridge.py
+  - id: native-ui
+    desc: Integrate localized activity badges, attention navigation and native preferences
+    status: done
+    verify: mise exec -- cargo test -p termust
+  - id: graphical
+    desc: Validate independent panes, background groups, notifications and actual harness events
+    status: done
+    verify: mise run test:agents
+    note: "All 8 native graphical cases passed final portable0c50185600ad, including live locale refresh, raw Enter/repeat isolation, independent groups/panes, window urgency and installed AGY/OpenCode. Bridge21 and actual Codex native GUI/Claude events verified separately; final log /tmp/termust-agent-status-native-final-8.log."
+  - id: delivery
+    desc: Verify regressions and deliver the tested local version with documentation
+    status: done
+    verify: mise exec -- cargo test --workspace
+  - id: compact-dashboard
+    desc: Add a subtle animated chat indicator and a compact pane-aware attention list
+    status: done
+    verify: mise exec -- cargo test --workspace --locked
+  - id: compact-graphical
+    desc: Verify animation, compact scrolling and direct focus across chat panes
+    status: done
+    verify: mise run test:agents
+    note: "Verifica dashboard compacto, animacoes sem novos eventos, foco de splits/grupos e preferencias atualizadas."
+  - id: compact-install
+    desc: Install and verify the compact chat dashboard locally
+    status: done
+    verify: mise run install:verify
+    note: "Instalado 0.18.0-termust.709cae5e.0285712a4f05; confere binario, recibo, PATH e atalho desktop."
+acceptance:
+  - id: truthful-states
+    desc: Supported events show correct states and unsupported states are clearly disclosed
+    status: done
+    note: "Explicit events and limited-mode disclosure verified with unit, native and actual harness checks."
+  - id: attention
+    desc: Waiting and finished states are discoverable and focus the correct tab and pane
+    status: done
+    note: "Hidden group and split focus plus window urgency verified against final portable."
+  - id: isolation
+    desc: Concurrent sessions and user configuration stay isolated and permissions remain user-controlled
+    status: done
+    note: "Private channels, argv/settings preservation and raw Enter/repeat isolation passed; no approvals granted."
+  - id: usability
+    desc: Default command launch works simply with compact readable English and Portuguese controls
+    status: done
+    note: "Automatic normal commands and compact English/Portuguese screenshots verified; live locale refresh passed."
+  - id: compact-chats
+    desc: A subtle animated chat count opens a compact priority list and clicking a row focuses its stable split without forwarding input
+    status: done
+    note: "Nove casos graficos completos e teste adicional em pt-BR contra o binario instalado confirmam animacoes, contagem de splits, prioridade e foco sem encaminhar entrada."
+decisions:
+  - Reuse native agent events and pane IDs instead of inferring activity from terminal output.
+  - Use an attention-sorted compact popup with chat counts, animated working circles and pulsing questions.
+  - Animate at eight frames per second only while an agent is working or waiting for input or permission, and stop the timer when the window is occluded.
+  - Keep the popup within 56 columns and 16 rows, use scrolling and preserve selected pane identity across priority changes.
+  - Display custom tab titles when available, otherwise use each pane title, prefixed with tab and pane numbers.
+  - Working covers thinking and tool execution because users need to know whether the agent is progressing or needs them.
+  - Do not scrape personal transcripts or private reasoning for progress labels.
+  - Integrate through temporary per-session configuration and wrappers; existing live harnesses are not restarted.
+  - agy capabilities must be identified from the installed program before promising CLI parity.
+  - Use Codex native OSC7501 events for work, completion, permission and question states; preserve its command line and avoid installing new hooks or changing trust.
+  - Notifications request native window attention and retain a tab badge; they never answer or grant a pending permission.
+  - Keep full waiting descriptions in the overview and shorter reply and permission labels in the compact tab bar.
+validation:
+  - Compact dashboard passed 475 Rust unit and reference tests plus one doctest, Rust 1.89 Clippy with warnings denied and scoped formatting.
+  - All nine native graphical cases and 21 bridge tests passed after refreshing the preferences navigation for the Applications category.
+  - Two simultaneous chat panes verified animation without new events, a pulsing permission question, direct mouse focus without input forwarding and still indicators after returning to ready.
+  - Local version 0.18.0-termust.709cae5e.0285712a4f05 passed receipt, binary hash, PATH and desktop launcher verification.
+  - Final portable0c50185600ad passed all eight native graphical cases; source verification passed 460 unit and reference tests plus one doctest.
+  - Real raw input testing confirms Enter and key repeat used to focus a permission pane never reach the agent.
+  - Live language switching updates status rows without requiring the overview to reopen; its regression also fails on the prior binary.
+  - Portable installation and graphical launch passed on all six supported Linux distributions; local installation and launcher checks passed.
+  - Twenty-one bridge tests pass, including private files, unsafe links, concurrent events, settings preservation, safe discovery, errors and real PTY signal forwarding.
+  - Existing language, productivity, shortcut-list and context menu graphical suites passed after adding the Agents preferences category.
+  - Real Claude completion and PermissionRequest events were observed without granting the requested operation.
+  - Real Codex native work, completion, permission and question states were observed without adding hooks or bypassing permission policy.
+  - Real OpenCode private client plugin emitted ready, working and done through the Termust wrapper; real AGY emitted its structured title callback.
+  - AGY authentication and startup callbacks were tested; permission and task-state payloads also have deterministic adapter coverage.
+  - Claude interactive questions are mapped from official hooks and covered by deterministic events; the bounded headless question probe did not emit AskUserQuestion.
+risks:
+  - Harness hook availability varies by version and existing custom launchers may require an explicit integration path.
+  - A completion event may be followed by more work; session identity and event ordering must prevent stale badges.
+  - Notifications must remain useful without repeatedly interrupting the user.

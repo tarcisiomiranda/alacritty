@@ -15,11 +15,7 @@ mod yaml;
 /// Handle migration.
 pub fn migrate(options: MigrateOptions) {
     // Find configuration file path.
-    let config_path = options
-        .config_file
-        .clone()
-        .or_else(|| config::installed_config("toml"))
-        .or_else(|| config::installed_config("yml"));
+    let config_path = options.config_file.clone().or_else(config::installed_config);
 
     // Abort if system has no installed configuration.
     let config_path = match config_path {

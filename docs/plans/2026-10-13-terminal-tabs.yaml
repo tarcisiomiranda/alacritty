@@ -1,0 +1,65 @@
+plan: terminal-tabs
+title: Native tabs for Alacritty
+status: done
+created: 2026-10-13
+updated: 2026-10-13
+goal: Add named native tabs and persist and restore directories and selected recent commands.
+context:
+  - WindowContext currently combines session state and a shared window and display.
+scope:
+  - Extract session state and add tab selection and closure.
+  - Route PTY events by session identity.
+  - Render a clickable tab bar and add configurable keyboard actions.
+  - Verify lifecycle, geometry, keyboard bindings and graphical behavior.
+  - Add tab settings, persistent names and per-tab replay preferences.
+  - Capture commands through shell hooks and save a private session snapshot.
+  - Restore saved tabs and selected commands on startup and through the UI.
+out_of_scope:
+  - Split panes and restoration of process memory, terminal output or unsaved shell variables.
+  - Replacing the installed terminal without an explicit installation request.
+stages:
+  - id: sessions
+    desc: Session state and terminal routing
+    status: done
+  - id: controls
+    desc: Rendering, input and documentation
+    status: done
+  - id: verification
+    desc: Rust tests and graphical smoke test
+    status: done
+  - id: persistence
+    desc: Private snapshots and shell command integration
+    status: done
+  - id: restore-ui
+    desc: Tab settings and selective session restoration
+    status: done
+  - id: session-verification
+    desc: Session persistence and replay regression checks
+    status: done
+  - id: friendly-ui
+    desc: Settings redesign and native right-click menu
+    status: done
+  - id: friendly-ui-verification
+    desc: Mouse, keyboard, visual and persistence regressions
+    status: done
+risks:
+  - Background PTY requests and exit events can affect the wrong active session without explicit routing.
+rollback:
+  - Revert only the tab implementation and its new documentation files from this working tree.
+decisions:
+  - Reuse existing terminal and OpenGL rendering primitives.
+  - Add clear graphical controls and a right-click menu in tabs and terminal content.
+  - Share cell-based layout between rendering and hit testing and clamp overlays to the available viewport.
+  - Separate upper and lower padding so the bar consumes exactly one row.
+  - Use stable session identity for PTY events and deferred timers.
+  - Validation completed with workspace tests, Rust 1.89 Clippy and isolated X11 smoke tests.
+  - Keep the installed system executable unchanged and document the checkout launch command.
+  - Save explicitly and restore the saved snapshot without replaying unselected commands.
+  - Use bounded shell metadata files and avoid keyboard inference and global history scraping.
+  - Preserve the original shell profile and replay through a private script after a successful directory change.
+  - Verify history-excluded running commands still mark the shell as busy before allowing replay.
+  - Recover to a usable terminal when a saved shell is unavailable without modifying its snapshot.
+  - Final validation passed with 295 workspace tests, Rust 1.89 Clippy, native Bash PTY integration and both isolated X11 regression scripts.
+  - Cancel pending execution immediately when replay is disabled in the tab settings dialog.
+  - Friendly UI verification passed with 306 workspace tests, Rust 1.89 Clippy and all three isolated X11 scripts.
+  - Inspect full, context-menu and compact screenshots and preserve existing terminal mouse and clipboard semantics.

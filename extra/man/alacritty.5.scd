@@ -138,10 +138,12 @@ This section documents the *[general]* table of the configuration file.
 
 	Overrides replace bindings for the named action, preserving unrelated
 	bindings and imported configuration files. For example,
-	*SplitVertical = "Ctrl+Alt+E"*. The editor supports tab creation,
-	duplication, reopening and reordering; pane splitting, focus, maximization
-	and closure; workspaces, settings and session saving. Other actions remain
-	configurable through *keyboard.bindings*.
+	*SplitVertical = "Ctrl+Alt+E"* or *RenameTab = "F2"*. The editor supports
+	tab creation, renaming, closure, navigation, duplication, reopening and
+	reordering; pane splitting, focus, maximization and closure;
+	workspaces, settings and session saving.
+	F2 renaming leaves the key available to alternate-screen applications.
+	Other actions remain configurable through *keyboard.bindings*.
 
 	Default: _{}_
 

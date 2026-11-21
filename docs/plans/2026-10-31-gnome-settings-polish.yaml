@@ -1,0 +1,51 @@
+plan: gnome-settings-polish
+title: Correct GNOME launches and compact settings presentation
+status: done
+created: 2026-10-31
+updated: 2026-10-31
+context:
+  - User screenshots show an old Alacritty icon and process, an inherited window title and stretched compact preferences.
+goal: Open the Termust identity correctly from GNOME and make settings usable at the user's window size and scale.
+scope:
+  - Diagnose active processes, desktop entries, restored title sources and GNOME matching.
+  - Improve native compact preferences controls, spacing and footer geometry.
+  - Correct the owned previous fork launcher path without closing running user sessions.
+  - Verify native graphical behavior, install and publish the correction.
+out_of_scope:
+  - Closing or killing live user terminals or discarding custom tab names.
+  - Replacing the system Alacritty package or rewriting unrelated GNOME preferences.
+  - Staging, commits and pushes.
+stages:
+  - id: diagnose
+    desc: Identify desktop identity and compact layout causes
+    status: done
+  - id: implement
+    desc: Correct launchers and refine compact controls
+    status: done
+  - id: verify
+    desc: Validate titles, GNOME association and settings interaction
+    status: done
+  - id: deliver
+    desc: Install and publish and open the corrected Termust launcher
+    status: done
+risks:
+  - Existing shells must remain alive while launcher paths migrate.
+  - Compact geometry and hit testing must use the same bounds.
+rollback:
+  - Preserve previous launcher bytes and all user state and configuration.
+decisions:
+  - Normalize only proven old default identities and retain custom names.
+  - Apply layout changes to shared native controls with no GUI toolkit dependency.
+  - Append the app name to native custom captions while keeping saved and logical titles unchanged.
+  - Use GNOME new-window action identity to suppress the duplicate built-in launch item.
+validation:
+  - All 423 workspace tests and one doctest passed, plus ten final localization checks.
+  - Clippy and nightly rustfmt passed.
+  - All 30 installer tests passed, including managed migration, preservation and idempotence.
+  - Full productivity, language, context-menu, four identity and two compact graphical scenarios passed.
+  - Native compact forms were inspected at the exact 737x570 user dimensions and in EN/PT and dark/light variants.
+  - Optimized final build verified compact mouse controls and visible Esc instructions.
+  - Independent review found no migration or caption issues.
+  - Release 0.18.0-termust.c14a29f6.5904ffa2ef24 was installed and verified; the legacy binary and launcher were backed up before redirecting the owned command.
+  - The public B2 release, installer and checksums were verified after publication.
+  - A canonical desktop launch started a new Termust process on the user Wayland session; the original Alacritty process remained alive.

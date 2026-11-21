@@ -83,6 +83,8 @@ finally:
                 XDG_STATE_HOME=str(work / "state"), HOME=str(home))
             env.pop("WAYLAND_DISPLAY", None)
             env.pop("BASH_ENV", None)
+            for name in ["ALACRITTY_SOCKET", "ALACRITTY_WINDOW_ID", "TERMUST_SOCKET", "TERMUST_WINDOW_ID"]:
+                env.pop(name, None)
             app = subprocess.Popen([binary, "--config-file", str(config)], env=env, stdout=log, stderr=log)
             x11 = smoke.X11(display)
             window = smoke.wait_for(lambda: next((w for w in x11.windows() if x11.title(w) == "tab-ui"), None),
@@ -90,7 +92,7 @@ finally:
             time.sleep(0.5)
             x11.lib.XSetInputFocus(x11.display, window, 2, 0)
             x11.lib.XFlush(x11.display)
-            state_file = work / "state" / "alacritty" / "tabs.json"
+            state_file = work / "state" / "termust" / "tabs.json"
             size_file = work / "size"
 
             def command(text):
@@ -108,12 +110,12 @@ finally:
             def terminal_menu():
                 columns, rows, _, _ = dimensions()
                 click(columns - 1, rows - 1, 3)
-                return columns - min(50, columns), rows - min(23, rows)
+                return columns - min(50, columns), rows - min(28, rows)
 
             def menu_item(origin, row):
                 _, rows, _, _ = dimensions()
-                height = min(23, rows)
-                if height == 23:
+                height = min(28, rows)
+                if height == 28:
                     click(origin[0] + 4, origin[1] + row)
                     return
                 header = int(height >= 8)
@@ -121,7 +123,7 @@ finally:
                 logical_row = row - 3
                 offset = 0
                 if logical_row >= capacity:
-                    offset = 19 - capacity
+                    offset = 24 - capacity
                     for _ in range(offset):
                         click(origin[0] + 4, origin[1] + 3, 5)
                 click(origin[0] + 4, origin[1] + header + 1 + logical_row - offset)
@@ -152,7 +154,7 @@ finally:
 
             def menu_body_pixels(path, origin):
                 _, rows, cell_width, cell_height = dimensions()
-                height = min(23, rows)
+                height = min(28, rows)
                 header = int(height >= 8)
                 capacity = height - header - 2
                 geometry = f"{int(40 * cell_width)}x{int(capacity * cell_height)}+{int((origin[0] + 1) * cell_width)}+{int((origin[1] + header + 2) * cell_height)}"
@@ -177,9 +179,9 @@ finally:
             command("ls")
             time.sleep(0.3)
             origin = terminal_menu()
-            menu_item(origin, 12)
+            menu_item(origin, 15)
             x11.chord("q")
-            menu_item(origin, 4)
+            menu_item(origin, 7)
             x11.type("Backend")
             capture()
             left, top = dialog_origin()
@@ -188,14 +190,14 @@ finally:
             smoke.wait_for(lambda: x11.title(window) == "Backend", "right-click rename applies through mouse button")
             origin = terminal_menu()
             capture("menu")
-            menu_item(origin, 15)
+            menu_item(origin, 18)
             snapshot = saved_tabs(1)
             assert snapshot["tabs"][0]["title"] == "Backend"
             assert snapshot["tabs"][0]["replay_last_command"] is True
             x11.chord("Escape")
             print("ok: terminal context menu, mouse rename and save session", flush=True)
 
-            menu_item(terminal_menu(), 3)
+            menu_item(terminal_menu(), 6)
             smoke.wait_for(lambda: x11.title(window) == "tab-ui", "menu creates a tab")
             command(f"printf '\\033]0;Worker\\007'; echo $$ > {work}/worker-pid")
             smoke.wait_for(lambda: (work / "worker-pid").exists() and x11.title(window) == "Worker", "second tab initialized")
@@ -213,7 +215,7 @@ finally:
             print("ok: compact tab bar hover exposes closing without switching sessions", flush=True)
             x11.click(2.5 * cell_width, cell_height / 2, 3)
             assert x11.title(window) == "Worker"
-            menu_item((2, 0), 4)
+            menu_item((2, 0), 7)
             x11.chord("Control_L", "a")
             x11.type("API")
             dialog_apply()
@@ -228,7 +230,7 @@ finally:
             x11.chord("Alt_L", "2")
             smoke.wait_for(lambda: x11.title(window) == "Worker", "active tab retained its shell title")
             x11.click(2.5 * cell_width, cell_height / 2, 3)
-            menu_item((2, 0), 21)
+            menu_item((2, 0), 26)
             assert x11.title(window) == "Worker"
             x11.chord("Control_L", "Shift_L", "s")
             saved_tabs(1)
@@ -238,7 +240,7 @@ finally:
             columns, _, _, _ = dimensions()
             toolbar_column = min(30, columns - 6) + 4
             x11.click((toolbar_column + 0.5) * cell_width, cell_height / 2)
-            menu_item((min(toolbar_column, columns - 50), 0), 4)
+            menu_item((min(toolbar_column, columns - 50), 0), 7)
             x11.chord("Control_L", "a")
             x11.type("Console")
             dialog_apply()
@@ -267,8 +269,8 @@ finally:
             x11.xtest.XTestFakeButtonEvent(x11.display, 1, False, 0)
             x11.lib.XFlush(x11.display)
             time.sleep(0.1)
-            menu_item(terminal_menu(), 12)
-            menu_item(terminal_menu(), 13)
+            menu_item(terminal_menu(), 15)
+            menu_item(terminal_menu(), 16)
             x11.chord("Return")
             smoke.wait_for(clipboard_marker.exists, "menu Copy and Paste use selected terminal text")
             assert clipboard_marker.read_text() == "clipboard-ui\n"
@@ -294,7 +296,7 @@ finally:
             origin = terminal_menu()
             x11.press(shift, False)
             x11.lib.XFlush(x11.display)
-            menu_item(origin, 4)
+            menu_item(origin, 7)
             x11.chord("Control_L", "a")
             x11.type("Mouse application")
             dialog_apply()
@@ -311,7 +313,7 @@ finally:
             smoke.wait_for(size_file.exists, "compact terminal geometry reported")
             columns, rows, _, _ = dimensions()
             assert columns == 45 and rows == 18
-            menu_item(terminal_menu(), 4)
+            menu_item(terminal_menu(), 7)
             x11.chord("Control_L", "a")
             x11.type("Compact")
             capture("compact")
@@ -341,7 +343,7 @@ finally:
             origin = terminal_menu()
             x11.press(shift, False)
             x11.lib.XFlush(x11.display)
-            menu_item(origin, 12)
+            menu_item(origin, 15)
             x11.chord("q")
             top_pixels = menu_body_pixels(capture("compact-menu-top"), origin)
             click(origin[0] + 20, origin[1] + rows - 1)
@@ -362,9 +364,7 @@ finally:
             smoke.wait_for(lambda: (work / "mouse-finished").exists(), "compact raw mouse probe exited")
             print("ok: disabled items stay open; compact wheel/arrows scroll without PTY input", flush=True)
             origin = terminal_menu()
-            for _ in range(4):
-                click(origin[0] + 20, origin[1] + 5, 5)
-            click(origin[0] + 4, origin[1] + 11)
+            menu_item(origin, 19)
             time.sleep(0.3)
             x11.chord("Control_L", "Shift_L", "s")
             snapshot = saved_tabs(2)
@@ -401,5 +401,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["mise", "exec", "--", "cargo", "metadata", "--no-deps", "--format-version", "1"],
             check=True, capture_output=True, text=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

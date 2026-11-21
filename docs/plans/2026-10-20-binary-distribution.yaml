@@ -1,0 +1,87 @@
+plan: binary-distribution
+title: Public B2 installer and local release build
+status: done
+created: 2026-10-20
+updated: 2026-11-20
+goal: Make the improved terminal installable with curl or mise and use it on this workstation.
+context:
+  - The GNOME launcher's installed build and running process were both 0a5a85a8. The last local receipt predated publication of the Yorkie package by fifteen minutes.
+  - The user prefers maintaining this fork after upstream declined the requested features.
+  - Fedora currently launches /usr/bin/alacritty version 0.17.0.
+  - B2 CLI 5 is available and authorized to create buckets and upload files.
+scope:
+  - A public artifact bucket, optimized package, checksum and latest pointer.
+  - install.sh, local build and install tasks, publication helpers and installer tests.
+  - User desktop integration and documentation of the install and update commands.
+out_of_scope:
+  - Replacing Fedora package files, changing terminal settings or terminating current sessions.
+  - Untested macOS, Windows or ARM packages and automatic system dependency installation.
+  - Git commits, pushes and PR changes.
+stages:
+  - id: in-app-updates
+    desc: Add background checks and manual installation, validate both platforms, and verify the authorized public rollout
+    status: done
+  - id: update-feedback
+    desc: Verify the real desktop install, report the active and installed builds, and validate the revised public installer
+    status: done
+  - id: unified-installer
+    desc: One install.sh for Linux and macOS with independent platform release pointers
+    status: done
+  - id: implementation
+    desc: Installer, package metadata and mise tasks
+    status: done
+  - id: verification
+    desc: Installer failure cases and real release launch
+    status: done
+  - id: publication
+    desc: B2 upload, public download and local installation
+    status: done
+  - id: portable-build
+    desc: Build an older-glibc binary and validate real launches across Linux distributions
+    status: done
+  - id: reliable-updates
+    desc: Add preflight diagnostics version checks backups rollback and launch-path verification
+    status: done
+  - id: portable-publication
+    desc: Publish only after isolated tests and verify the current user installation
+    status: done
+  - id: termust-download-url
+    desc: Publish the Termust bucket and preserve historical downloads and the old curl command
+    status: done
+validation:
+  - All six Linux images passed installation and graphical checks on archive bfc5c2b9cdf9d983be0d27037d7a2980f442ba02649a669a58df1eadb033e26c. The canonical and mirror releases passed public verification. The workstation launcher selects the verified new build and the previous running process stayed open.
+  - The native Apple Silicon app detected the official update automatically. The public Linux and macOS upgrades preserved shell PIDs, launched separate new processes, verified the fresh background check and matched fresh installs from the common public installer.
+  - On X11 the default background check displayed the Portuguese notice only in the focused window. A PTY command spanning the notice kept its PID and no package changed until confirmation. A manual update in an isolated prefix kept the same live shell after activation.
+  - All ten distribution checks ran with the revised installer and the published Yorkie archive in the six Linux images identified by the verified release report. All passed.
+  - Anonymous installs verified the official installer hash 9ba6a435aed211deb83e60a7a18ffa7d86abf6ca720e07ed24dc5e090066c099. On Linux the old process remained alive and was identified after the update. On Apple Silicon the update, repeat install, signature and launching the new bundle alongside the old one passed.
+  - On the GNOME workstation the public command updated 0a5a85a8 to 75332083. The desktop launcher started the matching executable. The installed binary displayed Yorkie in the gallery, saved it and restored it on restart in isolated UI tests.
+  - Icon release 0.18.0-termust.64a3a8d1.c9b8aad893e5 passed all six distro checks and exact portable-binary icon tests before publication and anonymous verification in all three buckets on 2026-11-18.
+  - The corresponding native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and common installer passed actual public install reinstall and --check plus strict bundle signature verification.
+  - The same public install.sh command passed real installation on Linux x86_64 and macOS arm64; 52 Linux installer tests, 9 Mac release tests and 18 publisher tests passed.
+  - Dedicated termust bucket now hosts project releases with no personal-name prefix in the canonical curl URL.
+  - Release 0.18.0-termust.c14a29f6.ebee68120535 passed 52 installer tests 16 publisher tests and all six graphical distro checks before publication to three public locations.
+  - Anonymous installs and diagnostics passed from all three URLs and historical pinned installation remained available.
+  - Canonical tarcisiomiranda-termust bucket preserves all 27 historical public objects with matching server checksums.
+  - Release 0.18.0-termust.c14a29f6.b3ab7ad440b3 verified publicly in canonical and legacy buckets after 52 installer tests 14 publication tests and six distro checks.
+  - Both anonymous curl URLs and pinned historical installation passed and the current user installation was updated through the canonical curl command.
+  - Published and verified portable release 0.18.0-termust.c14a29f6.0ed98734649d including the exact six-distro compatibility report.
+  - Anonymous public curl installation and read-only --check passed in a temporary home.
+  - Current user installation and launcher verified; previous terminal PID remained alive and system Alacritty SHA256 unchanged.
+  - Portable package requires glibc 2.29 and passed ten real install and graphical checks on each of six distro userlands.
+  - All 52 installer tests and 11 public release gate tests passed.
+  - Real old and new ELF packages passed upgrade offline rollback and re-upgrade under an isolated home.
+  - Passed all 18 installer tests and deterministic archive checks.
+  - Passed optimized release graphical tests and public curl installation in a temporary prefix.
+  - Verified all B2 artifacts through anonymous HTTPS before updating the latest pointer.
+  - Installed locally with mise run install and passed install:verify.
+  - Opened the installed desktop launcher, used two tabs, saved its session and opened settings.
+  - Confirmed the system binary SHA256 was unchanged.
+risks:
+  - Dynamic dependencies differ across Linux distributions.
+  - Public aliases must change only after all versioned artifacts are verified.
+rollback:
+  - The original Fedora binary stays at /usr/bin/alacritty.
+  - User settings and saved sessions are not modified by the installer.
+decisions:
+  - Use immutable release paths with SHA256 checks and a separate latest version pointer.
+  - Build the local package through mise so the same archive serves both installation paths.

@@ -1,6 +1,6 @@
 #define IDI_ICON 0x101
 
-IDI_ICON ICON "alacritty.ico"
+IDI_ICON ICON "../../extra/logo/termust.ico"
 
 #define RT_MANIFEST 24
 #define APP_MANIFEST 1

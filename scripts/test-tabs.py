@@ -58,6 +58,9 @@ class X11:
         function.restype = result
 
     def title(self, window):
+        return self.raw_title(window).removesuffix(" — Termust")
+
+    def raw_title(self, window):
         name = ctypes.c_void_p()
         if not self.lib.XFetchName(self.display, window, ctypes.byref(name)) or not name.value:
             return ""
@@ -181,6 +184,8 @@ finally:
                 XDG_STATE_HOME=str(work / "state"))
             env.pop("WAYLAND_DISPLAY", None)
             env.pop("BASH_ENV", None)
+            for name in ["ALACRITTY_SOCKET", "ALACRITTY_WINDOW_ID", "TERMUST_SOCKET", "TERMUST_WINDOW_ID"]:
+                env.pop(name, None)
             with (work / "app.log").open("w") as log:
                 app = subprocess.Popen([binary, "--config-file", str(config)], env=env, stdout=log, stderr=log)
             x11 = X11(display)
@@ -316,5 +321,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["mise", "exec", "--", "cargo", "metadata", "--no-deps", "--format-version", "1"],
             check=True, capture_output=True, text=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

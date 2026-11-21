@@ -1,0 +1,44 @@
+plan: terminal-state-groups
+title: Terminal state and named tab groups
+status: done
+created: 2026-11-02
+updated: 2026-11-02
+context:
+  - Sessions already preserve directories, pane layout and recent commands captured before execution.
+  - Automatic recovery is optional and the tab bar currently shows every tab.
+goal: Recover useful terminal context and organize daily work into named groups.
+scope:
+  - Bounded plain-text scrollback and last-command persistence for every saved pane.
+  - Compact group selector, native group management and saved membership.
+  - Backward-compatible sessions, workspaces and safe fresh-shell recovery.
+  - Unit tests, isolated graphical tests and documentation.
+out_of_scope:
+  - Resuming process memory, remote sessions or full-screen application state.
+  - Changing existing command replay opt-in or terminating current user sessions.
+stages:
+  - id: model
+    desc: Extend saved state and group models with bounded validation
+    status: done
+  - id: ui
+    desc: Integrate group selection, management and restored terminal text
+    status: done
+  - id: validation
+    desc: Verify persistence, group navigation and real terminal behavior
+    status: done
+risks:
+  - Restored text can contain sensitive output, so state files retain owner-only permissions.
+  - Group filters must preserve original tab indices and asynchronous PTY identities.
+rollback:
+  - Remove only this feature while preserving existing uncommitted changes and old snapshots.
+decisions:
+  - Preserve the existing compact single-row bar and use a group menu rather than another tab row.
+  - Restore plain text without colors or terminal control effects; fresh shells start normally.
+  - Use the existing Sessions settings to enable automatic state saving.
+validation:
+  - Workspace tests, supported Rust 1.89 Clippy and scoped formatting passed.
+  - Session, productivity, pane and context menu graphical regressions passed.
+  - Four new graphical workflows cover groups, manual state, workspaces and automatic crash recovery.
+  - Portable package installation and graphical startup passed on all six supported Linux distributions.
+  - Four state and group workflows passed against the final portable binary, including automatic recovery with a saved replay opt-in but no command rerun.
+  - Release 0.18.0-termust.c14a29f6.586b456f7269 was published and verified in the canonical B2 bucket and both legacy mirrors.
+  - The identical portable archive was installed locally; PATH, receipt and desktop launcher checks passed, including public curl installer check mode.

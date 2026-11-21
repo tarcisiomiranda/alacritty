@@ -1,0 +1,65 @@
+plan: familiar-shortcuts
+title: Discoverable terminal shortcuts and accurate menu labels
+status: done
+created: 2026-10-31
+updated: 2026-11-20
+goal: Make common tab actions easier to remember and configurable through Settings.
+context:
+  - The user requested F2 rename and more familiar shortcuts in the context menu.
+  - A later screenshot showed only two actions and excessive empty space so the user could not find the shortcuts.
+scope:
+  - F2 rename, Ctrl Tab navigation, editable menu actions and effective menu labels.
+  - Existing shortcut compatibility, isolated keyboard tests, documentation, local install and public package update.
+out_of_scope:
+  - Reassigning existing split, session, clipboard and close shortcuts without a specific reason.
+  - Git staging, commits or pushes and user configuration rewrites.
+stages:
+  - id: rebind-save-feedback
+    desc: Reproduce shortcut edits from the visible row, fix capture and saving, and validate save feedback with real input
+    status: done
+  - id: implement
+    desc: Implement defaults, configurable actions and consistent labels
+    status: done
+  - id: verify
+    desc: Exercise unit and real keyboard regressions and inspect the menu
+    status: done
+  - id: deliver
+    desc: Document and install and publish the validated package
+    status: done
+  - id: shortcut-list
+    desc: Replace pagination with searchable scrollable action and shortcut rows and fix the trailing action activation range
+    status: done
+  - id: shortcut-list-delivery
+    desc: Verify real keyboard and mouse use then install and publish the new interface
+    status: done
+risks:
+  - F2 belongs to terminal applications in alternate-screen mode; prevent duplicate PTY input and GUI actions.
+  - Menu labels must respect both general shortcuts and keyboard bindings.
+rollback:
+  - Retain previous release artifacts and user configuration.
+decisions:
+  - Keep both pane shortcuts editable in one draft and offer an explicit exchange when the selected combination belongs to the other action.
+  - Preserve existing bindings and add familiar aliases.
+  - Put common tab actions including rename at the start of the searchable list and persist shortcuts by action name.
+  - Preserve clipboard composite bindings and hint shortcuts by keeping their editor support outside this task.
+  - Preserve aliases when reselecting an existing shortcut and return SS3 F2 when rename is disabled or moved.
+validation:
+  - The two split directions were exercised before and after restarting the locally installed portable build on GNOME Mutter Wayland and in X11. The saved pane trees confirmed both axes and previous bindings were released.
+  - All eight shortcut-editor scenarios, four shortcut and PTY scenarios, DPI and font checks, 493 Rust tests, one doctest and Rust 1.89 Clippy passed on Linux. The optimized binary passed mouse Save, retry and split swap tests.
+  - Native Apple Silicon build, macOS default binding tests and the settings swap and feedback regression passed. Interactive pointer feedback was exercised on Linux.
+  - Verified local Linux package 0.18.0-termust.f654c640.8bb7ad8e5276 with the installer and install verification task.
+  - Published and installed 0.18.0-termust.c14a29f6.ce240e67a40e after optimized UI checks and six distro tests.
+  - All three anonymous public curl install paths and local install verification passed; existing terminals retained their running processes.
+  - Searchable shortcut list passed all six new graphical cases on both debug and optimized portable binaries.
+  - All20 actions can be found edited saved and reloaded; real clipboard paste capture conflicts Cancel and shortcut-only defaults passed.
+  - Full existing productivity workflow and all six distribution runtime checks passed.
+  - Workspace tests focused geometry regressions Rust1.89 Clippy and nightly rustfmt passed; reviewed screenshots at1176x790 and737x570.
+  - 416 workspace tests and one doctest passed.
+  - Clippy 1.89 and nightly rustfmt passed.
+  - Four isolated graphical shortcut scenarios passed and the menu screenshot was inspected.
+  - Independent review found no remaining actionable issues after fixes.
+  - Productivity, context-menu and eight prior bug regressions passed.
+  - Four shortcut scenarios passed again against the optimized release.
+  - mise run install and install verify passed for 0.18.0-workspace.c14a29f6.66afacc21311.
+  - All 20 installer regressions passed; publication and public HTTPS checks matched the local package.
+  - Graphical execution was verified on Linux X11 with Xvfb; other platforms were not exercised.

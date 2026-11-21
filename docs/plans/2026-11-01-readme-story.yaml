@@ -1,0 +1,40 @@
+plan: readme-story
+title: Explain the Termust story and show daily terminal features
+status: done
+created: 2026-11-01
+updated: 2026-11-01
+context:
+  - The user requested upstream credit, an honest explanation of AI assistance and respectful project separation, feature descriptions and README screenshots.
+goal: Present Termust clearly with real images and supportable claims.
+scope:
+  - README story, features, several shells and windows, performance goals and images.
+  - Fresh isolated screenshots and validation of local documentation links.
+out_of_scope:
+  - Runtime changes, benchmarks, installers, publication, commits and pushes.
+stages:
+  - id: evidence
+    desc: Verify upstream policy and available native screenshots
+    status: done
+  - id: write
+    desc: Update simple English story and feature descriptions with current images
+    status: done
+  - id: verify
+    desc: Inspect captures and verify links and factual wording
+    status: done
+risks:
+  - Unsupported speed or memory comparisons could misrepresent the project.
+  - Old screenshots may display the previous name or lack current controls.
+rollback:
+  - Keep existing screenshots and restrict documentation changes to the requested scope.
+decisions:
+  - Credit Alacritty as both the inspiration and the source of this independent fork.
+  - Say that parts used AI assistance and that no upstream PR was opened for these changes out of respect for its contribution rules.
+  - Retain the Terminator personal motivation without presenting it as a benchmark.
+  - Present performance and memory efficiency as goals inherited from the native Rust foundation.
+validation:
+  - Official upstream contribution policy checked on 2026-11-01.
+  - Three new native screenshots show real tabs, panes, context menu and independent windows with sample output.
+  - Existing current Termust settings capture reused as the fourth README image.
+  - All four images inspected, PNG headers and dimensions checked, and fourteen local links and assets resolved.
+  - Markdown code fences and git diff whitespace checks passed.
+  - No runtime or installer changes were required.

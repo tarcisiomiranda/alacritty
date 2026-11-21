@@ -15,6 +15,12 @@ pub enum Event {
     /// Grid has changed possibly requiring a mouse cursor shape change.
     MouseCursorDirty,
 
+    AgentState {
+        app: String,
+        state: String,
+        kind: Option<String>,
+    },
+
     /// Window title change.
     Title(String),
 
@@ -67,6 +73,9 @@ impl Debug for Event {
             Event::ColorRequest(index, _) => write!(f, "ColorRequest({index})"),
             Event::PtyWrite(text) => write!(f, "PtyWrite({text})"),
             Event::Title(title) => write!(f, "Title({title})"),
+            Event::AgentState { app, state, kind } => {
+                write!(f, "AgentState({app}, {state}, {kind:?})")
+            },
             Event::CursorBlinkingChange => write!(f, "CursorBlinkingChange"),
             Event::MouseCursorDirty => write!(f, "MouseCursorDirty"),
             Event::ResetTitle => write!(f, "ResetTitle"),

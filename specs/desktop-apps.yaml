@@ -1,0 +1,110 @@
+spec: desktop-apps
+title: Open the current terminal folder in Linux desktop applications
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+goal: Open the focused terminal folder in a preferred IDE or file manager from the context menu.
+problem: The native terminal menu has no actions for opening the current folder in desktop applications.
+behavior:
+  - Detect installed editors and file managers, including VS Code, Zed, Nautilus and Dolphin.
+  - Offer an Applications settings page listing installed applications and automatic defaults.
+  - Show the preferred application names in the Linux context menu.
+  - Open the working directory of the menu target pane without writing to its shell.
+  - Save preferences only on explicit Save and apply them without restarting.
+  - Translate controls and failure notices into English and Brazilian Portuguese.
+constraints:
+  - Preserve all preexisting staged, unstaged and untracked work.
+  - Launch fixed programs with separate arguments rather than shell command strings.
+  - Do not commit, push, install editors or file managers, or change system defaults.
+  - Keep existing non-Linux menus working.
+implemented:
+  - Moved the editor and file manager to the first two context actions, followed by a separator and tab actions, with matching keyboard order.
+  - Added cached native application icons with optional GdkPixbuf PNG and SVG decoding and generic fallbacks.
+  - Installed optimized version 0.18.0-termust.709cae5e.ed899318b20a into /home/tarcisiomiranda/.local with the local desktop launcher.
+  - Added a fixed catalogue of six editors and six file managers detected through executable paths or registered desktop launchers.
+  - Added persistent general.editor and general.file_manager preferences with automatic defaults and draft-safe reload handling.
+  - Added a localized Applications settings page listing installed apps and unavailable saved choices.
+  - Added Linux context actions naming the preferred apps and targeting the clicked pane or inactive tab.
+  - Launches use separate arguments and the existing daemon helper without writing to the terminal shell.
+  - Added unit coverage, seven graphical tests and updated existing menu geometry fixtures.
+validation:
+  - The reordered menu passed all 12 menu tests, eight desktop application graphical cases and the existing tab and context menu graphical suite.
+  - Verified first-row native application icons in the optimized installed binary in both languages.
+  - Visually verified the real VS Code PNG and Nautilus SVG icons in both menu languages using the installed optimized executable with normal logging settings.
+  - Native icon checks distinguish the source images from generic fallbacks and cover SVG or PNG loader error cleanup.
+  - mise run install and install:verify passed with matching binary hashes, version receipt, shell PATH and desktop integration.
+  - The installed optimized executable passed graphical preferences save, cancel, reload and restart checks in English and Portuguese.
+  - All 472 workspace tests and one doctest passed.
+  - Eight isolated graphical tests passed with English and Portuguese UI, narrow windows, cancel, save and restart.
+  - Named app stubs received literal Unicode and shell metacharacters in a single folder argument.
+  - Clicked split panes and inactive tabs opened their own working directories.
+  - A real GIO desktop launcher opened the test editor with the expected folder.
+  - The existing tab and native context menu graphical regression suite passed.
+  - Rust 1.89 Clippy passed with warnings denied and nightly Rustfmt passed for the changed Rust files.
+  - Screenshots of both menu languages and normal and compact settings were visually inspected.
+  - The original staged patch SHA-256 remained unchanged and no commit or push was made for this feature.
+pending:
+  - None.
+steps:
+  - id: applications
+    desc: Detect installed Linux applications and launch folders safely
+    status: done
+    verify: mise exec -- cargo test --locked -p termust desktop_apps::tests
+  - id: interface
+    desc: Integrate the context menu, configuration and localized Applications preferences
+    status: done
+    verify: mise exec -- cargo test --workspace --locked
+  - id: graphical
+    desc: Verify menu launches and saved application choices in isolated graphical sessions
+    status: done
+    verify: mise run test:desktop-apps
+  - id: local-install
+    desc: Install the optimized checkout locally and verify binary and desktop integration
+    status: done
+    verify: mise run install:verify
+    note: "Installed the optimized current checkout with mise run install; validating installed package hashes, receipt, PATH and desktop launcher."
+  - id: icons
+    desc: Render real application icons with bounded menu spacing and portable fallback
+    status: done
+    verify: mise exec -- cargo test --locked -p termust app_icon
+  - id: icons-install
+    desc: Install and verify the optimized menu icon update
+    status: done
+    verify: mise run install:verify
+    note: "Installed and verified optimized package 0.18.0-termust.709cae5e.7db62872d875; normal-config installed UI showed the real VS Code PNG and Nautilus SVG in both languages."
+  - id: menu-order
+    desc: Show desktop app actions first with matching keyboard navigation
+    status: done
+    verify: mise exec -- cargo test --locked -p termust context_menu
+  - id: menu-order-install
+    desc: Install and verify the reordered context menu
+    status: done
+    verify: mise run install:verify
+    note: "Installed optimized package 0.18.0-termust.709cae5e.ed899318b20a with app actions first; verified local binary and desktop launcher."
+acceptance:
+  - desc: Both application categories list installed programs and persist the selected preferences
+    status: done
+    note: "Unit tests and graphical save/cancel/restart tests verify both categories and TOML persistence."
+  - desc: Context actions launch the selected program with the correct folder as one argument
+    status: done
+    note: "Graphical tests verify all four named apps, literal arguments, foreground cwd, clicked panes and inactive tabs without executing unfinished shell input."
+  - desc: English and Portuguese controls remain reachable at narrow and normal sizes
+    status: done
+    note: "Responsive unit tests, seven graphical cases and inspected English/Portuguese screenshots verify normal and narrow windows."
+  - desc: App actions show real VS Code and Nautilus icons with bounded spacing and remain usable by mouse and keyboard
+    status: done
+    note: "Native icons were visually inspected in installed English and Portuguese menus; graphical pixel checks and all eight app workflows passed."
+  - desc: Preferred editor and file manager are the first two visible context actions with matching keyboard order
+    status: done
+    note: "Strict menu order, wrapping and visibility tests passed; installed graphical checks verified native icons at the first two action rows."
+decisions:
+  - Show the editor and file manager before tab actions, with a separator and matching keyboard order.
+  - Load installed PNG and SVG app icons through an optional dynamically loaded GdkPixbuf library, with generic native fallbacks when unavailable.
+  - Cache decoded icons on the menu and reuse the existing rectangle renderer without icon fonts or new GPU shaders.
+  - Use the existing terminal TOML settings rather than environment variables or a separate database.
+  - Provide two context actions for the preferred IDE and file manager with installed alternatives listed in settings.
+  - Resolve the clicked pane folder at activation using the existing pane snapshot and foreground process tracking.
+  - Keep unavailable saved applications visible in settings and report a localized failure rather than silently opening a different configured program.
+risks:
+  - Applications may be removed after detection or a saved working directory may no longer exist.
+  - Additional menu and preferences rows must continue to fit small windows through existing scrolling.

@@ -1,0 +1,187 @@
+spec: binary-distribution
+title: Portable B2 packages and reliable installation updates
+status: in_progress
+created: 2026-10-20
+updated: 2026-11-20
+goal: Publish this fork in a dedicated B2 bucket and support curl installation and mise run install for local daily use.
+problem: The original Fedora-built package required glibc 2.43 and updates lacked downgrade protection rollback and launch-path diagnostics.
+behavior:
+  - Managed installations check the official Linux or Apple Silicon release periodically. Settings supports manual checks and installation after explicit confirmation, with existing PTYs continuing until the user relaunches.
+  - Re-running the macOS installer updates the managed app or reports that it is current, preserving the previous bundle and live processes.
+  - Use one install.sh command that detects Linux x86_64 or macOS Apple Silicon and downloads the matching binary.
+  - Build and package an optimized Linux x86_64 binary with desktop, icon, terminfo, completions and license files.
+  - Publish immutable version directories and update the latest pointer only after public download verification.
+  - Serve install.sh publicly over HTTPS for curl usage without cloud credentials on client machines.
+  - Verify SHA256 and run the candidate binary before atomically replacing the user executable.
+  - Install into the user prefix and override the desktop launcher without changing shell or terminal configuration.
+  - Support local builds and installation through mise run install.
+requirements:
+  - A saved opt-out disables automatic checks. Manual checks remain available for managed installations. Unsupported or modified copies use their original installation method.
+  - Merely discovering a release leaves the active package and shells untouched. Installing a confirmed update keeps the previous package and allows the new process to run alongside existing ones.
+constraints:
+  - The app runs its embedded installer in a background worker. Update checks use the fixed HTTPS feed and bounded metadata requests, and installation revalidates the chosen identity and SHA256 under the existing install lock.
+  - Use the existing authorized B2 CLI credentials without printing or embedding secrets.
+  - Use a new bucket dedicated to public application artifacts; do not change existing private buckets.
+  - Public Linux binaries use the pinned Rust 1.89 Debian 11 builder and require glibc 2.31 or older; verify runtime compatibility before replacing a working binary.
+  - Preserve the operating system package and all existing terminal settings and sessions.
+  - Commit push and publication require corresponding user authorization; do not install unrelated system dependencies.
+implemented:
+  - Released Linux package 0.18.0-termust.f654c640.f804fc477671 and Apple Silicon archive c35b04513293f809f15b2690f9b9ea2765358596873f6ceb45df833a9b7fbc52 on 2026-11-20. The public installer bootstrapped the same builds as the in-app update flow on each system. Verified the common installer SHA256 c8aa43b7e8c14237edb1680a0158be522c32e30ce10a480a418953369e464109 and the matching checksum-addressed macOS source.
+  - Managed Linux x86_64 and macOS Apple Silicon apps check the official feed daily and share a per-installation check cache. Terminal preferences offer a manual check, opt-out and explicit installation of the displayed build. Each installation pins and verifies the archive, preserves rollback and keeps active PTYs alive.
+  - Published the revised common installer to the canonical URL and both mirrors. Mutable release manifests request revalidation. The installer distinguishes fresh installations, upgrades and repeated installations and prints a command for a separate process.
+  - The public Linux installer reported a live older build after upgrading and on repeat installation and --check. A repeat kept the installed executable inode. Verified the GNOME favorite launches the Yorkie build while the previous session stays open.
+  - Verified the public macOS installer upgrading a copy of the older app and repeating without switching the bundle again. The open -n command ran both signed native builds concurrently in separate PTYs.
+  - Released Yorkie as Linux 0.18.0-termust.75332083.b535ae3aaaf0 and an Apple Silicon package using the tested working tree and matching public build source. Verified public updates from the previous Appearance packages on both platforms.
+  - Published Linux 0.18.0-termust.0a5a85a8.fec0ade07b28 to the canonical bucket and both mirrors after all six distribution checks passed. Published the matching Apple Silicon bundle and source builder. The common installer upgraded both isolated installations successfully.
+  - Published build 742b8c8 for Apple Silicon and upgraded an isolated install with the public install.sh. Verified the current and previous bundles, repeated installation, codesign, and login Zsh in the actual downloaded app. The workspace and prompt validation is recorded in specs/macos-apple-silicon.yaml.
+  - Published icon personalization release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical bucket and both mirrors after six distro checks and portable icon tests passed; public Linux install reinstall receipt checksum and --check passed.
+  - Published native macOS archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e from the pushed source commit and verified public installation reinstall diagnostics and codesign on Apple Silicon without Rust in the client PATH.
+  - macOS installation updates existing managed apps or migrates real app bundles into versioned storage, preserving the previous bundle and leaving identical reinstalls unchanged.
+  - Published one install.sh that detects Linux x86_64 or macOS arm64; real public curl installations passed on both platforms.
+  - macOS releases update their own manifest, and the common installer has an independent checksum while pinned Linux installers retain their original hashes.
+  - Published a native macOS Apple Silicon binary and verified the public curl installer in an isolated home on the Mac.
+  - Native Apple Silicon macOS 26.6.2 passed the complete Rust workspace test suite, installer simulations and a graphical launch that executed a command in a PTY.
+  - The PTY test uses a compatible Bash and drains terminal output while waiting; it passed on macOS and Linux.
+  - The experimental macOS installer reports the original rustc error when the compiler cannot start; seven installer tests passed.
+  - Published an experimental macOS Apple Silicon source installer and verified the installer and source archive over public HTTPS.
+  - Checked the packaged source for aarch64-apple-darwin and passed six simulated macOS installer tests plus the 52 Linux installer tests.
+  - Published and installed 0.18.0-termust.c14a29f6.ce240e67a40e with searchable shortcut settings after six optimized UI cases and all six distro checks passed.
+  - Created the public bucket termust without a personal-name prefix and copied 32 existing project objects with matching names sizes and checksums.
+  - Published release 0.18.0-termust.c14a29f6.ebee68120535 to termust and both previous project buckets after 52 installer tests 16 publication tests and all six distro checks.
+  - Verified anonymous installation and --check from the short Termust URL and both previous URLs plus a pinned historical version and upgrade to latest.
+  - Updated the README installer default and public distribution settings to use https://f005.backblazeb2.com/file/termust.
+  - Created the canonical public bucket tarcisiomiranda-termust and copied 27 historical public objects with identical names sizes and B2 checksums.
+  - Published release 0.18.0-termust.c14a29f6.b3ab7ad440b3 to canonical and legacy buckets after 52 installer tests 14 publisher tests and all six distro checks passed.
+  - Updated the default installer URL README installation guide and distribution settings to the Termust bucket.
+  - Verified anonymous installs and --check from both public curl URLs plus a pinned historical release and upgrade back to latest.
+  - Published portable release 0.18.0-termust.c14a29f6.0ed98734649d and verified anonymous public curl installation and --check before the download URL migration.
+  - Installed the verified portable package locally with a previous-version rollback snapshot and confirmed shell and desktop selection while preserving the running terminal and system Alacritty.
+  - Added a Rust 1.89 Debian 11 portable build pinned by image digest with generic x86-64 CPU and measured minimum glibc 2.29.
+  - Passed final graphical install and desktop launch checks in Ubuntu 22.04 and 24.04 Debian 12 and 13 Fedora 43 and 44 with an archive-bound compatibility report.
+  - Passed 52 installer tests and 11 publication-gate tests covering rollback integrity downgrade protection permissions concurrent-install locking and shell or desktop selection.
+  - Verified real old release to portable release upgrade offline rollback and re-upgrade in an isolated home directory.
+  - Added --check --rollback and --allow-downgrade without changing shell startup files or installing operating-system packages.
+  - Updated README installation guide and mise tasks for portable packaging and validated publication.
+  - Published and installed corrected release 0.18.0-workspace.c14a29f6.eae964aa4390 on 2026-10-31; anonymous curl installation passed.
+  - User terminfo discovery corrected and verified through normal lookup; all 20 installer tests pass.
+  - Checked B2 CLI authentication, capabilities and public download host.
+  - Confirmed the current Fedora binary is version 0.17.0 and user bin precedes system bin in PATH.
+  - Added verified curl and local installers, deterministic release packaging, publication helpers, mise tasks and documentation.
+  - Published release 0.18.0-workspace.c14a29f6.b11ddbec3fc9 to the dedicated public bucket tarcisiomiranda-alacritty.
+  - Verified anonymous public downloads and installed the real public package into a temporary user prefix.
+  - Installed the release into /home/tarcisiomiranda/.local with shell and Alacritty Workspace desktop integration.
+  - Passed 18 installer tests, release graphical checks and a real desktop launch with tabs, saved session and settings.
+pending:
+  - Validate saved-session restoration on the native macOS graphical desktop.
+  - Address shell integration for macOS system Bash 3.2, which lacks the prompt features used by the current hooks.
+steps:
+  - id: in-app-updates
+    desc: Verify update discovery, version ordering, pinned installation and the user-facing update controls
+    status: done
+    verify: mise run test:updates
+    note: "Verified daily checks and opt-out, pinned installation and live PTYs on Linux x86_64 and native Apple Silicon. The same public installer bootstrapped both releases and a fresh process confirmed the installed release in the background."
+  - id: update-feedback
+    desc: Resolve the current platform release on each update, report installed and previous builds and show how to open the updated executable alongside existing windows
+    status: done
+    verify: mise run test:install && mise run test:macos-release && mise run test:release-tools
+    note: "54 Linux installer, 15 macOS release and 19 publisher tests passed. Exact public curl upgrades passed on Linux and Apple Silicon. The revised installer is public on all three URLs."
+  - id: macos-updates
+    desc: Update existing macOS apps through an atomic launcher link and retain the previous bundle
+    status: done
+    verify: mise run test:macos-release && mise run test:install
+    note: "Public installer updated the actual legacy app on the Mac, repeated successfully and passed --check; previous bundle hash was unchanged."
+  - id: unified-installer
+    desc: Detect the platform in install.sh and publish platform manifests with a single public command
+    status: done
+    verify: mise run test:install && mise run test:macos-release && mise run test:release-tools
+    note: "Common public installer and builder published; anonymous Linux and native Mac installations plus Linux release verification passed."
+  - id: macos-arm64
+    desc: Build and publish a native macOS Apple Silicon package and install it without changing the Linux release
+    status: done
+    verify: mise run test:macos-release
+    note: "Native ARM64 build and public binary installation passed on the Mac; wider graphical workflows remain pending."
+  - id: installer
+    desc: Implement verified remote and local installation plus packaging and mise tasks
+    status: done
+    verify: mise run test:install
+    note: "Installer and mise tasks implemented; all 18 installer tests passed after VERSION receipt was added. Bash syntax and desktop validation passed."
+  - id: release
+    desc: Build an optimized binary and validate the packaged application
+    status: done
+    verify: mise run package
+    note: "Optimized release built and packaged successfully; real archive installed in a temporary prefix, binary hash and VERSION matched, desktop entry validated, terminfo worked, and graphical tab/PTTY/resize/close smoke suite passed."
+  - id: publish
+    desc: Provision the public bucket, upload the release and verify public downloads
+    status: done
+    verify: mise run release:verify
+    note: "Dedicated public B2 bucket created. All versioned objects, root installer and latest pointer uploaded and verified through anonymous HTTPS. Real public curl-to-bash installation passed in a temporary prefix; repeated packaging produced the same SHA256."
+  - id: install
+    desc: Install and verify both shell and desktop launch paths
+    status: done
+    verify: mise run install:verify
+    note: "mise run install and install:verify passed. The real GIO desktop launcher used the installed binary, accepted shell input, opened two tabs, saved its session, showed settings and closed cleanly. The system binary hash was unchanged."
+  - id: portable-build
+    desc: Build with an older glibc baseline and run the real archive on Debian Ubuntu and Fedora
+    status: done
+    verify: mise run test:distros
+    note: "Final portable artifact passed all ten checks on Ubuntu 22.04/24.04, Debian 12/13 and Fedora 43/44, including real graphical PTY and GIO launcher. Measured glibc minimum 2.29."
+  - id: reliable-updates
+    desc: Check dependencies and launch paths and preserve a verified previous version for rollback
+    status: done
+    verify: mise run test:install
+    note: "52 installer tests passed; 11 publication tests passed separately. Includes final concurrency lock regression and failure preserving both current B and rollback A."
+  - id: portable-release
+    desc: Publish the portable package and validate the installed shell and desktop entry
+    status: done
+    verify: mise run release:verify && mise run install:verify
+    note: "mise run publish verified all public objects and the six-distro report; mise run install:verify passed. Anonymous live public curl install passed after publication. Real old ELF upgrade rollback reupgrade passed. Running user PID56693 and system binary preserved."
+  - id: termust-download-url
+    desc: Publish the canonical Termust bucket and verify both new and legacy curl installation paths
+    status: done
+    verify: mise run release:verify && mise run install:verify
+    note: "Created termust bucket, preserved32 historical objects, passed52 installer tests16 publisher tests and six distro tests, and published verified release0.18.0-termust.c14a29f6.ebee68120535 to all3 public locations. Real anonymous curl installs and --check passed at every URL; historical pinned install and upgrade passed. Canonical public curl installed locally and install:verify passed."
+acceptance:
+  - id: remote
+    desc: The public HTTPS install command works without B2 credentials on the client
+    status: done
+    note: "Public curl-to-bash installation passed without B2 credentials using a temporary prefix containing spaces."
+  - id: integrity
+    desc: Bad downloads and incompatible binaries leave the current executable intact
+    status: done
+    note: "18 installer tests passed, including invalid checksum, incompatible executable, truncated download and unsafe archive cases."
+  - id: local
+    desc: mise run install installs a release build and the desktop uses the user binary
+    status: done
+    note: "mise run install, install:verify and the real GIO desktop launch passed."
+  - id: app-update
+    desc: A managed installation discovers the official update and activates it on confirmation while the existing terminal remains responsive
+    status: done
+    note: "Anonymous HTTPS upgrades from the preceding Linux and macOS releases preserved the running shell PID and verified the new package on relaunch."
+decisions:
+  - Check at most once per day across launches of a managed installation, back off after offline checks, and allow a manual refresh at any time. Ask before downloading a release and use a new process to activate it without interrupting the running shells.
+  - Check the canonical HTTPS channel in a worker. Download the confirmed immutable archive and verify its SHA256 using the bundled installer. Compare the active installation before activation.
+  - Keep active sessions running when updating and compare the installed Linux executable with any superseded copy still running from the same path.
+  - macOS builds update their own latest manifest; they do not overwrite the common installer.
+  - Keep immutable Linux installer hashes and verify the evolving common installer with its own checksum.
+  - Build and ad hoc sign the macOS app on Apple Silicon; publish content-addressed archives before switching the macOS installer to the corresponding binary.
+  - Prefer a project-scoped mise Rust toolchain when the user's global rustc shim has no selected version; do not change the global default.
+  - The macOS installer downloads a verified native app and does not replace the existing Linux installer.
+  - The canonical curl URL uses the dedicated termust bucket without a personal-name prefix; preserve both previous project bucket addresses.
+  - Mirror future verified versioned objects installer and latest pointer to both previous project buckets after canonical publication succeeds.
+  - Use the canonical termust bucket and keep both previous download buckets as verified mirrors.
+  - Do not install operating-system packages automatically; print distro-specific dependency commands.
+  - Keep system Alacritty and live processes intact; report other PATH copies instead of deleting unknown installations.
+  - Compare semantic app versions and build timestamps when available; require an explicit downgrade option for older releases.
+  - Keep one verified previous binary and managed integration snapshot for explicit offline rollback.
+  - Use the dedicated public bucket termust and user installation prefix by default.
+  - Keep cloud authentication in the B2 CLI cache rather than repository files or published packages.
+  - Do not publish support claims for operating systems or CPU targets without a built and tested package.
+  - The initial Linux x86_64 package required glibc 2.43; the portable release lowers the measured requirement to 2.29.
+  - Distro graphics validation covers real PTYs and GIO launches under X11 Xvfb and Mesa software rendering rather than every GPU or Wayland desktop.
+  - Metadata-free historical packages require explicit downgrade permission when replacing a timestamped installation with the same application version.
+  - Keep the previous rollback snapshot unchanged if a newer update fails before its executable and receipt can be committed.
+  - Public publication requires matching archive and installer hashes plus all six successful distro results before any B2 mutation.
+risks:
+  - The macOS build and basic graphical launch were verified on macOS 26.6.2; full graphical behavior and older macOS versions remain unverified.
+  - Native builds may require newer glibc or shared libraries on other Linux systems; test execution before installation.
+  - Desktop launchers may ignore the interactive shell PATH, so generate Exec and TryExec with the exact installed path.

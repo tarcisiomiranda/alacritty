@@ -1,12 +1,12 @@
 [package]
-name = "alacritty"
+name = "termust"
 version = "0.18.0-dev"
 authors = ["Christian Duerr <contact@christianduerr.com>", "Joe Wilm <joe@jwilm.com>"]
 license = "Apache-2.0"
-description = "A fast, cross-platform, OpenGL terminal emulator"
+description = "A terminal in Rust with tabs, split panes and saved workspaces"
 readme = "README.md"
-homepage = "https://alacritty.org"
-repository = "https://github.com/alacritty/alacritty"
+homepage = "https://github.com/tarcisiomiranda/alacritty"
+repository = "https://github.com/tarcisiomiranda/alacritty"
 edition.workspace = true
 rust-version.workspace = true
 
@@ -34,6 +34,7 @@ libc = "0.2"
 log = { version = "0.4", features = ["std", "serde"] }
 notify = "8.0.0"
 parking_lot = "0.12.0"
+png = { version = "0.17.5", default-features = false }
 polling = "3.11.0"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
@@ -51,11 +52,12 @@ gl_generator = "0.14.0"
 [dev-dependencies]
 clap_complete = "4.2.3"
 
-[target.'cfg(not(windows))'.dependencies]
-xdg = "3.0.0"
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8.9"
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-png = { version = "0.17.5", default-features = false, optional = true }
+[target.'cfg(not(windows))'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+xdg = "3.0.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.1"
@@ -64,6 +66,7 @@ objc2-foundation = { version = "0.3.1", default-features = false, features = [
     "NSString",
     "NSLocale",
     "NSUserDefaults",
+    "NSData",
 ] }
 objc2-app-kit = { version = "0.3.1", default-features = false, features = [
     "std",
@@ -71,6 +74,10 @@ objc2-app-kit = { version = "0.3.1", default-features = false, features = [
     "NSResponder",
     "NSView",
     "NSWindow",
+    "NSApplication",
+    "NSImage",
+    "NSMenu",
+    "NSMenuItem",
 ] }
 
 [target.'cfg(windows)'.dependencies]
@@ -92,7 +99,6 @@ x11 = [
     "winit/x11",
     "glutin/x11",
     "glutin/glx",
-    "png",
 ]
 wayland = [
     "copypasta/wayland",

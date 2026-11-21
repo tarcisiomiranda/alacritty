@@ -1,0 +1,106 @@
+spec: icon-personalization
+title: Personal terminal icon presets
+status: done
+created: 2026-11-18
+updated: 2026-11-19
+goal: Let users choose a predefined terminal icon with preview save cancel and platform-specific desktop integration.
+problem: The fixed application icon does not let people give their terminal a personal visual identity.
+behavior:
+  - Begin with a curated set of static pets and characters with a live preview and an explicit restore-default action.
+  - Offer the Yorkie artwork inspired by the user's dog as a separate built-in preset.
+  - Display the selected artwork and preset name in a clickable preview on the Appearance page.
+  - Distinguish the application launcher icon the running window icon and a companion drawn inside Termust.
+  - Keep local photo import and optional animation as later phases.
+constraints:
+  - The user authorized implementation and subsequently requested release publication commit and push to the existing fork branch.
+  - Use primary platform documentation and inspect the current windowing and installer code.
+  - Do not promise identical live dock or taskbar behavior across compositors and operating systems.
+  - Preserve application identity existing launchers user settings and signed macOS bundles.
+implemented:
+  - Reviewed fixed window icons desktop entries Windows resources macOS bundle metadata and installer replacement behavior.
+  - Recorded the platform capability matrix primary sources proposed architecture phased UX and future validation in docs/plans/2026-11-18-icon-personalization.yaml.
+  - Confirmed that the current winit 0.30.13 supports runtime window icons on X11 and Windows but not Wayland or macOS through its generic setter.
+  - Added bundled original cat dog fox and robot artwork with portable PNG decoding and English and Portuguese gallery controls.
+  - Persisted window.icon through the existing preview save cancel rebase and restore settings flow.
+  - Added X11 and Windows runtime window icons and a native AppKit Dock adapter without changing executable or bundle resources.
+  - Added per-user Linux launcher and Windows Start menu shortcut customization with original icon restoration.
+  - Preserved personalized Linux launcher icons during reinstalls and included embedded icon assets in macOS source releases.
+  - Validated graphical interaction on isolated X11 and native builds and workspace tests on Linux and macOS plus a Windows cross-check.
+  - Committed the complete buildable Termust checkout as 64a3a8d107856c11c0ecb9105943dae6d9dba441 and pushed the existing fork branch.
+  - Published Linux release 0.18.0-termust.64a3a8d1.c9b8aad893e5 to the canonical B2 bucket and both legacy mirrors after all six distro checks and portable icon tests passed.
+  - Published the native Apple Silicon archive e1318048641b1497a701ed7f0e007a80bd22b7bde3ce64da83b8f1988e349c4e and updated the common installer and native source builder.
+  - Verified anonymous public install reinstall and --check on Linux and macOS using temporary destinations; macOS also passed strict codesign verification without Rust in PATH.
+  - Put a clickable thumbnail and the preset name at the top of Appearance above the aligned theme control.
+  - Verified the thumbnail and gallery on Linux X11 with compact and high-DPI windows, plus AppKit icon replacement, cancellation, saving and reapplication after restart in a bundled Apple Silicon test build.
+  - Published the Appearance preview for Linux x86_64 and macOS Apple Silicon from source commit 0a5a85a8. Verified both updates through the public installer in isolated destinations.
+  - Added the Yorkie PNG and multi-resolution Windows ICO. Verified selection, preview, save, and restart on Linux X11 and in an Apple Silicon AppKit fixture. The Linux installer retained the Yorkie launcher settings and Windows passed a cross-check.
+  - Published the Yorkie packages from the tested working tree with base revision 75332083. Verified upgrades through the common installer, including the exact Linux binary used for the gallery tests and the saved Yorkie setting in the downloaded Mac app.
+pending:
+  - Photo import animation and graphical desktop-shell validation remain separate future work.
+steps:
+  - id: feasibility
+    desc: Verify native icon APIs launcher integration animation limits and a phased product design
+    status: done
+    verify: mise exec -- python3 /home/tarcisiomiranda/.agents/skills/spec-checklist/scripts/speccheck.py check specs/icon-personalization.yaml
+  - id: presets
+    desc: Implement embedded icon choices portable previews and saved settings
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon
+  - id: native
+    desc: Integrate runtime and saved launcher icons with cancellation and update preservation
+    status: done
+    verify: mise run test:icon-personalization
+    note: "The exact verification command passed in this turn; reusing its successful result to synchronize the checklist after concurrent verification."
+  - id: validation
+    desc: Validate builds regressions graphical interaction and document platform coverage
+    status: done
+    verify: mise exec -- cargo test --locked --workspace
+  - id: publication
+    desc: Publish the verified Linux and macOS releases and commit and push their source and release evidence
+    status: done
+    verify: mise run release:verify
+  - id: appearance-preview
+    desc: Render the current preset in Appearance and keep the gallery reachable by mouse and keyboard
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon
+    note: "Linux X11 compact and HiDPI fixtures passed. Native Mac AppKit validated preview entry, save, cancel and restart."
+  - id: yorkie-preset
+    desc: Add the Yorkie artwork and verify the gallery, per-user icon integration and installer persistence
+    status: done
+    verify: mise exec -- cargo test --locked -p termust icon && mise run test:install && mise run test:macos-release
+    note: "Integrated gallery and persisted Yorkie in Linux X11, preserved launcher metadata in the installer, verified native AppKit on Apple Silicon and compiled the Windows target."
+  - id: yorkie-release
+    desc: Publish the Yorkie builds and verify upgrades from the previous public packages
+    status: done
+    verify: mise run release:verify
+    note: "Public Linux and Apple Silicon upgrades passed. The downloaded Linux binary matches the tested Yorkie gallery binary, and the downloaded Mac binary loads the Yorkie setting."
+acceptance:
+  - id: matrix
+    desc: Record a source-backed feasibility matrix for KDE GNOME Cinnamon XFCE Windows and macOS
+    status: done
+  - desc: Selecting each preset previews its artwork and supported native runtime icon while Cancel restores the saved selection.
+    status: done
+  - desc: Save and restart retain the choice and Linux installer updates preserve the selected launcher icon.
+    status: done
+  - desc: Restore-default and English and Portuguese controls work with independent UI font sizing and compact layouts.
+    status: done
+  - desc: Linux graphical checks Rust tests and available macOS or Windows build checks pass with untested desktop behavior recorded explicitly.
+    status: done
+  - desc: Appearance shows the selected icon artwork and name, aligns the theme and icon controls, and opens the gallery when clicked or activated from the keyboard.
+    status: done
+  - desc: Yorkie appears as its own gallery option, previews with its artwork and native icon, survives saving and reopening, and is retained by the Linux installer.
+    status: done
+  - desc: The common installer updates Linux x86_64 and macOS Apple Silicon to a package containing the Yorkie preset.
+    status: done
+decisions:
+  - Use the generated Yorkie artwork as a bundled PNG and Windows ICO. Store the selection as window.icon with the value yorkie.
+  - Put the icon preview and theme at the top of Appearance so they are visible in compact windows. Use matching row widths and match keyboard order to the layout.
+  - The initial candidate is static presets; animation must have an in-app fallback that does not depend on the desktop shell.
+  - Recommend one icon choice per user for all Termust windows rather than independent system icons per tab.
+  - Store preferences and imported images outside release directories and reapply the saved choice after restart and installer updates.
+  - Preserve desktop file identity Windows application identity and macOS bundle identity while changing only supported presentation surfaces.
+  - Treat Linux desktop support as a standards-based feasibility assessment until launcher grouping caching and session-specific behavior are tested.
+  - Use embedded static PNG presets with portable decoded previews and platform adapters; keep the operating system icon static.
+risks:
+  - Desktop caches pinned shortcuts and application grouping can delay or override icon changes.
+  - Updating signed bundle or executable resources can invalidate distribution signatures.

@@ -17,6 +17,21 @@ use crate::event::TYPING_SEARCH_DELAY;
 use crate::input::{ActionContext, Execute, Processor};
 use crate::scheduler::{TimerId, Topic};
 
+pub(crate) fn binding_key(event: &KeyEvent, mods: ModifiersState) -> Key {
+    let key = if (cfg!(target_os = "macos") || (cfg!(windows) && mods.control_key()))
+        && mods.alt_key()
+        && matches!(event.logical_key, Key::Character(_) | Key::Unidentified(_))
+    {
+        event.key_without_modifiers()
+    } else {
+        event.logical_key.clone()
+    };
+    match key {
+        Key::Character(text) => Key::Character(text.to_lowercase().into()),
+        key => key,
+    }
+}
+
 impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
     /// Process key input.
     pub fn key_input(&mut self, key: KeyEvent) {
@@ -182,27 +197,7 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         // Don't suppress char if no bindings were triggered.
         let mut suppress_chars = None;
 
-        // We don't want the key without modifier, because it means something else most of
-        // the time. However what we want is to manually lowercase the character to account
-        // for both small and capital letters on regular characters at the same time.
-        let logical_key = if let Key::Character(ch) = key.logical_key.as_ref() {
-            // Match `Alt` bindings without `Alt` being applied, otherwise they use the
-            // composed chars, which are not intuitive to bind.
-            //
-            // On Windows, the `Ctrl + Alt` mangles `logical_key` to unidentified values, thus
-            // preventing them from being used in bindings
-            //
-            // For more see https://github.com/rust-windowing/winit/issues/2945.
-            if (cfg!(target_os = "macos") || (cfg!(windows) && mods.control_key()))
-                && mods.alt_key()
-            {
-                key.key_without_modifiers()
-            } else {
-                Key::Character(ch.to_lowercase().into())
-            }
-        } else {
-            key.logical_key.clone()
-        };
+        let logical_key = binding_key(key, mods);
 
         // Get the action of a key binding.
         let mut binding_action = |binding: &KeyBinding| {

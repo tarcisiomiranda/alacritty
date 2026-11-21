@@ -1,0 +1,67 @@
+plan: pane-drag
+title: Move live terminal panes with compact handles and slim dividers
+status: done
+created: 2026-11-06
+updated: 2026-11-06
+goal: Move live splits with compact corner handles and preserve terminal space with one-pixel dividers.
+context:
+  - The user wants Terminator-style pane movement without a header consuming a terminal row.
+  - Pane trees and live terminal contexts already have stable identities and independent PTYs.
+scope:
+  - A small circular corner handle with a grab cursor and no reserved terminal space.
+  - Directional docking in the current tab and transfer through existing tab buttons.
+  - A destination preview, tab hover navigation, cancellation and safe handling of disappearing panes.
+  - Preserve shell identity, running programs, output, search, working directory and saved layouts.
+  - Native model checks, isolated graphical checks and documentation.
+  - Refresh the local user installation after validation.
+  - Replace full-cell split gutters with single-pixel separators and invisible mouse tolerance.
+out_of_scope:
+  - Moving panes between windows, broadcast input and public release publication.
+stages:
+  - id: model
+    desc: Add atomic directional pane relocation and ownership-preserving extraction.
+    status: done
+  - id: interaction
+    desc: Add corner handles, drag capture, previews and cross-tab transfers.
+    status: done
+  - id: validation
+    desc: Exercise real live shells, nested layouts, transfer, cancellation and persistence.
+    status: done
+  - id: local-install
+    desc: Package and update the current user installation after verification.
+    status: done
+  - id: slim-geometry
+    desc: Use pixel pane coordinates for rendering, resize hit testing and terminal routing.
+    status: done
+  - id: slim-validation
+    desc: Measure separator pixels and rerun pane movement and input regressions.
+    status: done
+  - id: slim-install
+    desc: Install and verify the compact separator update locally.
+    status: done
+risks:
+  - Removing a live terminal context must not drop its PTY or reuse a tab identity.
+  - Captured drag input must not reach terminal applications or interfere with divider resizing.
+  - Exiting shells, focus loss and invalid targets must leave valid nonempty trees.
+validation:
+  - The complete Rust workspace tests and doctests passed.
+  - Clippy with Rust 1.89 and warnings denied passed for all Termust targets.
+  - The current Rust 1.97 Clippy reports three pre-existing question_mark lints in tty/unix.rs.
+  - All seven isolated drag cases passed, including native hand cursors and live shell identities.
+  - The existing split-pane graphical suite passed rendering, input, resizing, search, persistence and closure.
+  - Destination previews and corner handles were visually inspected.
+  - Local installation 0.18.0-termust.709cae5e.078dba1a4c07 and its desktop launcher passed install verification.
+  - The installed optimized executable passed the native hand cursor and cross-tab movement case.
+  - Slim geometry passed 284 terminal tests and Rust 1.89 Clippy with warnings denied.
+  - Native screenshots measured both separators at one physical pixel and verified invisible resize tolerance.
+  - Pixel layout preserves the minimum terminal cell dimensions in deeply nested split trees.
+  - Slim installation 0.18.0-termust.709cae5e.bcd79cea92d9 passed package verification and real one-pixel divider and resize checks.
+rollback:
+  - Restore only this feature from the pre-change snapshot while preserving existing workspace edits.
+decisions:
+  - Dock at the nearest pane edge and preview the half that will receive the moved pane.
+  - Hovering an existing tab reveals its panes; dropping on the tab adds the pane to its right.
+  - Dropping on the existing plus button detaches the pane into a new tab.
+  - Escape, focus loss and dropping outside a valid target cancel movement.
+  - Move the original terminal context and retain stable pane identifiers.
+  - The handle uses the native grab cursor on hover and grabbing cursor over valid destinations.

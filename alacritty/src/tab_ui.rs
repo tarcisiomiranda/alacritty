@@ -60,9 +60,11 @@ pub enum UiKind {
     Checkbox,
     Command,
     PrimaryButton,
+    PressedButton(u8),
     SecondaryButton,
     Link,
     Status,
+    Error,
     Divider,
     Navigation,
     SelectedNavigation,
@@ -73,6 +75,9 @@ pub enum UiKind {
     SelectedItem,
     Scrollbar,
     Shortcut,
+    AgentStatus(crate::agent::AgentState, bool),
+    IconCard(crate::personalization::IconPreset, bool),
+    AppearanceChoice { label: &'static str, icon: Option<crate::personalization::IconPreset> },
 }
 
 pub struct UiElement {
@@ -465,7 +470,9 @@ impl TabDialog {
             Key::Named(NamedKey::Space) if self.focus == 1 => self.toggle_replay(),
             Key::Character(text) if text.as_str() == " " && self.focus == 1 => self.toggle_replay(),
             Key::Character(text)
-                if text.eq_ignore_ascii_case("a") && modifiers.control_key() && self.focus == 0 =>
+                if text.eq_ignore_ascii_case("a")
+                    && crate::ui::shortcut_pressed(modifiers)
+                    && self.focus == 0 =>
             {
                 self.selected_all = true;
             },

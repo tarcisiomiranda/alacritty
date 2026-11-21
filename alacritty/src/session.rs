@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_COMMANDS: usize = 20;
+pub const MAX_OUTPUT_BYTES: usize = 64 * 1024;
+pub const MAX_SESSION_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_TABS: usize = 64;
 const MAX_FILE_SIZE: usize = 4 * 1024 * 1024;
 const MAX_COMMAND_SIZE: usize = 16 * 1024;
@@ -39,6 +41,10 @@ pub struct SavedTab {
     pub layout: Option<crate::panes::PaneNode>,
     #[serde(default)]
     pub active_pane: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub screen_text: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -47,6 +53,8 @@ pub struct SavedSession {
     pub version: u32,
     pub active: usize,
     pub tabs: Vec<SavedTab>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_group: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +76,7 @@ impl SessionStore {
             .filter(|path| path.is_absolute())
             .or_else(|| home::home_dir().map(|home| home.join(".local/state")));
 
-        root.map(|root| root.join("alacritty/tabs.json"))
+        root.map(|root| root.join("termust/tabs.json"))
     }
 
     pub fn recovery_path() -> Option<PathBuf> {
@@ -85,7 +93,8 @@ impl SessionStore {
     }
 
     pub fn load(&self) -> io::Result<Option<SavedSession>> {
-        let metadata = match fs::symlink_metadata(&self.path) {
+        let path = state_read_path(&self.path)?;
+        let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -96,7 +105,7 @@ impl SessionStore {
         }
 
         let mut data = Vec::new();
-        File::open(&self.path)?.take((MAX_FILE_SIZE + 1) as u64).read_to_end(&mut data)?;
+        File::open(&path)?.take((MAX_FILE_SIZE + 1) as u64).read_to_end(&mut data)?;
         if data.len() > MAX_FILE_SIZE {
             return Err(invalid_data());
         }
@@ -195,7 +204,7 @@ impl WorkspaceStore {
     }
 
     fn read(&self) -> io::Result<(WorkspaceDocument, Option<Vec<u8>>)> {
-        let Some(data) = read_workspace_bytes(&self.path)? else {
+        let Some(data) = read_workspace_bytes(&state_read_path(&self.path)?)? else {
             let document = WorkspaceDocument { version: VERSION, ..Default::default() };
             return Ok((document, None));
         };
@@ -232,7 +241,7 @@ impl WorkspaceStore {
         temporary.write_all(&data)?;
         temporary.flush()?;
         temporary.as_file().sync_all()?;
-        if read_workspace_bytes(&self.path)?.as_deref() != previous {
+        if read_workspace_bytes(&state_read_path(&self.path)?)?.as_deref() != previous {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "workspace store changed while saving",
@@ -254,6 +263,27 @@ impl WorkspaceStore {
 const MAX_WORKSPACES: usize = 32;
 const MAX_WORKSPACE_NAME_CHARS: usize = 80;
 const MAX_WORKSPACE_FILE_SIZE: usize = 8 * 1024 * 1024;
+
+fn state_read_path(path: &Path) -> io::Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => return Ok(path.to_path_buf()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error),
+    }
+    let Some(parent) =
+        path.parent().filter(|parent| parent.file_name() == Some("termust".as_ref()))
+    else {
+        return Ok(path.to_path_buf());
+    };
+    let Some(name) = path.file_name().filter(|name| {
+        ["tabs.json", "recovery.json", "workspaces.json"]
+            .iter()
+            .any(|known| *name == std::ffi::OsStr::new(known))
+    }) else {
+        return Ok(path.to_path_buf());
+    };
+    Ok(parent.with_file_name("alacritty").join(name))
+}
 
 fn workspace_name(name: &str) -> io::Result<&str> {
     if name.chars().any(char::is_control) {
@@ -333,6 +363,13 @@ fn invalid_data() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid tab session data")
 }
 
+pub fn valid_group_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && name.chars().count() <= 64
+        && !name.chars().any(char::is_control)
+}
+
 fn validate(snapshot: &SavedSession) -> io::Result<()> {
     if snapshot.version != VERSION
         || snapshot.tabs.is_empty()
@@ -342,12 +379,31 @@ fn validate(snapshot: &SavedSession) -> io::Result<()> {
         return Err(invalid_data());
     }
 
+    let output_bytes: usize = snapshot
+        .tabs
+        .iter()
+        .flat_map(|tab| std::iter::once(tab).chain(tab.panes.iter()))
+        .map(|pane| pane.screen_text.len())
+        .sum();
+    if output_bytes > MAX_SESSION_OUTPUT_BYTES
+        || snapshot
+            .active_group
+            .as_ref()
+            .is_some_and(|name| snapshot.tabs[snapshot.active].group.as_ref() != Some(name))
+    {
+        return Err(invalid_data());
+    }
+
     for group in &snapshot.tabs {
         let count = group.panes.len() + 1;
         if count > crate::panes::MAX_PANES
             || group.active_pane >= count
+            || group.group.as_deref().is_some_and(|name| !valid_group_name(name))
             || group.panes.iter().any(|pane| {
-                !pane.panes.is_empty() || pane.layout.is_some() || pane.active_pane != 0
+                !pane.panes.is_empty()
+                    || pane.layout.is_some()
+                    || pane.active_pane != 0
+                    || pane.group.is_some()
             })
         {
             return Err(invalid_data());
@@ -370,6 +426,8 @@ fn validate(snapshot: &SavedSession) -> io::Result<()> {
     for tab in snapshot.tabs.iter().flat_map(|tab| std::iter::once(tab).chain(tab.panes.iter())) {
         if tab.title.as_ref().is_some_and(|title| title.contains('\0'))
             || tab.commands.len() > MAX_COMMANDS
+            || tab.screen_text.len() > MAX_OUTPUT_BYTES
+            || tab.screen_text.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
         {
             return Err(invalid_data());
         }
@@ -414,6 +472,57 @@ fn validate(snapshot: &SavedSession) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn termust_reads_legacy_sessions_and_saves_separately() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["tabs.json", "recovery.json"] {
+            let legacy_path = directory.path().join("alacritty").join(name);
+            let legacy = SessionStore::new(legacy_path.clone());
+            legacy.save(&snapshot()).unwrap();
+            let original = fs::read(&legacy_path).unwrap();
+            let path = directory.path().join("termust").join(name);
+            let current = SessionStore::new(path.clone());
+            assert_eq!(current.load().unwrap(), legacy.load().unwrap());
+            let mut changed = snapshot();
+            changed.tabs[0].title = Some("Termust".into());
+            current.save(&changed).unwrap();
+            assert_eq!(current.load().unwrap(), Some(changed));
+            assert_eq!(fs::read(&legacy_path).unwrap(), original);
+            fs::write(&path, b"invalid current session").unwrap();
+            assert!(current.load().is_err());
+        }
+    }
+
+    #[test]
+    fn termust_reads_legacy_workspaces_and_keeps_new_changes_separate() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy_path = directory.path().join("alacritty/workspaces.json");
+        let legacy = WorkspaceStore::new(legacy_path.clone());
+        legacy.save("Backend", &snapshot()).unwrap();
+        let original = fs::read(&legacy_path).unwrap();
+        let path = directory.path().join("termust/workspaces.json");
+        let current = WorkspaceStore::new(path.clone());
+        assert_eq!(current.list().unwrap(), ["Backend"]);
+        assert_eq!(current.load("Backend").unwrap(), legacy.load("Backend").unwrap());
+        current.save("Frontend", &snapshot()).unwrap();
+        assert_eq!(current.list().unwrap(), ["Backend", "Frontend"]);
+        assert_eq!(fs::read(&legacy_path).unwrap(), original);
+        fs::write(path, b"invalid current workspace").unwrap();
+        assert!(current.list().is_err());
+        assert_eq!(fs::read(&legacy_path).unwrap(), original);
+    }
+
+    #[test]
+    fn legacy_state_fallback_is_limited_to_known_termust_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let other = directory.path().join("custom/tabs.json");
+        assert_eq!(state_read_path(&other).unwrap(), other);
+        let other = directory.path().join("termust/unknown.json");
+        assert_eq!(state_read_path(&other).unwrap(), other);
+        let absent = directory.path().join("termust/tabs.json");
+        assert!(SessionStore::new(absent).load().unwrap().is_none());
+    }
 
     #[test]
     fn workspace_paths_are_separate_from_manual_sessions() {
@@ -589,6 +698,7 @@ mod tests {
         SavedSession {
             version: VERSION,
             active: 1,
+            active_group: None,
             tabs: vec![
                 SavedTab {
                     title: Some("API — produção 🦀".into()),
@@ -965,6 +1075,66 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn groups_and_inert_text_roundtrip_in_sessions_and_workspaces() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(directory.path().join("tabs.json"));
+        let workspaces = WorkspaceStore::new(directory.path().join("workspaces.json"));
+        let mut saved = split_snapshot();
+        saved.tabs[0].group = Some("Produção 🦀".into());
+        saved.active = 0;
+        saved.active_group = saved.tabs[0].group.clone();
+        saved.tabs[0].screen_text = "old output\n終わり\n".into();
+        saved.tabs[0].panes[0].screen_text = "another pane\n".into();
+        store.save(&saved).unwrap();
+        workspaces.save("Daily", &saved).unwrap();
+        assert_eq!(store.load().unwrap(), Some(saved.clone()));
+        assert_eq!(workspaces.load("Daily").unwrap(), Some(saved));
+        let legacy: SavedSession = serde_json::from_str(r#"{"active":0,"tabs":[{}]}"#).unwrap();
+        assert!(legacy.active_group.is_none());
+        assert!(legacy.tabs[0].group.is_none());
+        assert!(legacy.tabs[0].screen_text.is_empty());
+    }
+
+    #[test]
+    fn invalid_groups_or_output_never_replace_saved_sessions() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(directory.path().join("tabs.json"));
+        let original = split_snapshot();
+        store.save(&original).unwrap();
+        let bytes = fs::read(store.path()).unwrap();
+        let mut invalid = Vec::new();
+        for name in ["", " padded", "line\nbreak"] {
+            let mut saved = original.clone();
+            saved.tabs[0].group = Some(name.into());
+            invalid.push(saved);
+        }
+        let mut long_name = original.clone();
+        long_name.tabs[0].group = Some("🦀".repeat(65));
+        invalid.push(long_name);
+        let mut wrong_filter = original.clone();
+        wrong_filter.active_group = Some("missing".into());
+        invalid.push(wrong_filter);
+        let mut pane_group = original.clone();
+        pane_group.tabs[0].panes[0].group = Some("nested".into());
+        invalid.push(pane_group);
+        for text in ["a".repeat(MAX_OUTPUT_BYTES + 1), "\x1b]52;c;payload\x07".into()] {
+            let mut saved = original.clone();
+            saved.tabs[0].screen_text = text;
+            invalid.push(saved);
+        }
+        let mut total = original.clone();
+        let tab = SavedTab { screen_text: "a".repeat(MAX_OUTPUT_BYTES), ..SavedTab::default() };
+        total.tabs = vec![tab; MAX_SESSION_OUTPUT_BYTES / MAX_OUTPUT_BYTES + 1];
+        total.active = 0;
+        invalid.push(total);
+        for saved in invalid {
+            assert!(store.save(&saved).is_err());
+            assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        }
+        assert!(valid_group_name(&"🦀".repeat(64)));
+    }
+
     #[test]
     fn new_state_is_private_and_existing_parent_permissions_are_preserved() {
         use std::os::unix::fs::PermissionsExt;

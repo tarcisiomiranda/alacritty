@@ -14,6 +14,7 @@ use std::time::Instant;
 use log::error;
 use polling::{Event as PollingEvent, Events, PollMode, Poller};
 
+use crate::agent_protocol::AgentProtocol;
 use crate::event::{self, Event, EventListener, WindowSize};
 use crate::sync::FairMutex;
 use crate::term::Term;
@@ -151,6 +152,7 @@ where
             }
 
             // Parse the incoming bytes.
+            state.agent_protocol.advance(&self.event_proxy, &buf[..unprocessed]);
             state.parser.advance(&mut **terminal, &buf[..unprocessed]);
 
             processed += unprocessed;
@@ -402,6 +404,7 @@ pub struct State {
     write_list: VecDeque<Cow<'static, [u8]>>,
     writing: Option<Writing>,
     parser: ansi::Processor,
+    agent_protocol: AgentProtocol,
 }
 
 impl State {

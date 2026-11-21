@@ -1,0 +1,16 @@
+ARG BASE_IMAGE=docker.io/library/ubuntu:22.04
+FROM ${BASE_IMAGE}
+RUN if command -v apt-get >/dev/null; then \
+        apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash ca-certificates curl python3 coreutils ncurses-bin desktop-file-utils \
+        libfontconfig1 libfreetype6 libxkbcommon0 libxkbcommon-x11-0 libxcb1 libx11-6 \
+        libxcursor1 libxi6 libxrandr2 libgl1-mesa-dri libglx-mesa0 libegl1 \
+        fonts-dejavu-core xvfb xauth libglib2.0-bin dbus && rm -rf /var/lib/apt/lists/*; \
+    else \
+        dnf -y install bash ca-certificates curl-minimal python3 coreutils ncurses \
+        desktop-file-utils fontconfig freetype libxkbcommon libxkbcommon-x11 libxcb \
+        libX11 libXcursor libXi libXrandr mesa-dri-drivers mesa-libGL mesa-libEGL \
+        dejavu-sans-mono-fonts xorg-x11-server-Xvfb xorg-x11-xauth glib2 dbus-daemon && \
+        dnf clean all; \
+    fi
+RUN if ! getent passwd 1000 >/dev/null; then useradd -u 1000 -m termust; fi

@@ -43,9 +43,10 @@ class Fixture:
         self.env = dict(os.environ, DISPLAY=self.display, WINIT_UNIX_BACKEND="x11",
             LIBGL_ALWAYS_SOFTWARE="1", HOME=str(work / "home"),
             XDG_CONFIG_HOME=str(work / "config"), XDG_STATE_HOME=str(work / "state"),
+            XDG_DATA_HOME=str(work / "data"),
             XDG_RUNTIME_DIR=str(work / "runtime"))
         for name in ["WAYLAND_DISPLAY", "BASH_ENV", "ENV", "ZDOTDIR", "ALACRITTY_SOCKET",
-            "ALACRITTY_WINDOW_ID", "LC_ALL", "LC_MESSAGES", "LANGUAGE"]:
+            "ALACRITTY_WINDOW_ID", "TERMUST_SOCKET", "TERMUST_WINDOW_ID", "LC_ALL", "LC_MESSAGES", "LANGUAGE"]:
             self.env.pop(name, None)
         self.x11 = smoke.X11(self.display)
         (work / "import.toml").write_text('[font]\nsize = 12.0\n')
@@ -116,7 +117,7 @@ background = "#dddddd"
     def menu(self):
         columns, rows, _, _ = self.dimensions()
         self.click(columns - 1, rows - 1, 3)
-        return columns - min(50, columns), rows - min(23, rows)
+        return columns - min(50, columns), rows - min(28, rows)
 
     def language_page(self):
         for _ in range(4):
@@ -125,7 +126,7 @@ background = "#dddddd"
 
     def select_language(self, language):
         index = ["auto", "en", "pt-BR"].index(language)
-        for _ in range(index + 2):
+        for _ in range(index + 3):
             self.x11.chord("Tab")
         self.x11.chord("space")
 
@@ -137,7 +138,7 @@ background = "#dddddd"
 
     def settings(self):
         left, top = self.menu()
-        self.click(left + 4, top + 18)
+        self.click(left + 4, top + 21)
         self.language_page()
 
     def toolbar_settings(self):
@@ -379,5 +380,5 @@ if __name__ == "__main__":
     else:
         metadata = json.loads(subprocess.run(["cargo", "metadata", "--no-deps", "--format-version", "1"],
             capture_output=True, text=True, check=True).stdout)
-        binary = Path(metadata["target_directory"]) / "debug" / "alacritty"
+        binary = Path(metadata["target_directory"]) / "debug" / "termust"
     run(str(binary), args.screenshot)

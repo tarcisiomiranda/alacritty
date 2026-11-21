@@ -49,6 +49,41 @@ impl PaneRect {
     pub fn contains(&self, x: usize, y: usize) -> bool {
         x >= self.x && y >= self.y && x - self.x < self.width && y - self.y < self.height
     }
+
+    pub fn drop_direction(&self, x: usize, y: usize) -> Option<Direction> {
+        if !self.contains(x, y) {
+            return None;
+        }
+        let dx = (x - self.x) as f64;
+        let dy = (y - self.y) as f64;
+        let width = self.width as f64;
+        let height = self.height as f64;
+        [
+            (Direction::Left, dx / width),
+            (Direction::Right, (width - dx - 1.) / width),
+            (Direction::Up, dy / height),
+            (Direction::Down, (height - dy - 1.) / height),
+        ]
+        .into_iter()
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(direction, _)| direction)
+    }
+
+    pub fn dock_rect(mut self, direction: Direction) -> Self {
+        match direction {
+            Direction::Left => self.width = self.width.div_ceil(2),
+            Direction::Right => {
+                self.x += self.width / 2;
+                self.width = self.width.div_ceil(2);
+            },
+            Direction::Up => self.height = self.height.div_ceil(2),
+            Direction::Down => {
+                self.y += self.height / 2;
+                self.height = self.height.div_ceil(2);
+            },
+        }
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +103,41 @@ pub struct PaneLayout {
 impl PaneLayout {
     pub fn hit_divider(&self, x: usize, y: usize) -> Option<&PaneDivider> {
         self.dividers.iter().find(|divider| divider.rect.contains(x, y))
+    }
+
+    pub fn hit_divider_near(&self, x: usize, y: usize, margin: usize) -> Option<&PaneDivider> {
+        self.hit_divider(x, y).or_else(|| {
+            self.dividers
+                .iter()
+                .filter(|divider| {
+                    let mut rect = divider.rect;
+                    match divider.axis {
+                        Axis::Vertical => {
+                            rect.x = rect.x.saturating_sub(margin);
+                            rect.width = divider
+                                .rect
+                                .x
+                                .saturating_add(divider.rect.width)
+                                .saturating_add(margin)
+                                .saturating_sub(rect.x);
+                        },
+                        Axis::Horizontal => {
+                            rect.y = rect.y.saturating_sub(margin);
+                            rect.height = divider
+                                .rect
+                                .y
+                                .saturating_add(divider.rect.height)
+                                .saturating_add(margin)
+                                .saturating_sub(rect.y);
+                        },
+                    }
+                    rect.contains(x, y)
+                })
+                .min_by_key(|divider| match divider.axis {
+                    Axis::Vertical => x.abs_diff(divider.rect.x),
+                    Axis::Horizontal => y.abs_diff(divider.rect.y),
+                })
+        })
     }
 }
 
@@ -152,6 +222,40 @@ impl PaneNode {
         }
     }
 
+    pub fn insert(&mut self, target: u64, new: u64, direction: Direction) -> bool {
+        let axis = match direction {
+            Direction::Left | Direction::Right => Axis::Vertical,
+            Direction::Up | Direction::Down => Axis::Horizontal,
+        };
+        if !self.split(target, new, axis) {
+            return false;
+        }
+        if matches!(direction, Direction::Left | Direction::Up) {
+            *self = self.remap_ids(|id| {
+                if id == target {
+                    new
+                } else if id == new {
+                    target
+                } else {
+                    id
+                }
+            });
+        }
+        true
+    }
+
+    pub fn relocate(&mut self, source: u64, target: u64, direction: Direction) -> bool {
+        if source == target || !self.validate() {
+            return false;
+        }
+        let mut candidate = self.clone();
+        if !candidate.remove(source) || !candidate.insert(target, source, direction) {
+            return false;
+        }
+        *self = candidate;
+        true
+    }
+
     pub fn remap_ids(&self, mut remap: impl FnMut(u64) -> u64) -> Self {
         self.map_node(&mut remap)
     }
@@ -168,19 +272,19 @@ impl PaneNode {
         }
     }
 
-    pub fn layout(&self, columns: usize, lines: usize) -> PaneLayout {
+    pub fn layout(&self, columns: usize, lines: usize, minimum: (usize, usize)) -> PaneLayout {
         let mut layout = PaneLayout::default();
         let area = PaneRect { x: 0, y: 0, width: columns, height: lines };
-        self.layout_node(area, &mut Vec::new(), &mut layout);
+        self.layout_node(area, &mut Vec::new(), &mut layout, minimum);
         layout
     }
 
-    fn minimum_size(&self) -> (usize, usize) {
+    fn minimum_size(&self, minimum: (usize, usize)) -> (usize, usize) {
         match self {
-            Self::Leaf(_) => (2, 1),
+            Self::Leaf(_) => minimum,
             Self::Split { axis, first, second, .. } => {
-                let (first_width, first_height) = first.minimum_size();
-                let (second_width, second_height) = second.minimum_size();
+                let (first_width, first_height) = first.minimum_size(minimum);
+                let (second_width, second_height) = second.minimum_size(minimum);
                 match axis {
                     Axis::Horizontal => (
                         first_width.max(second_width),
@@ -195,10 +299,14 @@ impl PaneNode {
         }
     }
 
-    fn split_area(&self, area: PaneRect) -> Option<(PaneRect, PaneRect, PaneRect)> {
+    fn split_area(
+        &self,
+        area: PaneRect,
+        minimum: (usize, usize),
+    ) -> Option<(PaneRect, PaneRect, PaneRect)> {
         let Self::Split { axis, ratio, first, second } = self else { return None };
-        let (first_width, first_height) = first.minimum_size();
-        let (second_width, second_height) = second.minimum_size();
+        let (first_width, first_height) = first.minimum_size(minimum);
+        let (second_width, second_height) = second.minimum_size(minimum);
         let (extent, first_min, second_min) = match axis {
             Axis::Horizontal => (area.height, first_height, second_height),
             Axis::Vertical => (area.width, first_width, second_width),
@@ -230,11 +338,17 @@ impl PaneNode {
         })
     }
 
-    fn layout_node(&self, area: PaneRect, path: &mut Vec<bool>, layout: &mut PaneLayout) {
+    fn layout_node(
+        &self,
+        area: PaneRect,
+        path: &mut Vec<bool>,
+        layout: &mut PaneLayout,
+        minimum: (usize, usize),
+    ) {
         match self {
             Self::Leaf(id) => layout.panes.push((*id, area)),
             Self::Split { axis, first, second, .. } => {
-                let (first_area, rect, second_area) = self.split_area(area).unwrap();
+                let (first_area, rect, second_area) = self.split_area(area, minimum).unwrap();
                 if rect.width != 0 && rect.height != 0 {
                     layout.dividers.push(PaneDivider {
                         path: path.clone(),
@@ -244,9 +358,9 @@ impl PaneNode {
                     });
                 }
                 path.push(false);
-                first.layout_node(first_area, path, layout);
+                first.layout_node(first_area, path, layout, minimum);
                 *path.last_mut().unwrap() = true;
-                second.layout_node(second_area, path, layout);
+                second.layout_node(second_area, path, layout, minimum);
                 path.pop();
             },
         }
@@ -259,8 +373,9 @@ impl PaneNode {
         y: usize,
         columns: usize,
         lines: usize,
+        minimum: (usize, usize),
     ) -> bool {
-        let layout = self.layout(columns, lines);
+        let layout = self.layout(columns, lines, minimum);
         let Some(divider) = layout.dividers.iter().find(|divider| divider.path == path) else {
             return false;
         };
@@ -289,8 +404,9 @@ impl PaneNode {
         direction: Direction,
         columns: usize,
         lines: usize,
+        minimum: (usize, usize),
     ) -> Option<u64> {
-        let layout = self.layout(columns, lines);
+        let layout = self.layout(columns, lines, minimum);
         let (_, current) = layout.panes.iter().find(|(pane_id, _)| *pane_id == id)?;
         if current.width == 0 || current.height == 0 {
             return None;
@@ -408,8 +524,8 @@ mod tests {
     #[test]
     fn saved_tree_round_trip_and_remapping_preserve_structure_and_ratios() {
         let mut root = grid();
-        assert!(root.resize_divider(&[], 70, 0, 101, 41));
-        assert!(root.resize_divider(&[false], 0, 10, 101, 41));
+        assert!(root.resize_divider(&[], 70, 0, 101, 41, (2, 1)));
+        assert!(root.resize_divider(&[false], 0, 10, 101, 41, (2, 1)));
         let encoded = serde_json::to_string(&root).unwrap();
         let decoded: PaneNode = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, root);
@@ -420,9 +536,42 @@ mod tests {
     }
 
     #[test]
+    fn pixel_layout_keeps_complete_terminal_cells_when_many_panes_share_a_window() {
+        let mut root = PaneNode::Leaf(0);
+        for id in 1..MAX_PANES as u64 {
+            assert!(root.split(id - 1, id, Axis::Vertical));
+        }
+        let layout = root.layout(1000, 700, (20, 20));
+        assert_eq!(layout.panes.len(), MAX_PANES);
+        assert!(layout.panes.iter().all(|(_, rect)| rect.width >= 20 && rect.height >= 20));
+        assert!(layout.dividers.iter().all(|divider| divider.rect.width == 1));
+    }
+
+    #[test]
+    fn pixel_dividers_keep_one_pixel_visible_with_wider_invisible_resize_targets() {
+        let root = grid();
+        let layout = root.layout(1000, 700, (2, 1));
+        for divider in &layout.dividers {
+            match divider.axis {
+                Axis::Vertical => assert_eq!(divider.rect.width, 1),
+                Axis::Horizontal => assert_eq!(divider.rect.height, 1),
+            }
+        }
+        let divider = &layout.dividers[0];
+        let x = divider.rect.x;
+        for offset in 0..=3 {
+            assert_eq!(layout.hit_divider_near(x + offset, 50, 3).unwrap().path, divider.path);
+            assert_eq!(layout.hit_divider_near(x - offset, 50, 3).unwrap().path, divider.path);
+        }
+        assert!(layout.hit_divider_near(x + 4, 50, 3).is_none());
+        assert!(layout.hit_divider_near(x - 4, 50, 3).is_none());
+        assert!(layout.hit_divider(x + 1, 50).is_none());
+    }
+
+    #[test]
     fn nested_dividers_use_their_containing_area_for_resize_and_hit_testing() {
         let mut root = grid();
-        let layout = root.layout(101, 41);
+        let layout = root.layout(101, 41, (2, 1));
         assert_eq!(layout.panes[0], (10, PaneRect { x: 0, y: 0, width: 50, height: 20 }));
         assert_eq!(layout.panes[1], (30, PaneRect { x: 0, y: 21, width: 50, height: 20 }));
         assert_eq!(layout.panes[2], (20, PaneRect { x: 51, y: 0, width: 50, height: 20 }));
@@ -432,17 +581,17 @@ mod tests {
         assert_eq!(layout.hit_divider(51, 20).unwrap().path, vec![true]);
         assert!(layout.hit_divider(0, 0).is_none());
         assert!(layout.hit_divider(101, 41).is_none());
-        assert!(root.resize_divider(&[true], 99, 30, 101, 41));
-        let layout = root.layout(101, 41);
+        assert!(root.resize_divider(&[true], 99, 30, 101, 41, (2, 1)));
+        let layout = root.layout(101, 41, (2, 1));
         assert_eq!(layout.panes[0].1.height, 20);
         assert_eq!(layout.panes[2].1.height, 30);
         assert_eq!(layout.panes[3].1.y, 31);
-        assert!(!root.resize_divider(&[true, false], 0, 0, 101, 41));
-        assert!(root.resize_divider(&[], usize::MAX, 0, 101, 41));
-        assert_eq!(root.layout(101, 41).panes[0].1.width, 90);
-        assert!(!root.resize_divider(&[], usize::MAX, 0, 101, 41));
-        assert!(root.resize_divider(&[], 0, 0, 101, 41));
-        assert_eq!(root.layout(101, 41).panes[0].1.width, 10);
+        assert!(!root.resize_divider(&[true, false], 0, 0, 101, 41, (2, 1)));
+        assert!(root.resize_divider(&[], usize::MAX, 0, 101, 41, (2, 1)));
+        assert_eq!(root.layout(101, 41, (2, 1)).panes[0].1.width, 90);
+        assert!(!root.resize_divider(&[], usize::MAX, 0, 101, 41, (2, 1)));
+        assert!(root.resize_divider(&[], 0, 0, 101, 41, (2, 1)));
+        assert_eq!(root.layout(101, 41, (2, 1)).panes[0].1.width, 10);
     }
 
     #[test]
@@ -452,7 +601,7 @@ mod tests {
         assert!(root.split(50, 60, Axis::Horizontal));
         for columns in 0..80 {
             for lines in 0..40 {
-                let layout = root.layout(columns, lines);
+                let layout = root.layout(columns, lines, (2, 1));
                 assert_eq!(layout.panes.len(), 6);
                 let mut occupied = vec![false; columns * lines];
                 let rects = layout
@@ -478,21 +627,21 @@ mod tests {
                 }
             }
         }
-        assert!(!root.resize_divider(&[], 0, 0, 1, 1));
+        assert!(!root.resize_divider(&[], 0, 0, 1, 1, (2, 1)));
     }
 
     #[test]
     fn directional_navigation_follows_visible_geometry_without_wrapping() {
         let root = grid();
-        assert_eq!(root.navigate(10, Direction::Right, 101, 41), Some(20));
-        assert_eq!(root.navigate(10, Direction::Down, 101, 41), Some(30));
-        assert_eq!(root.navigate(40, Direction::Left, 101, 41), Some(30));
-        assert_eq!(root.navigate(40, Direction::Up, 101, 41), Some(20));
-        assert_eq!(root.navigate(10, Direction::Left, 101, 41), None);
-        assert_eq!(root.navigate(10, Direction::Up, 101, 41), None);
-        assert_eq!(root.navigate(99, Direction::Down, 101, 41), None);
-        assert_eq!(root.navigate(10, Direction::Down, 0, 0), None);
-        assert_eq!(root.navigate(40, Direction::Left, 1, 1), None);
+        assert_eq!(root.navigate(10, Direction::Right, 101, 41, (2, 1)), Some(20));
+        assert_eq!(root.navigate(10, Direction::Down, 101, 41, (2, 1)), Some(30));
+        assert_eq!(root.navigate(40, Direction::Left, 101, 41, (2, 1)), Some(30));
+        assert_eq!(root.navigate(40, Direction::Up, 101, 41, (2, 1)), Some(20));
+        assert_eq!(root.navigate(10, Direction::Left, 101, 41, (2, 1)), None);
+        assert_eq!(root.navigate(10, Direction::Up, 101, 41, (2, 1)), None);
+        assert_eq!(root.navigate(99, Direction::Down, 101, 41, (2, 1)), None);
+        assert_eq!(root.navigate(10, Direction::Down, 0, 0, (2, 1)), None);
+        assert_eq!(root.navigate(40, Direction::Left, 1, 1, (2, 1)), None);
     }
 
     #[test]
@@ -501,22 +650,88 @@ mod tests {
         assert!(root.split(0, 1, Axis::Vertical));
         assert!(root.split(0, 2, Axis::Horizontal));
         assert!(root.split(1, 3, Axis::Horizontal));
-        assert!(root.resize_divider(&[false], 0, 8, 81, 41));
-        assert!(root.resize_divider(&[true], 0, 32, 81, 41));
-        assert_eq!(root.navigate(0, Direction::Right, 81, 41), Some(1));
-        assert_eq!(root.navigate(3, Direction::Left, 81, 41), Some(2));
+        assert!(root.resize_divider(&[false], 0, 8, 81, 41, (2, 1)));
+        assert!(root.resize_divider(&[true], 0, 32, 81, 41, (2, 1)));
+        assert_eq!(root.navigate(0, Direction::Right, 81, 41, (2, 1)), Some(1));
+        assert_eq!(root.navigate(3, Direction::Left, 81, 41, (2, 1)), Some(2));
+    }
+
+    #[test]
+    fn relocation_docks_in_every_direction_and_keeps_other_panes() {
+        for direction in [Direction::Left, Direction::Right, Direction::Up, Direction::Down] {
+            let mut node = grid();
+            let mut ids = node.leaf_ids();
+            let source = ids[0];
+            let target = ids[3];
+            assert!(node.relocate(source, target, direction));
+            assert!(node.validate());
+            let mut moved_ids = node.leaf_ids();
+            moved_ids.sort_unstable();
+            ids.sort_unstable();
+            assert_eq!(moved_ids, ids);
+            let rectangles = node.layout(120, 60, (2, 1)).panes;
+            let source_rect = rectangles.iter().find(|(id, _)| *id == source).unwrap().1;
+            let target_rect = rectangles.iter().find(|(id, _)| *id == target).unwrap().1;
+            match direction {
+                Direction::Left => assert!(source_rect.x < target_rect.x),
+                Direction::Right => assert!(source_rect.x > target_rect.x),
+                Direction::Up => assert!(source_rect.y < target_rect.y),
+                Direction::Down => assert!(source_rect.y > target_rect.y),
+            }
+            assert_eq!(node, serde_json::from_str(&serde_json::to_string(&node).unwrap()).unwrap());
+        }
+    }
+
+    #[test]
+    fn rejected_moves_leave_the_original_tree_untouched() {
+        let mut node = grid();
+        let original = node.clone();
+        for (source, target) in [(1, 1), (99, 1), (1, 99)] {
+            assert!(!node.relocate(source, target, Direction::Left));
+            assert_eq!(node, original);
+        }
+        assert!(!node.insert(1, 2, Direction::Up));
+        assert_eq!(node, original);
+        let mut full = PaneNode::Leaf(0);
+        for id in 1..MAX_PANES as u64 {
+            assert!(full.insert(id - 1, id, Direction::Right));
+        }
+        let original = full.clone();
+        assert!(!full.insert(0, 99, Direction::Right));
+        assert_eq!(full, original);
+        assert!(full.relocate(0, 3, Direction::Down));
+        assert!(full.validate());
+        assert_eq!(full.leaf_ids().len(), MAX_PANES);
+    }
+
+    #[test]
+    fn drop_zones_follow_pane_offsets_and_keep_preview_inside_the_pane() {
+        let rect = PaneRect { x: 30, y: 12, width: 60, height: 24 };
+        for (x, y, direction) in [
+            (30, 24, Direction::Left),
+            (89, 24, Direction::Right),
+            (60, 12, Direction::Up),
+            (60, 35, Direction::Down),
+        ] {
+            assert_eq!(rect.drop_direction(x, y), Some(direction));
+            let preview = rect.dock_rect(direction);
+            assert!(rect.contains(preview.x, preview.y));
+            assert!(rect.contains(preview.x + preview.width - 1, preview.y + preview.height - 1));
+        }
+        assert_eq!(rect.drop_direction(29, 24), None);
+        assert_eq!(PaneRect::default().drop_direction(0, 0), None);
     }
 
     #[test]
     fn maximum_dimensions_do_not_overflow_geometry_or_direction_ranking() {
         let root = grid();
-        let layout = root.layout(usize::MAX, usize::MAX);
+        let layout = root.layout(usize::MAX, usize::MAX, (2, 1));
         assert_eq!(layout.panes.len(), 4);
         for (_, rect) in layout.panes {
             assert!(rect.x.checked_add(rect.width).is_some());
             assert!(rect.y.checked_add(rect.height).is_some());
         }
-        assert_eq!(root.navigate(10, Direction::Right, usize::MAX, usize::MAX), Some(20));
+        assert_eq!(root.navigate(10, Direction::Right, usize::MAX, usize::MAX, (2, 1)), Some(20));
         assert!(
             !PaneRect { x: usize::MAX, y: usize::MAX, width: 0, height: 0 }
                 .contains(usize::MAX, usize::MAX)

@@ -27,6 +27,8 @@ pub enum MessageType {
 
     /// A message represents a warning.
     Warning,
+    #[cfg(termust_updater)]
+    Info,
 }
 
 impl Message {
@@ -65,8 +67,8 @@ impl Message {
                 // Attempt to wrap on word boundaries.
                 let mut new_line = String::new();
                 if let Some(index) = line.rfind(char::is_whitespace).filter(|_| !is_whitespace) {
-                    let split = line.split_off(index + 1);
-                    line.pop();
+                    let mut split = line.split_off(index);
+                    split.remove(0);
                     new_line = split;
                 }
 
@@ -96,7 +98,7 @@ impl Message {
         let truncated_message = locale.text(Text::TruncatedNotice);
         if lines.len() > max_lines {
             lines.truncate(max_lines);
-            if truncated_message.len() <= num_cols {
+            if truncated_message.chars().count() <= num_cols {
                 if let Some(line) = lines.iter_mut().last() {
                     *line = Self::pad_text(truncated_message.into(), num_cols);
                 }
@@ -106,7 +108,9 @@ impl Message {
         // Append close button to first line.
         if button_len <= num_cols {
             if let Some(line) = lines.get_mut(0) {
-                line.truncate(num_cols - button_len);
+                if let Some((byte, _)) = line.char_indices().nth(num_cols - button_len) {
+                    line.truncate(byte);
+                }
                 line.push_str(CLOSE_BUTTON_TEXT);
             }
         }
@@ -259,6 +263,17 @@ mod tests {
         let lines = message_buffer.message().unwrap().text(&size);
 
         assert_eq!(lines.len(), 0);
+    }
+
+    #[test]
+    fn update_notice_wraps_at_character_boundaries_in_portuguese() {
+        let notice = Message::new("Atualização disponível. Abra Configurações → Terminal.".into(), MessageType::Warning);
+        for columns in 3..70 {
+            let size = SizeInfo::new(columns as f32, 80., 1., 1., 0., 0., false);
+            let lines = notice.text_with_locale(&size, Locale::PtBr);
+            assert!(lines[0].ends_with(CLOSE_BUTTON_TEXT));
+            assert!(lines.iter().all(|line| line.chars().count() == columns));
+        }
     }
 
     #[test]

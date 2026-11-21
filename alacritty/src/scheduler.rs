@@ -31,6 +31,7 @@ pub enum Topic {
     Frame,
     SessionRestore,
     SessionActivity,
+    AgentAnimation,
 }
 
 /// Event scheduled to be emitted at a specific time.

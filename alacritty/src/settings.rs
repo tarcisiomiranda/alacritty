@@ -7,13 +7,13 @@ use toml_edit::Value;
 use winit::keyboard::{Key, ModifiersState, NamedKey, PhysicalKey};
 
 use crate::config::scrolling::MAX_SCROLLBACK_LINES;
-use crate::config::{Action, BindingKey, BindingMode, KeyBinding, UiConfig};
+use crate::config::{Action, BindingKey, BindingMode, KeyBinding, KeyLocation, UiConfig};
 use crate::language_settings::save_values;
 use crate::localization::Language;
 
 pub type SettingsChange = (Vec<String>, Option<Value>);
 
-pub const SHORTCUT_ACTIONS: [&str; 16] = [
+pub const SHORTCUT_ACTIONS: [&str; 20] = [
     "CreateNewTab",
     "DuplicateTab",
     "ReopenClosedTab",
@@ -30,6 +30,10 @@ pub const SHORTCUT_ACTIONS: [&str; 16] = [
     "MoveTabRight",
     "OpenSettings",
     "SaveSession",
+    "RenameTab",
+    "CloseTab",
+    "SelectPreviousTab",
+    "SelectNextTab",
 ];
 
 pub fn shortcut_binding(action: &str, shortcut: &str) -> Option<KeyBinding> {
@@ -57,20 +61,27 @@ pub fn shortcut_binding(action: &str, shortcut: &str) -> Option<KeyBinding> {
         trigger,
         mods,
         mode: BindingMode::empty(),
-        notmode: BindingMode::empty(),
+        notmode: if action == "RenameTab" && *key == "F2" && mods.is_empty() {
+            BindingMode::ALT_SCREEN
+        } else {
+            BindingMode::empty()
+        },
     };
-    if matches!(&binding.trigger, BindingKey::Keycode {
-        key: Key::Named(
-            NamedKey::Shift
-                | NamedKey::Control
-                | NamedKey::Alt
-                | NamedKey::AltGraph
-                | NamedKey::Super
-                | NamedKey::Meta
-                | NamedKey::Hyper
-        ),
-        ..
-    }) {
+    if matches!(
+        &binding.trigger,
+        BindingKey::Keycode {
+            key: Key::Named(
+                NamedKey::Shift
+                    | NamedKey::Control
+                    | NamedKey::Alt
+                    | NamedKey::AltGraph
+                    | NamedKey::Super
+                    | NamedKey::Meta
+                    | NamedKey::Hyper
+            ),
+            ..
+        }
+    ) {
         return None;
     }
     let function_key = match &binding.trigger {
@@ -88,7 +99,7 @@ pub fn shortcut_binding(action: &str, shortcut: &str) -> Option<KeyBinding> {
     Some(binding)
 }
 
-pub fn shortcut_text(key: &Key, mods: ModifiersState) -> Option<String> {
+pub fn shortcut_text(key: &Key, mods: ModifiersState, location: KeyLocation) -> Option<String> {
     let key =
         match key {
             Key::Character(text)
@@ -108,12 +119,32 @@ pub fn shortcut_text(key: &Key, mods: ModifiersState) -> Option<String> {
             Key::Named(key) => format!("{key:?}"),
             _ => return None,
         };
+    let key = if matches!(location, KeyLocation::Numpad) {
+        match key.as_str() {
+            "Enter" => "NumpadEnter".into(),
+            "Plus" => "NumpadAdd".into(),
+            "-" => "NumpadSubtract".into(),
+            "*" => "NumpadMultiply".into(),
+            "/" => "NumpadDivide".into(),
+            "." => "NumpadDecimal".into(),
+            "," => "NumpadComma".into(),
+            "=" => "NumpadEquals".into(),
+            digit if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() => {
+                format!("Numpad{digit}")
+            },
+            _ => key,
+        }
+    } else {
+        key
+    };
     let mut parts = Vec::new();
+    let (alt, command) =
+        if cfg!(target_os = "macos") { ("Option", "Cmd") } else { ("Alt", "Super") };
     for (modifier, label) in [
         (ModifiersState::CONTROL, "Ctrl"),
-        (ModifiersState::ALT, "Alt"),
+        (ModifiersState::ALT, alt),
         (ModifiersState::SHIFT, "Shift"),
-        (ModifiersState::SUPER, "Super"),
+        (ModifiersState::SUPER, command),
     ] {
         if mods.contains(modifier) {
             parts.push(label.to_owned());
@@ -134,9 +165,34 @@ pub fn resolved_shortcuts(
         if !value.is_empty() && replacement.is_none() {
             continue;
         }
+        if replacement.as_ref().is_some_and(|replacement| bindings.contains(replacement)) {
+            continue;
+        }
         let Ok(action) = toml::Value::String(action.into()).try_into::<Action>() else { continue };
         bindings.retain(|binding| binding.action != action);
         bindings.extend(replacement);
+    }
+    if overrides
+        .get("RenameTab")
+        .is_some_and(|value| value.is_empty() || shortcut_binding("RenameTab", value).is_some())
+    {
+        let legacy_f2 = bindings.iter().position(|binding| {
+            binding.mode == BindingMode::ALT_SCREEN
+                && binding.mods.is_empty()
+                && matches!(
+                    &binding.trigger,
+                    BindingKey::Keycode { key: Key::Named(NamedKey::F2), .. }
+                )
+                && matches!(&binding.action, Action::Esc(value) if value == "\x1bOQ")
+        });
+        if let Some(index) = legacy_f2 {
+            let mut fallback = bindings[index].clone();
+            fallback.mode = BindingMode::empty();
+            fallback.notmode |= BindingMode::ALT_SCREEN;
+            if !bindings.iter().any(|binding| binding.triggers_match(&fallback)) {
+                bindings[index].mode = BindingMode::empty();
+            }
+        }
     }
     bindings
 }
@@ -181,8 +237,10 @@ pub fn default_shortcuts() -> BTreeMap<String, String> {
                     if binding.action != action {
                         return None;
                     }
-                    let BindingKey::Keycode { key, .. } = &binding.trigger else { return None };
-                    shortcut_text(key, binding.mods)
+                    let BindingKey::Keycode { key, location } = &binding.trigger else {
+                        return None;
+                    };
+                    shortcut_text(key, binding.mods, *location)
                 })
                 .unwrap_or_default();
             (name.into(), value)
@@ -204,10 +262,16 @@ pub struct SettingsValues {
     pub font_family: String,
     pub font_size: f32,
     pub opacity: f32,
+    pub icon: crate::personalization::IconPreset,
     pub theme: ThemeChoice,
     pub restore_session: bool,
     pub session_autosave: bool,
     pub confirm_tab_close: bool,
+    pub agent_integration: bool,
+    pub agent_notifications: bool,
+    pub check_updates: bool,
+    pub editor: String,
+    pub file_manager: String,
     pub scrollback_lines: u32,
     pub hide_mouse_when_typing: bool,
     pub copy_on_select: bool,
@@ -225,10 +289,30 @@ impl SettingsValues {
             font_family: config.font.normal().family.clone(),
             font_size: config.font.size().as_pt(),
             opacity: config.window.opacity.as_f32(),
+            icon: config.window.icon,
             theme: ThemeChoice::Keep,
             restore_session: config.general.restore_session,
             session_autosave: config.general.session_autosave,
             confirm_tab_close: config.general.confirm_tab_close,
+            agent_integration: config.general.agent_integration,
+            agent_notifications: config.general.agent_notifications,
+            check_updates: config.general.check_updates,
+            editor: if crate::desktop_apps::known(
+                crate::desktop_apps::AppKind::Editor,
+                &config.general.editor,
+            ) {
+                config.general.editor.clone()
+            } else {
+                "auto".into()
+            },
+            file_manager: if crate::desktop_apps::known(
+                crate::desktop_apps::AppKind::FileManager,
+                &config.general.file_manager,
+            ) {
+                config.general.file_manager.clone()
+            } else {
+                "auto".into()
+            },
             scrollback_lines: config.scrolling.history(),
             hide_mouse_when_typing: config.mouse.hide_when_typing,
             copy_on_select: config.selection.save_to_clipboard,
@@ -242,12 +326,56 @@ impl SettingsValues {
         }
     }
 
+    pub fn rebase(&mut self, original: &UiConfig, config: &UiConfig) {
+        fn update<T: PartialEq>(value: &mut T, previous: T, current: T) {
+            if *value == previous {
+                *value = current;
+            }
+        }
+
+        let previous = Self::from_config(original);
+        let current = Self::from_config(config);
+        update(&mut self.language, previous.language, current.language);
+        update(&mut self.font_family, previous.font_family, current.font_family);
+        update(&mut self.font_size, previous.font_size, current.font_size);
+        update(&mut self.opacity, previous.opacity, current.opacity);
+        update(&mut self.icon, previous.icon, current.icon);
+        update(&mut self.restore_session, previous.restore_session, current.restore_session);
+        update(&mut self.session_autosave, previous.session_autosave, current.session_autosave);
+        update(&mut self.confirm_tab_close, previous.confirm_tab_close, current.confirm_tab_close);
+        update(&mut self.agent_integration, previous.agent_integration, current.agent_integration);
+        update(
+            &mut self.agent_notifications,
+            previous.agent_notifications,
+            current.agent_notifications,
+        );
+        update(&mut self.check_updates, previous.check_updates, current.check_updates);
+        update(&mut self.editor, previous.editor, current.editor);
+        update(&mut self.file_manager, previous.file_manager, current.file_manager);
+        update(&mut self.scrollback_lines, previous.scrollback_lines, current.scrollback_lines);
+        update(
+            &mut self.hide_mouse_when_typing,
+            previous.hide_mouse_when_typing,
+            current.hide_mouse_when_typing,
+        );
+        update(&mut self.copy_on_select, previous.copy_on_select, current.copy_on_select);
+        update(&mut self.startup_session, previous.startup_session, current.startup_session);
+    }
+
     pub fn validate(&self) -> io::Result<()> {
         if !self.font_size.is_finite() || !(1.0..=128.0).contains(&self.font_size) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "font size must be between 1 and 128",
             ));
+        }
+        if !crate::desktop_apps::known(crate::desktop_apps::AppKind::Editor, &self.editor)
+            || !crate::desktop_apps::known(
+                crate::desktop_apps::AppKind::FileManager,
+                &self.file_manager,
+            )
+        {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid desktop application"));
         }
         if self.scrollback_lines > MAX_SCROLLBACK_LINES {
             return Err(io::Error::new(
@@ -286,6 +414,15 @@ impl SettingsValues {
         Ok(())
     }
 
+    pub fn set_shortcut(&mut self, action: &str, value: String, physical: Option<PhysicalKey>) {
+        self.shortcut_overrides.insert(action.into(), value);
+        if let Some(physical) = physical {
+            self.shortcut_physical.insert(action.into(), physical);
+        } else {
+            self.shortcut_physical.remove(action);
+        }
+    }
+
     pub fn shortcut_changes_valid(&self, config: &UiConfig) -> bool {
         let mut overrides = config.general.shortcuts.clone();
         overrides.extend(self.shortcut_overrides.clone());
@@ -312,9 +449,15 @@ impl SettingsValues {
             change(&["font", "normal", "family"], Value::from(self.font_family.trim())),
             change(&["font", "size"], Value::from(f64::from(self.font_size))),
             change(&["window", "opacity"], Value::from(f64::from(self.opacity))),
+            change(&["window", "icon"], Value::from(self.icon.id())),
             change(&["general", "restore_session"], Value::from(self.restore_session)),
             change(&["general", "session_autosave"], Value::from(self.session_autosave)),
             change(&["general", "confirm_tab_close"], Value::from(self.confirm_tab_close)),
+            change(&["general", "agent_integration"], Value::from(self.agent_integration)),
+            change(&["general", "agent_notifications"], Value::from(self.agent_notifications)),
+            change(&["general", "check_updates"], Value::from(self.check_updates)),
+            change(&["general", "editor"], Value::from(self.editor.as_str())),
+            change(&["general", "file_manager"], Value::from(self.file_manager.as_str())),
             change(&["scrolling", "history"], Value::from(i64::from(self.scrollback_lines))),
             change(&["mouse", "hide_when_typing"], Value::from(self.hide_mouse_when_typing)),
             change(&["selection", "save_to_clipboard"], Value::from(self.copy_on_select)),
@@ -395,6 +538,11 @@ impl SettingsValues {
     pub fn preview(&self, config: &mut UiConfig) -> Result<(), String> {
         let mut values = self.clone();
         values.scrollback_lines = config.scrolling.history();
+        values.agent_integration = config.general.agent_integration;
+        values.agent_notifications = config.general.agent_notifications;
+        values.check_updates = config.general.check_updates;
+        values.editor = config.general.editor.clone();
+        values.file_manager = config.general.file_manager.clone();
         values.shortcut_overrides.clear();
         values.shortcut_physical.clear();
         values.apply(config)
@@ -413,6 +561,158 @@ fn change(path: &[&str], value: Value) -> SettingsChange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn icon_settings_preview_roundtrip_rebase_and_restore_preserve_other_values() {
+        use crate::personalization::IconPreset;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("termust.toml");
+        let original: UiConfig =
+            toml::from_str("[window]\nicon='cat'\n[env]\nKEEP='yes'\n").unwrap();
+        std::fs::write(&path, "[window]\nicon='cat'\n[env]\nKEEP='yes'\n").unwrap();
+        let mut values = SettingsValues::from_config(&original);
+        values.icon = IconPreset::Dog;
+        let mut preview = original.clone();
+        values.preview(&mut preview).unwrap();
+        assert_eq!(preview.window.icon, IconPreset::Dog);
+        assert_eq!(original.window.icon, IconPreset::Cat);
+        values.save(&path).unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let saved: UiConfig = toml::from_str(&source).unwrap();
+        assert_eq!(saved.window.icon, IconPreset::Dog);
+        assert!(source.contains("KEEP='yes'"));
+        let mut edited = values.clone();
+        edited.icon = IconPreset::Fox;
+        edited.rebase(&original, &saved);
+        assert_eq!(edited.icon, IconPreset::Fox);
+        let mut untouched = SettingsValues::from_config(&original);
+        untouched.rebase(&original, &saved);
+        assert_eq!(untouched.icon, IconPreset::Dog);
+        values.icon = IconPreset::Termust;
+        values.save(&path).unwrap();
+        let saved: UiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved.window.icon, IconPreset::Termust);
+    }
+
+    #[test]
+    fn desktop_preferences_save_reload_and_preserve_unrelated_configuration() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("termust.toml");
+        std::fs::write(
+            &path,
+            r#"import=['base.toml']
+[general]
+editor='code'
+file_manager='nautilus'
+[env]
+PRESERVED='yes'
+"#,
+        )
+        .unwrap();
+        let mut config: UiConfig =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let mut values = SettingsValues::from_config(&config);
+        values.editor = "zed".into();
+        values.file_manager = "dolphin".into();
+        values.preview(&mut config).unwrap();
+        assert_eq!(config.general.editor, "code");
+        assert_eq!(config.general.file_manager, "nautilus");
+        values.save(&path).unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let saved: toml::Value = toml::from_str(&source).unwrap();
+        assert_eq!(saved["env"]["PRESERVED"].as_str(), Some("yes"));
+        assert_eq!(saved["import"][0].as_str(), Some("base.toml"));
+        let saved: UiConfig = toml::from_str(&source).unwrap();
+        assert_eq!(saved.general.editor, "zed");
+        assert_eq!(saved.general.file_manager, "dolphin");
+        values.apply(&mut config).unwrap();
+        assert_eq!(SettingsValues::from_config(&config).editor, "zed");
+
+        values.editor = "nautilus".into();
+        assert!(values.save(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    }
+
+    #[test]
+    fn desktop_preferences_follow_reload_without_overwriting_draft_choices() {
+        let original = UiConfig::default();
+        let mut values = SettingsValues::from_config(&original);
+        values.editor = "zed".into();
+        let mut reloaded = original.clone();
+        reloaded.general.editor = "code".into();
+        reloaded.general.file_manager = "dolphin".into();
+        values.rebase(&original, &reloaded);
+        assert_eq!(values.editor, "zed");
+        assert_eq!(values.file_manager, "dolphin");
+        reloaded.general.editor = "unrecognized".into();
+        assert_eq!(SettingsValues::from_config(&reloaded).editor, "auto");
+    }
+
+    #[test]
+    fn agent_settings_save_without_previewing_or_replacing_other_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("termust.toml");
+        std::fs::write(
+            &path,
+            "# preserve\n[general]\nagent_integration=true\nagent_notifications=true\n[font.\
+             normal]\nfamily='Existing'\nstyle='Bold'\n[env]\nTERMUST_AGENT_SENTINEL='keep'\n",
+        )
+        .unwrap();
+        let mut config: UiConfig =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let mut values = SettingsValues::from_config(&config);
+        assert!(values.agent_integration && values.agent_notifications);
+        values.agent_integration = false;
+        values.agent_notifications = false;
+        values.preview(&mut config).unwrap();
+        assert!(config.general.agent_integration && config.general.agent_notifications);
+        values.apply(&mut config).unwrap();
+        assert!(!config.general.agent_integration && !config.general.agent_notifications);
+        values.save(&path).unwrap();
+        let source = std::fs::read_to_string(&path).unwrap();
+        let saved: toml::Value = toml::from_str(&source).unwrap();
+        assert!(source.contains("# preserve"));
+        assert_eq!(saved["general"]["agent_integration"].as_bool(), Some(false));
+        assert_eq!(saved["general"]["agent_notifications"].as_bool(), Some(false));
+        assert_eq!(saved["env"]["TERMUST_AGENT_SENTINEL"].as_str(), Some("keep"));
+        assert_eq!(saved["font"]["normal"]["style"].as_str(), Some("Bold"));
+    }
+
+    #[test]
+    fn agent_settings_rebase_keeps_edits_and_follows_unedited_reload_values() {
+        let original: UiConfig = toml::from_str("[general]\nagent_integration=false\n").unwrap();
+        let mut values = SettingsValues::from_config(&original);
+        values.agent_integration = true;
+        let mut reloaded = original.clone();
+        reloaded.general.agent_notifications = false;
+        values.rebase(&original, &reloaded);
+        assert!(values.agent_integration);
+        assert!(!values.agent_notifications);
+    }
+
+    #[test]
+    fn shortcut_labels_round_trip_through_platform_modifier_names() {
+        let mods = ModifiersState::CONTROL
+            | ModifiersState::ALT
+            | ModifiersState::SHIFT
+            | ModifiersState::SUPER;
+        let label =
+            shortcut_text(&Key::Character("t".into()), mods, KeyLocation::Standard).unwrap();
+        let expected = if cfg!(target_os = "macos") {
+            "Ctrl+Option+Shift+Cmd+T"
+        } else {
+            "Ctrl+Alt+Shift+Super+T"
+        };
+        assert_eq!(label, expected);
+        assert_eq!(shortcut_binding("CreateNewTab", &label).unwrap().mods, mods);
+        let close = shortcut_text(
+            &Key::Character("w".into()),
+            ModifiersState::SUPER,
+            KeyLocation::Standard,
+        )
+        .unwrap();
+        assert_eq!(close, if cfg!(target_os = "macos") { "Cmd+W" } else { "Super+W" });
+    }
 
     #[test]
     fn shortcut_overrides_replace_only_supported_actions_and_fail_soft() {
@@ -552,6 +852,208 @@ style={shape='Beam',blinking='Always'}
         assert_eq!(config, original);
         assert!(values.save(&path).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), original_file);
+    }
+
+    #[test]
+    fn menu_action_overrides_preserve_f2_for_alternate_screen_applications() {
+        let rename = shortcut_binding("RenameTab", "F2").unwrap();
+        assert!(rename.is_triggered_by(BindingMode::empty(), rename.mods, &rename.trigger));
+        assert!(!rename.is_triggered_by(BindingMode::ALT_SCREEN, rename.mods, &rename.trigger));
+        for action in ["CloseTab", "SelectPreviousTab", "SelectNextTab"] {
+            assert!(shortcut_binding(action, "Ctrl+F8").is_some());
+        }
+        let mut config = UiConfig::default();
+        config.general.shortcuts.insert("RenameTab".into(), "F2".into());
+        let resolved = resolved_shortcuts(&config, &config.general.shortcuts);
+        let modes = [BindingMode::empty(), BindingMode::ALT_SCREEN];
+        for mode in modes {
+            let active: Vec<_> = resolved
+                .iter()
+                .filter(|binding| binding.is_triggered_by(mode, rename.mods, &rename.trigger))
+                .collect();
+            assert_eq!(active.len(), 1);
+            assert_eq!(active[0].action == Action::RenameTab, mode.is_empty());
+        }
+        for value in ["F8", ""] {
+            config.general.shortcuts.insert("RenameTab".into(), value.into());
+            let resolved = resolved_shortcuts(&config, &config.general.shortcuts);
+            for mode in modes {
+                let active: Vec<_> = resolved
+                    .iter()
+                    .filter(|binding| binding.is_triggered_by(mode, rename.mods, &rename.trigger))
+                    .collect();
+                assert_eq!(active.len(), 1);
+                assert_eq!(active[0].action, Action::Esc("\x1bOQ".into()));
+            }
+        }
+        let mut config: UiConfig = toml::from_str(
+            r#"[keyboard]
+bindings = [{ key = "F2", mode = "~Alt", chars = "custom" }]"#,
+        )
+        .unwrap();
+        config.general.shortcuts.insert("RenameTab".into(), "F8".into());
+        let resolved = resolved_shortcuts(&config, &config.general.shortcuts);
+        let active: Vec<_> = resolved
+            .iter()
+            .filter(|binding| {
+                binding.is_triggered_by(BindingMode::empty(), rename.mods, &rename.trigger)
+            })
+            .collect();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].action, Action::Esc("custom".into()));
+        for (action, value) in default_shortcuts() {
+            assert!(value.is_empty() || shortcut_binding(&action, &value).is_some());
+        }
+    }
+
+    #[test]
+    fn selecting_an_existing_tab_shortcut_retains_its_aliases() {
+        let config: UiConfig = toml::from_str(
+            r#"[keyboard]
+bindings = [
+    { key = "F2", mode = "~Alt", action = "RenameTab" },
+    { key = "r", mods = "Control|Shift", action = "RenameTab" },
+    { key = "Tab", mods = "Control", action = "SelectNextTab" },
+    { key = "PageDown", mods = "Control", action = "SelectNextTab" },
+    { key = "Tab", mods = "Control|Shift", action = "SelectPreviousTab" },
+    { key = "PageUp", mods = "Control", action = "SelectPreviousTab" },
+]"#,
+        )
+        .unwrap();
+        let overrides = BTreeMap::from([
+            ("RenameTab".into(), "F2".into()),
+            ("SelectNextTab".into(), "Ctrl+Tab".into()),
+            ("SelectPreviousTab".into(), "Ctrl+Shift+Tab".into()),
+        ]);
+        let restored = resolved_shortcuts(&config, &overrides);
+        assert_eq!(restored, config.key_bindings());
+        for (action, key) in &overrides {
+            assert!(!shortcut_conflict(&config, &overrides, action, key, None));
+        }
+        let changed = BTreeMap::from([("RenameTab".into(), "F8".into())]);
+        let bindings = resolved_shortcuts(&config, &changed);
+        let rename: Vec<_> =
+            bindings.iter().filter(|binding| binding.action == Action::RenameTab).collect();
+        assert_eq!(rename.len(), 1);
+        assert_eq!(*rename[0], shortcut_binding("RenameTab", "F8").unwrap());
+    }
+
+    #[test]
+    fn rebase_saves_reloaded_settings_without_restoring_stale_values() {
+        let original = UiConfig::default();
+        let source = r"[general]
+language='pt-BR'
+restore_session=false
+session_autosave=true
+confirm_tab_close=false
+startup_session='Reloaded'
+[general.shortcuts]
+DuplicateTab='Ctrl+Alt+F10'
+[font]
+size=17
+normal={family='Reloaded',style='Regular'}
+[window]
+opacity=0.55
+[scrolling]
+history=12345
+[mouse]
+hide_when_typing=true
+[selection]
+save_to_clipboard=true
+[colors.primary]
+background='#123456'
+";
+        let current: UiConfig = toml::from_str(source).unwrap();
+        let mut draft = SettingsValues::from_config(&original);
+        draft.rebase(&original, &current);
+        assert_eq!(draft, SettingsValues::from_config(&current));
+
+        let mut preview = current.clone();
+        draft.preview(&mut preview).unwrap();
+        assert_eq!(SettingsValues::from_config(&preview), SettingsValues::from_config(&current));
+        assert_eq!(preview.colors, current.colors);
+        assert_eq!(preview.general.shortcuts, current.general.shortcuts);
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("alacritty.toml");
+        std::fs::write(&path, source).unwrap();
+        draft.save(&path).unwrap();
+        let saved: UiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(SettingsValues::from_config(&saved), SettingsValues::from_config(&current));
+        assert_eq!(saved.colors, current.colors);
+        assert_eq!(saved.general.shortcuts, current.general.shortcuts);
+    }
+
+    #[test]
+    fn rebase_preserves_edited_settings_and_merges_shortcuts_with_the_new_base() {
+        let original = UiConfig::default();
+        let current: UiConfig = toml::from_str(
+            r"[general]
+language='pt-BR'
+confirm_tab_close=false
+session_autosave=true
+startup_session='External'
+[general.shortcuts]
+DuplicateTab='Ctrl+Alt+F10'
+[font]
+size=17
+normal={family='External'}
+[window]
+opacity=0.55
+",
+        )
+        .unwrap();
+        let mut draft = SettingsValues::from_config(&original);
+        draft.language = Language::En;
+        draft.font_family = "Typed family".into();
+        draft.font_size = 23.;
+        draft.opacity = 0.75;
+        draft.startup_session = Some("Typed workspace".into());
+        draft.theme = ThemeChoice::Light;
+        draft.shortcut_overrides.insert("CreateNewTab".into(), "Ctrl+Alt+F9".into());
+        draft
+            .shortcut_physical
+            .insert("CreateNewTab".into(), PhysicalKey::Code(winit::keyboard::KeyCode::F9));
+        draft.rebase(&original, &current);
+        assert_eq!(draft.language, Language::En);
+        assert_eq!(draft.font_family, "Typed family");
+        assert_eq!(draft.font_size, 23.);
+        assert_eq!(draft.opacity, 0.75);
+        assert_eq!(draft.startup_session.as_deref(), Some("Typed workspace"));
+        assert_eq!(draft.theme, ThemeChoice::Light);
+        assert!(!draft.confirm_tab_close);
+        assert!(draft.session_autosave);
+        assert_eq!(
+            draft.shortcut_physical["CreateNewTab"],
+            PhysicalKey::Code(winit::keyboard::KeyCode::F9)
+        );
+
+        let mut applied = current.clone();
+        draft.apply(&mut applied).unwrap();
+        assert_eq!(applied.general.shortcuts["DuplicateTab"], "Ctrl+Alt+F10");
+        assert_eq!(applied.general.shortcuts["CreateNewTab"], "Ctrl+Alt+F9");
+        let mut themed = current.clone();
+        let mut theme = SettingsValues::from_config(&current);
+        theme.theme = ThemeChoice::Light;
+        theme.apply(&mut themed).unwrap();
+        assert_eq!(applied.colors, themed.colors);
+    }
+
+    #[test]
+    fn update_preference_takes_effect_on_save_and_survives_reload() {
+        let mut config = UiConfig::default();
+        let mut values = SettingsValues::from_config(&config);
+        assert!(values.check_updates);
+        values.check_updates = false;
+        values.preview(&mut config).unwrap();
+        assert!(config.general.check_updates);
+        values.apply(&mut config).unwrap();
+        assert!(!config.general.check_updates);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("termust.toml");
+        values.save(&path).unwrap();
+        let saved: UiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(!saved.general.check_updates);
     }
 
     #[test]

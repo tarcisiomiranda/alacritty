@@ -18,7 +18,7 @@ use crate::cli::{Options, SocketMessage};
 use crate::event::{Event, EventType};
 
 /// Environment variable name for the IPC socket path.
-const ALACRITTY_SOCKET_ENV: &str = "ALACRITTY_SOCKET";
+const TERMUST_SOCKET_ENV: &str = "TERMUST_SOCKET";
 
 /// IPC socket listener.
 pub struct IpcListener {
@@ -39,9 +39,9 @@ impl IpcListener {
         socket.set_nonblocking(true)?;
 
         // Register socket path as environment variable for `alacritty msg`.
-        unsafe { env::set_var(ALACRITTY_SOCKET_ENV, path.as_os_str()) };
+        unsafe { env::set_var(TERMUST_SOCKET_ENV, path.as_os_str()) };
         if options.daemon {
-            println!("ALACRITTY_SOCKET={}; export ALACRITTY_SOCKET", path.display());
+            println!("TERMUST_SOCKET={}; export TERMUST_SOCKET", path.display());
         }
 
         Ok(Self { event_proxy, socket, data: Default::default() })
@@ -152,7 +152,7 @@ fn send_reply_fallible(stream: &mut UnixStream, message: SocketReply) -> IoResul
 /// Directory for the IPC socket file.
 #[cfg(not(target_os = "macos"))]
 pub fn socket_dir() -> PathBuf {
-    xdg::BaseDirectories::with_prefix("alacritty")
+    xdg::BaseDirectories::with_prefix("termust")
         .get_runtime_directory()
         .map(ToOwned::to_owned)
         .ok()
@@ -178,7 +178,7 @@ fn find_socket(socket_path: Option<PathBuf>) -> IoResult<UnixStream> {
     }
 
     // Handle environment variable.
-    if let Ok(path) = env::var(ALACRITTY_SOCKET_ENV) {
+    if let Ok(path) = env::var(TERMUST_SOCKET_ENV) {
         let socket_path = PathBuf::from(path);
         if let Ok(socket) = UnixStream::connect(socket_path) {
             return Ok(socket);
@@ -222,13 +222,13 @@ fn find_socket(socket_path: Option<PathBuf>) -> IoResult<UnixStream> {
 #[cfg(not(target_os = "macos"))]
 pub fn socket_prefix() -> String {
     let display = env::var("WAYLAND_DISPLAY").or_else(|_| env::var("DISPLAY")).unwrap_or_default();
-    format!("Alacritty-{}", display.replace('/', "-"))
+    format!("Termust-{}", display.replace('/', "-"))
 }
 
 /// File prefix matching all available sockets.
 #[cfg(target_os = "macos")]
 pub fn socket_prefix() -> String {
-    String::from("Alacritty")
+    String::from("Termust")
 }
 
 /// IPC socket replies.

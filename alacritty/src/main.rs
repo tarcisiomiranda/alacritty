@@ -27,12 +27,16 @@ use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
 use alacritty_terminal::tty;
 
+mod agent;
+#[cfg(target_os = "linux")]
+mod app_icon;
 mod cli;
 mod clipboard;
 mod close_confirmation;
 mod config;
 mod context_menu;
 mod daemon;
+mod desktop_apps;
 mod display;
 mod event;
 mod input;
@@ -46,6 +50,7 @@ mod migrate;
 mod panes;
 #[cfg(windows)]
 mod panic;
+mod personalization;
 #[cfg(unix)]
 mod polling;
 mod productivity;
@@ -58,6 +63,8 @@ mod string;
 mod tab_ui;
 mod tabs;
 mod ui;
+#[cfg(termust_updater)]
+mod updates;
 mod window_context;
 
 mod gl {
@@ -153,7 +160,7 @@ fn alacritty(mut options: Options) -> Result<(), Box<dyn Error>> {
     let log_file = logging::initialize(&options, window_event_loop.create_proxy())
         .expect("Unable to initialize logger");
 
-    info!("Welcome to Alacritty");
+    info!("Welcome to Termust");
     info!("Version {}", env!("VERSION"));
 
     #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
@@ -174,6 +181,11 @@ fn alacritty(mut options: Options) -> Result<(), Box<dyn Error>> {
     // Load configuration file.
     let config = config::load(&mut options);
     log_config_path(&config);
+    if config.window.icon != personalization::IconPreset::Termust {
+        if let Err(error) = personalization::sync_launcher(config.window.icon) {
+            log::warn!("Could not apply the saved launcher icon: {error}");
+        }
+    }
 
     // Update the log level from config.
     log::set_max_level(config.debug.log_level);

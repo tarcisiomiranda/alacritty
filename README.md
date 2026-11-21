@@ -1,114 +1,166 @@
 <p align="center">
-    <img width="200" alt="Alacritty Logo" src="https://raw.githubusercontent.com/alacritty/alacritty/master/extra/logo/compat/alacritty-term%2Bscanlines.png">
+  <img width="160" alt="Termust gear and terminal logo" src="extra/logo/termust.svg">
 </p>
 
-<h1 align="center">Alacritty - A fast, cross-platform, OpenGL terminal emulator</h1>
+<h1 align="center">Termust</h1>
+<p align="center">A Rust terminal with tabs, split panes and saved workspaces.</p>
 
-<p align="center">
-  <img alt="Alacritty - A fast, cross-platform, OpenGL terminal emulator"
-       src="https://raw.githubusercontent.com/alacritty/alacritty/master/extra/promo/alacritty-readme.png">
-</p>
+Termust is inspired by [Alacritty](https://github.com/alacritty/alacritty)
+and built from its Rust code as an independent fork. It keeps that terminal
+engine and GPU renderer, and adds tools for daily work in one place.
 
-## About
+![Named tabs and split panes in Termust](docs/images/readme/tabs-panes.png)
 
-Alacritty is a modern terminal emulator that comes with sensible defaults, but
-allows for extensive [configuration](#configuration). By integrating with other
-applications, rather than reimplementing their functionality, it manages to
-provide a flexible set of [features](./docs/features.md) with high performance.
-The supported platforms currently consist of BSD, Linux, macOS and Windows.
+## Why Termust?
 
-The software is considered to be at a **beta** level of readiness; there are
-a few missing features and bugs to be fixed, but it is already used by many as
-a daily driver.
+I used Terminator before, but I had performance problems on my computer.
+I liked Alacritty's Rust foundation and wanted to keep the tabs, split panes
+and easy settings that I use every day. That is why I started Termust.
 
-Precompiled binaries are available from the [GitHub releases page](https://github.com/alacritty/alacritty/releases).
+Parts of this work were developed with AI assistance. Alacritty's
+[contribution policy](https://github.com/alacritty/alacritty/blob/master/CONTRIBUTING.md#llmai-contributions)
+does not accept AI-generated contributions. We respect that rule, so we did
+not open an upstream pull request for these changes. We decided to continue
+as Termust, with its own name and features.
 
-Join [`#alacritty`] on libera.chat if you have questions or looking for a quick help.
+We thank the Alacritty authors and contributors for the work that made this
+project possible. Termust builds on their work and keeps the upstream credits
+and license.
 
-[`#alacritty`]: https://web.libera.chat/gamja/?channels=#alacritty
+## Tools for daily work
 
-## Features
+- **Tabs:** open several terminals in one window. Rename with F2, switch with
+  Ctrl+Tab, move tabs, duplicate them and reopen a closed tab.
+- **Split panes:** work with several shells side by side. Each pane has its own
+  shell and working folder. Resize the dividers or maximize the focused pane.
+- **Multiple windows:** open several Termust windows at the same time, each
+  with its own tabs and shells.
+- **Right-click menu:** reach tab, pane, clipboard and session actions quickly.
+  Menu labels follow your custom keyboard shortcuts.
+- **Tab groups:** put related tabs in named groups and switch between a group
+  and all tabs from the compact tab bar.
+- **Sessions and workspaces:** save names, groups, folders, pane layouts,
+  recent output and the last commands. Optional automatic recovery opens fresh
+  shells with this context. Command replay is off by default.
+- **Settings:** preview fonts, opacity and themes before saving. Change the
+  interface language and find or edit shortcuts in a searchable list. Cancel
+  restores the previous look.
+- **Languages:** use the interface in English or Brazilian Portuguese.
+- **Agents:** follow Claude, Codex, Antigravity CLI and OpenCode from the tabs.
+  See when an agent is working, needs a reply or permission, or has finished.
+  The [agent overview](docs/agents.md) takes you to its tab and pane.
 
-You can find an overview over the features available in Alacritty [here](./docs/features.md).
+### Multiple terminal windows
 
-## Further information
+![Two Termust windows running at the same time](docs/images/readme/multiple-windows.png)
 
-- [Announcing Alacritty, a GPU-Accelerated Terminal Emulator](https://jwilm.io/blog/announcing-alacritty/) January 6, 2017
-- [A talk about Alacritty at the Rust Meetup January 2017](https://www.youtube.com/watch?v=qHOdYO3WUTk) January 19, 2017
-- [Alacritty Lands Scrollback, Publishes Benchmarks](https://jwilm.io/blog/alacritty-lands-scrollback/) September 17, 2018
+### Menus and settings
 
-## Installation
+| Right-click actions | Compact settings |
+| --- | --- |
+| ![Termust context menu with F2 rename](docs/images/readme/context-menu.png) | ![Termust appearance settings](docs/images/terminal-tools/settings-compact-termust.png) |
 
-Alacritty can be installed by using various package managers on Linux, BSD,
-macOS and Windows.
+### Tab groups
 
-Prebuilt binaries for macOS and Windows can also be downloaded from the
-[GitHub releases page](https://github.com/alacritty/alacritty/releases).
+![Named tab groups in Termust](docs/images/terminal-tools/state-groups.groups-en-1176.png)
 
-For everyone else, the detailed instructions to install Alacritty can be found
-[here](INSTALL.md).
+### Agent attention
 
-### Requirements
+![Agent status and attention overview](docs/images/terminal-tools/agents.agents-overview-en.png)
 
-- At least OpenGL ES 2.0
-- [Windows] ConPTY support (Windows 10 version 1809 or higher)
+These are real Termust windows on Linux, captured with sample data in an
+isolated session. See the [full guide](docs/terminal-tools.md), [tabs](docs/tabs.md),
+[panes](docs/panes.md) and [settings](docs/productivity.md) for more details.
 
-## Configuration
+## Rust, performance and memory
 
-You can find the documentation for Alacritty's configuration in `man 5
-alacritty`, or by looking at [the website] if you do not have the manpages
-installed.
+Termust keeps Alacritty's native Rust terminal engine and GPU rendering.
+The goal is to add these daily tools while keeping fast output, responsive
+input and low memory use.
 
-[the website]: https://alacritty.org/config-alacritty.html
+Memory use depends on the number of tabs, panes and running applications.
+Comparative speed and memory benchmarks have not been published yet.
 
-Alacritty doesn't create the config file for you, but it looks for one in the
-following locations:
+## Install
 
-1. `$XDG_CONFIG_HOME/alacritty/alacritty.toml`
-2. `$XDG_CONFIG_HOME/alacritty.toml`
-3. `$HOME/.config/alacritty/alacritty.toml`
-4. `$HOME/.alacritty.toml`
-5. `/etc/alacritty/alacritty.toml`
+Use the same command on Linux x86_64 or macOS Apple Silicon. The installer
+detects the platform and downloads its native binary.
 
-On Windows, the config file will be looked for in:
+```sh
+curl -fsSL https://f005.backblazeb2.com/file/termust/install.sh | bash
+```
 
-* `%APPDATA%\alacritty\alacritty.toml`
+### Linux
 
-## Contributing
+The Linux package requires glibc. Release checks cover Ubuntu 22.04/24.04,
+Debian 12/13 and Fedora 43/44. See [installation details](docs/install.md)
+for requirements, update checks and rollback.
 
-A guideline about contributing to Alacritty can be found in the
-[`CONTRIBUTING.md`](CONTRIBUTING.md) file.
+Open **Termust** from your application menu, or run `termust`. After an update,
+choose **New Window** on the launcher or run `~/.local/bin/termust` to open the
+installed build alongside existing sessions. Window titles include the active
+tab name followed by Termust. Saved tab names stay separate.
+To build and install this checkout on Linux:
 
-## FAQ
+```sh
+mise run install
+```
 
-**_Is it really the fastest terminal emulator?_**
+### macOS Apple Silicon
 
-Benchmarking terminal emulators is complicated. Alacritty uses
-[vtebench](https://github.com/alacritty/vtebench) to quantify terminal emulator
-throughput and manages to consistently score better than the competition using
-it. If you have found an example where this is not the case, please report a
-bug.
+The installer downloads a native binary without requiring Rust and installs
+`~/Applications/Termust.app`. Run the same install command again to update. The
+launch command below opens the updated build alongside existing windows.
+The previous bundle is available at
+`~/Applications/.termust/previous.app`.
 
-Other aspects like latency or framerate and frame consistency are more difficult
-to quantify. Some terminal emulators also intentionally slow down to save
-resources, which might be preferred by some users.
+On macOS, Termust uses its own tab bar instead of the system window tabs, so
+tabs, groups, split panes, saved sessions and agent status use the same code
+as on Linux. Use `Cmd+T` for a tab, `Cmd+W` to close it after confirmation,
+`Cmd+N` for a window, `Cmd+D` to split right, `Cmd+Shift+D` to split below and
+`Cmd+,` for Settings. `Cmd+Q` asks once before closing every window. Termust
+opens your account's login shell by default, including your Zsh startup files
+when the account uses Zsh, and records commands and folders from the default
+Zsh. The right-click menu opens the current folder in VS Code, Zed or Finder.
+On macOS 26.6.2, `mise run test:macos-gui` checks tabs, panes, windows, groups,
+recovery after a crash, quitting, the transparent title bar and agent status
+with a sample agent. Session files are stored under `~/.local/state/termust`,
+as on Linux.
 
-If you have doubts about Alacritty's performance or usability, the best way to
-quantify terminal emulators is always to test them with **your** specific
-usecases.
+```sh
+open -n ~/Applications/Termust.app
+```
 
-**_Why isn't feature X implemented?_**
+## Configuration and existing sessions
 
-Alacritty has many great features, but not every feature from every other
-terminal. This could be for a number of reasons, but sometimes it's just not a
-good fit for Alacritty. This means you won't find things like tabs or splits
-(which are best left to a window manager or [terminal multiplexer][tmux]) nor
-niceties like a GUI config editor.
+Termust looks for `termust/termust.toml` in your configuration directory,
+such as `~/.config/termust/termust.toml`. You can also open **Settings** with
+`Ctrl+,` on Linux or `Cmd+,` on macOS.
 
-[tmux]: https://github.com/tmux/tmux
+When no Termust configuration exists, it reads the existing Alacritty configuration.
+Existing saved tabs, recovery snapshots and workspaces are also available as a
+fallback. New session data is stored under `~/.local/state/termust` on Linux.
 
-## License
+The internal terminal type remains `alacritty` for compatibility with terminal
+applications. Termust and the system Alacritty installation can run side by side.
 
-Alacritty is released under the [Apache License, Version 2.0].
+## Development
 
-[Apache License, Version 2.0]: https://github.com/alacritty/alacritty/blob/master/LICENSE-APACHE
+```sh
+mise exec -- cargo test --workspace
+mise run test:shortcuts
+mise run test:install
+```
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a change.
+Report Termust issues in [this fork](https://github.com/tarcisiomiranda/alacritty/issues).
+The repository keeps its existing URL; the application is now named Termust.
+
+## Logo and license
+
+The original Termust logo combines a copper gear and a terminal prompt.
+[SVG, PNG and platform icons](extra/logo) are available with [branding notes](docs/branding.md).
+
+Termust is based on the work of the Alacritty contributors and is distributed
+under the [Apache License, Version 2.0](LICENSE-APACHE). Upstream copyright
+notices and library attribution are retained.

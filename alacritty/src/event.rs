@@ -79,7 +79,7 @@ const MAX_SEARCH_HISTORY_SIZE: usize = 255;
 const TOUCH_ZOOM_FACTOR: f32 = 0.01;
 
 /// Cooldown between invocations of the bell command.
-const BELL_CMD_COOLDOWN: Duration = Duration::from_millis(100);
+pub(crate) const BELL_CMD_COOLDOWN: Duration = Duration::from_millis(100);
 
 /// The event processor.
 ///
@@ -90,6 +90,8 @@ pub struct Processor {
 
     clipboard: Clipboard,
     scheduler: Scheduler,
+    #[cfg(termust_updater)]
+    updater: crate::updates::Updater,
     initial_window_options: Option<WindowOptions>,
     initial_window_error: Option<Box<dyn Error>>,
     windows: HashMap<WindowId, WindowContext, RandomState>,
@@ -99,6 +101,8 @@ pub struct Processor {
     global_ipc_options: ParsedOptions,
     cli_options: CliOptions,
     config: Rc<UiConfig>,
+    #[cfg(target_os = "macos")]
+    quit_menu: Option<objc2::rc::Retained<crate::macos::menu::QuitTarget>>,
 }
 
 impl Processor {
@@ -132,6 +136,8 @@ impl Processor {
         Processor {
             initial_window_options,
             initial_window_error: None,
+            #[cfg(termust_updater)]
+            updater: crate::updates::Updater::new(),
             cli_options,
             proxy,
             scheduler,
@@ -142,6 +148,24 @@ impl Processor {
             #[cfg(unix)]
             global_ipc_options: Default::default(),
             config_monitor,
+            #[cfg(target_os = "macos")]
+            quit_menu: None,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn request_quit(&mut self, event_loop: &ActiveEventLoop) {
+        let windows = self.windows.len();
+        let tabs = self.windows.values().map(WindowContext::tab_count).sum();
+        let target = self
+            .windows
+            .iter()
+            .find(|(_, window)| window.is_focused())
+            .or_else(|| self.windows.iter().next())
+            .map(|(id, _)| *id);
+        match target.and_then(|id| self.windows.get_mut(&id)) {
+            Some(window) => window.request_quit(windows, tabs, &self.proxy, &mut self.scheduler),
+            None => event_loop.exit(),
         }
     }
 
@@ -158,7 +182,7 @@ impl Processor {
                 .or_else(|| home::home_dir().map(|home| home.join(".config")));
             #[cfg(windows)]
             let directory = dirs::config_dir();
-            directory.map(|path| path.join("alacritty/alacritty.toml"))
+            directory.map(|path| path.join("termust/termust.toml"))
         })
     }
 
@@ -248,12 +272,20 @@ impl Processor {
         let mut config = (*self.config).clone();
         let saved = values.apply(&mut config).is_ok()
             && path.as_ref().is_some_and(|path| values.save(path).is_ok());
+        let mut icon_failed = false;
         if saved {
+            if let Err(error) = crate::personalization::sync_launcher(config.window.icon) {
+                log::warn!("Could not update the launcher icon: {error}");
+                icon_failed = true;
+            }
             let paths: Vec<_> = values.changes().into_iter().map(|(path, _)| path).collect();
             self.publish_settings(config, path.unwrap(), &paths);
         }
         if let Some(window) = window_id.and_then(|id| self.windows.get_mut(&id)) {
             window.settings_saved(saved);
+            if icon_failed {
+                window.settings_icon_failed();
+            }
         }
     }
 
@@ -305,7 +337,7 @@ impl Processor {
         )?;
 
         self.gl_config = Some(window_context.display.gl_context().config());
-        self.windows.insert(window_context.id(), window_context);
+        self.insert_window(window_context);
 
         Ok(())
     }
@@ -334,8 +366,44 @@ impl Processor {
             config_overrides,
         )?;
 
-        self.windows.insert(window_context.id(), window_context);
+        self.insert_window(window_context);
         Ok(())
+    }
+
+    fn insert_window(&mut self, window: WindowContext) {
+        #[cfg(termust_updater)]
+        let window = {
+            let mut window = window;
+            window.set_update_status(&self.updater.status, false);
+            window
+        };
+        self.windows.insert(window.id(), window);
+    }
+
+    #[cfg(termust_updater)]
+    fn refresh_update_status(&mut self, notify: bool) {
+        let recipient = if notify && self.config.general.check_updates {
+            self.windows
+                .values()
+                .filter_map(|window| window.update_notice_priority().map(|focused| (focused, window.id())))
+                .max_by_key(|(focused, _)| *focused)
+                .map(|(_, id)| id)
+        } else {
+            None
+        };
+        for (id, window) in &mut self.windows {
+            window.set_update_status(&self.updater.status, recipient.as_ref() == Some(id));
+        }
+    }
+
+    #[cfg(termust_updater)]
+    fn update_deadline(&mut self) -> Option<Instant> {
+        let enabled = self.config.general.check_updates && !self.windows.is_empty();
+        if self.updater.deadline(enabled).is_some_and(|time| time <= Instant::now()) {
+            self.updater.check(true, &self.proxy);
+            self.refresh_update_status(false);
+        }
+        self.updater.deadline(enabled)
     }
 
     /// Run the event loop.
@@ -375,7 +443,18 @@ impl ApplicationHandler<Event> for Processor {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        if cause != StartCause::Init || self.cli_options.daemon {
+        if cause != StartCause::Init {
+            return;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use winit::platform::macos::ActiveEventLoopExtMacOS;
+            event_loop.set_allows_automatic_window_tabbing(false);
+            self.quit_menu = crate::macos::menu::route_quit(self.proxy.clone());
+        }
+
+        if self.cli_options.daemon {
             return;
         }
 
@@ -500,6 +579,21 @@ impl ApplicationHandler<Event> for Processor {
             (EventType::SetStartupWorkspace(name), window_id) => {
                 self.set_startup_workspace(name, window_id.copied());
             },
+            #[cfg(termust_updater)]
+            (EventType::CheckUpdates, _) => {
+                self.updater.check(false, &self.proxy);
+                self.refresh_update_status(false);
+            },
+            #[cfg(termust_updater)]
+            (EventType::InstallUpdate(version), _) => {
+                self.updater.install(&version, &self.proxy);
+                self.refresh_update_status(false);
+            },
+            #[cfg(termust_updater)]
+            (EventType::UpdateFinished(result), _) => {
+                let notify = self.updater.complete(result, &self.proxy);
+                self.refresh_update_status(notify);
+            },
             (EventType::SetSettings(values), window_id) => {
                 self.set_settings(&values, window_id.copied());
             },
@@ -555,6 +649,8 @@ impl ApplicationHandler<Event> for Processor {
             // Shutdown all windows.
             #[cfg(unix)]
             (EventType::Shutdown, _) => event_loop.exit(),
+            #[cfg(target_os = "macos")]
+            (EventType::RequestQuit, _) => self.request_quit(event_loop),
             // Process events affecting all windows.
             (payload, None) => {
                 let event = WinitEvent::UserEvent(Event::new(payload, None));
@@ -645,7 +741,10 @@ impl ApplicationHandler<Event> for Processor {
 
         // Update the scheduler after event processing to ensure
         // the event loop deadline is as accurate as possible.
-        let control_flow = match self.scheduler.update() {
+        let deadline = self.scheduler.update();
+        #[cfg(termust_updater)]
+        let deadline = deadline.into_iter().chain(self.update_deadline()).min();
+        let control_flow = match deadline {
             Some(instant) => ControlFlow::WaitUntil(instant),
             None => ControlFlow::Wait,
         };
@@ -720,6 +819,12 @@ pub enum EventType {
     RestoreSession,
     RestorePending,
     OpenSettings,
+    #[cfg(termust_updater)]
+    CheckUpdates,
+    #[cfg(termust_updater)]
+    InstallUpdate(String),
+    #[cfg(termust_updater)]
+    UpdateFinished(crate::updates::Completion),
     Pane(crate::panes::PaneAction),
     SetLanguage(crate::localization::Language),
     SetSettings(Box<crate::settings::SettingsValues>),
@@ -731,6 +836,7 @@ pub enum EventType {
     OpenWorkspaces,
     OpenWorkspace(crate::session::SavedSession),
     SessionActivity,
+    AgentAnimation,
     ClipboardCopy,
     ClipboardPaste,
     ConfigReload(PathBuf),
@@ -746,6 +852,8 @@ pub enum EventType {
     SearchNext,
     #[cfg(unix)]
     Shutdown,
+    #[cfg(target_os = "macos")]
+    RequestQuit,
     Frame,
 }
 
@@ -864,6 +972,8 @@ pub struct ActionContext<'a, N, T> {
     pub config: &'a UiConfig,
     pub cursor_blink_timed_out: &'a mut bool,
     pub prev_bell_cmd: &'a mut Option<Instant>,
+    pub pending_replay: &'a mut Option<crate::session::CommandRecord>,
+    pub replay_started: &'a mut Option<Instant>,
     #[cfg(target_os = "macos")]
     pub event_loop: &'a ActiveEventLoop,
     pub event_proxy: &'a EventLoopProxy<Event>,
@@ -1083,15 +1193,11 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     #[cfg(not(windows))]
-    fn create_new_window(&mut self, #[cfg(target_os = "macos")] tabbing_id: Option<String>) {
+    fn create_new_window(&mut self) {
         let mut options = WindowOptions::default();
         options.terminal_options.working_directory =
             foreground_process_path(self.master_fd, self.shell_pid).ok();
 
-        #[cfg(target_os = "macos")]
-        {
-            options.window_tabbing_id = tabbing_id;
-        }
 
         let _ = self.event_proxy.send_event(Event::new(EventType::CreateWindow(options), None));
     }
@@ -1118,7 +1224,9 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     fn select_tab(&mut self, action: TabAction) {
-        self.tab_actions.push(EventType::SelectTab(action));
+        if let Some(index) = self.display.tab_bar.target(action) {
+            self.tab_actions.push(EventType::SelectTab(TabAction::Index(index)));
+        }
     }
 
     fn rename_tab(&mut self) {
@@ -1623,6 +1731,8 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
 
     /// Handle beginning of terminal text input.
     fn on_terminal_input_start(&mut self) {
+        *self.pending_replay = None;
+        *self.replay_started = None;
         self.on_typing_start();
         self.clear_selection();
 
@@ -2199,10 +2309,19 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                     TerminalEvent::PtyWrite(text) => self.ctx.write_to_pty(text.into_bytes()),
                     TerminalEvent::MouseCursorDirty => self.reset_mouse_cursor(),
                     TerminalEvent::CursorBlinkingChange => self.ctx.update_cursor_blinking(),
-                    TerminalEvent::Exit | TerminalEvent::ChildExit(_) | TerminalEvent::Wakeup => (),
+                    TerminalEvent::Exit
+                    | TerminalEvent::ChildExit(_)
+                    | TerminalEvent::Wakeup
+                    | TerminalEvent::AgentState { .. } => (),
                 },
                 #[cfg(unix)]
                 EventType::IpcConfig(_) | EventType::IpcGetConfig(..) | EventType::Shutdown => (),
+                #[cfg(termust_updater)]
+                EventType::CheckUpdates
+                | EventType::InstallUpdate(_)
+                | EventType::UpdateFinished(_) => (),
+                #[cfg(target_os = "macos")]
+                EventType::RequestQuit => (),
                 EventType::Message(_)
                 | EventType::ConfigReload(_)
                 | EventType::CreateWindow(_)
@@ -2226,7 +2345,8 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 | EventType::MoveTab(_)
                 | EventType::OpenWorkspaces
                 | EventType::OpenWorkspace(_)
-                | EventType::SessionActivity => (),
+                | EventType::SessionActivity
+                | EventType::AgentAnimation => (),
             },
             WinitEvent::WindowEvent { event, .. } => {
                 match event {

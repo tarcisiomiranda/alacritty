@@ -43,12 +43,12 @@ use alacritty_terminal::index::Point;
 
 use crate::cli::WindowOptions;
 use crate::config::UiConfig;
-use crate::config::window::{Decorations, Identity, WindowConfig};
+use crate::config::window::{DEFAULT_NAME, Decorations, Identity, WindowConfig};
 use crate::display::SizeInfo;
 
 /// Window icon for `_NET_WM_ICON` property.
 #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
-const WINDOW_ICON: &[u8] = include_bytes!("../../extra/logo/compat/alacritty-term.png");
+const WINDOW_ICON: &[u8] = include_bytes!("../../extra/logo/termust.png");
 
 /// This should match the definition of IDI_ICON from `alacritty.rc`.
 #[cfg(windows)]
@@ -143,8 +143,6 @@ impl Window {
             &config.window,
             #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
             x11_visual,
-            #[cfg(target_os = "macos")]
-            &options.window_tabbing_id.take(),
         );
 
         if let Some(position) = config.window.position {
@@ -174,7 +172,7 @@ impl Window {
         }
 
         window_attributes = window_attributes
-            .with_title(&identity.title)
+            .with_title(branded_title(&identity.title))
             .with_theme(config.window.theme())
             .with_visible(false)
             .with_transparent(true)
@@ -184,6 +182,7 @@ impl Window {
             .with_window_level(config.window.level.into());
 
         let window = event_loop.create_window(window_attributes)?;
+        crate::personalization::set_window_icon(&window, config.window.icon);
 
         // Text cursor.
         let current_mouse_cursor = CursorIcon::Text;
@@ -243,17 +242,40 @@ impl Window {
         self.window.focus_window();
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn titlebar_inset(&self) -> f32 {
+        let view = match self.raw_window_handle() {
+            RawWindowHandle::AppKit(handle) => {
+                assert!(MainThreadMarker::new().is_some());
+                unsafe { handle.ns_view.cast::<NSView>().as_ref() }
+            },
+            _ => return 0.,
+        };
+        let Some(window) = view.window() else { return 0. };
+        let covered = view.frame().size.height - window.contentLayoutRect().size.height;
+        (covered.max(0.) * self.scale_factor) as f32
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn titlebar_inset(&self) -> f32 {
+        0.
+    }
+
     /// Set the window title.
     #[inline]
     pub fn set_title(&mut self, title: String) {
         self.title = title;
-        self.window.set_title(&self.title);
+        self.window.set_title(&branded_title(&self.title));
     }
 
     /// Get the window title.
     #[inline]
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn set_icon(&self, preset: crate::personalization::IconPreset) {
+        crate::personalization::set_window_icon(&self.window, preset);
     }
 
     #[inline]
@@ -331,24 +353,15 @@ impl Window {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn get_platform_window(
-        _: &Identity,
-        window_config: &WindowConfig,
-        tabbing_id: &Option<String>,
-    ) -> WindowAttributes {
-        let mut window =
+    pub fn get_platform_window(_: &Identity, window_config: &WindowConfig) -> WindowAttributes {
+        let window =
             WinitWindow::default_attributes().with_option_as_alt(window_config.option_as_alt());
-
-        if let Some(tabbing_id) = tabbing_id {
-            window = window.with_tabbing_identifier(tabbing_id);
-        }
 
         match window_config.decorations {
             Decorations::Full => window,
             Decorations::Transparent => window
                 .with_title_hidden(true)
-                .with_titlebar_transparent(true)
-                .with_fullsize_content_view(true),
+                .with_titlebar_transparent(true),
             Decorations::Buttonless => window
                 .with_title_hidden(true)
                 .with_titlebar_buttons_hidden(true)
@@ -482,35 +495,6 @@ impl Window {
 
         view.window().unwrap().setHasShadow(has_shadows);
     }
-
-    /// Select tab at the given `index`.
-    #[cfg(target_os = "macos")]
-    pub fn select_tab_at_index(&self, index: usize) {
-        self.window.select_tab_at_index(index);
-    }
-
-    /// Select the last tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_last_tab(&self) {
-        self.window.select_tab_at_index(self.window.num_tabs() - 1);
-    }
-
-    /// Select next tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_next_tab(&self) {
-        self.window.select_next_tab();
-    }
-
-    /// Select previous tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_previous_tab(&self) {
-        self.window.select_previous_tab();
-    }
-
-    #[cfg(target_os = "macos")]
-    pub fn tabbing_id(&self) -> String {
-        self.window.tabbing_identifier()
-    }
 }
 
 bitflags! {
@@ -534,4 +518,28 @@ fn use_srgb_color_space(window: &WinitWindow) {
     };
 
     view.window().unwrap().setColorSpace(Some(&NSColorSpace::sRGBColorSpace()));
+}
+
+fn branded_title(title: &str) -> String {
+    if title.is_empty() {
+        DEFAULT_NAME.into()
+    } else if title == DEFAULT_NAME || title.ends_with(&format!(" — {DEFAULT_NAME}")) {
+        title.into()
+    } else {
+        format!("{title} — {DEFAULT_NAME}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::branded_title;
+
+    #[test]
+    fn desktop_caption_identifies_the_app_without_renaming_user_content() {
+        assert_eq!(branded_title(""), "Termust");
+        assert_eq!(branded_title("Termust"), "Termust");
+        assert_eq!(branded_title("Launcher UNGddd"), "Launcher UNGddd — Termust");
+        assert_eq!(branded_title("Produção 日本語"), "Produção 日本語 — Termust");
+        assert_eq!(branded_title("KNS — Termust"), "KNS — Termust");
+    }
 }

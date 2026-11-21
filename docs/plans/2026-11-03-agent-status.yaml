@@ -1,0 +1,62 @@
+plan: agent-status
+title: Simple agent progress and attention in Termust
+status: done
+created: 2026-11-03
+updated: 2026-11-03
+context:
+  - Existing shell lifecycle integration exposes command running and exit status but not agent turn or approval state.
+  - Claude, Codex, agy and OpenCode are installed on this computer.
+goal: Make agent work and user attention visible without requiring users to understand hooks.
+scope:
+  - Official lifecycle adapters and a bounded private status channel per pane.
+  - Compact localized tab indicators and a native agent overview with focus actions.
+  - Configurable attention notifications, isolated tests and real harness smoke checks.
+out_of_scope:
+  - Approving tools, forwarding prompts, reading private reasoning or controlling an agent remotely.
+  - Modifying the macOS port or restarting existing user sessions.
+stages:
+  - id: discovery
+    desc: Determine capability contracts and record limitations
+    status: done
+  - id: implementation
+    desc: Implement event bridge, adapters and native UI
+    status: done
+  - id: validation
+    desc: Exercise real events and independent native terminal sessions
+    status: done
+  - id: delivery
+    desc: Document and install the verified version
+    status: done
+  - id: compact-dashboard
+    desc: Refine the chat button, attention list, status animation and pane focus
+    status: done
+risks:
+  - Per-session injection must preserve existing harness hooks and normal signal handling.
+  - Unknown capabilities must not be presented as reliable waiting or permission detection.
+rollback:
+  - Disable agent integration in native settings; new shells use ordinary harness commands.
+  - Keep prior installed package available through the existing installer rollback.
+decisions:
+  - Prefer automatic wrappers limited to Termust child shells over global user configuration edits.
+  - Use explicit provider metadata rather than guessing from prose, output volume or silence.
+  - Consume Codex native OSC7501 metadata instead of injecting hooks, changing trust or disabling its daemon.
+  - Restrict parsing to explicit bounded state records and never interpret terminal text or model output as a permission decision.
+  - Keep finished background attention until acknowledged, then let ordinary shell activity return.
+  - Refresh the overview on state, language, layout and lifecycle changes while preserving stable pane focus.
+  - Keep the new chat list in the upper right within 56 columns and 16 rows, prioritizing permission and reply states.
+  - Count per-pane chats across all groups and animate with a separate timer without extra file polling.
+validation:
+  - All nine graphical cases and 21 bridge tests passed; an additional Portuguese check against the installed binary confirmed animation and exact split focus.
+  - Installed compact dashboard version 0.18.0-termust.709cae5e.0285712a4f05 with verified receipt, binary hash, PATH and desktop launcher.
+  - Current local archive SHA256 is 188a8bf4bcfac58dff4882c4ca1963736db61c2211c511ff0bae82e69515adc9.
+  - Compact dashboard passed 475 Rust unit and reference tests plus one doctest, Rust 1.89 Clippy with warnings denied and scoped formatting.
+  - Working and waiting animation, mouse selection of the exact split and no input forwarding passed an isolated graphical check with two concurrent harnesses.
+  - Twenty-one bridge tests and 460 Rust unit and reference tests plus one doctest passed.
+  - Rust 1.89 workspace Clippy with all targets and warnings denied and scoped formatting passed.
+  - Eight graphical cases passed against the final portable binary, including raw Enter and repeat isolation and live language refresh.
+  - Real Claude completion and permission hooks, real Codex native work and approval/question states, real OpenCode work and completion and real AGY title callbacks were verified.
+  - The headless Claude question probe did not emit an interactive question; its mapping retains deterministic and official-contract coverage.
+  - The final portable package passed installation and graphical startup on Ubuntu 22.04/24.04, Debian 12/13 and Fedora 43/44.
+  - Version 0.18.0-termust.c14a29f6.0c50185600ad was installed locally and its PATH, receipt and launcher verified; currently running user windows remain intact.
+  - Final archive SHA256 is 57f8d398135ee96ee3aa05c23b83dd8744adbd2ea01ddba2bae934f60c853274.
+  - The final release was published and verified in the canonical termust bucket and both legacy mirrors; the public curl installer check passed locally.
