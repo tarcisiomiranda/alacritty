@@ -13,6 +13,7 @@ const MAX_RECORD_BYTES: usize = 16 * 1024;
 pub struct ShellIntegration {
     directory: TempDir,
     original_shell: Shell,
+    login_shell: bool,
 }
 
 #[derive(Default)]
@@ -26,17 +27,18 @@ pub struct ShellSnapshot {
 impl ShellIntegration {
     #[cfg(unix)]
     pub fn prepare(config: &mut Options) -> io::Result<Option<Self>> {
+        Self::prepare_with(config, std::env::var("SHELL").ok())
+    }
+
+    #[cfg(unix)]
+    fn prepare_with(config: &mut Options, user_shell: Option<String>) -> io::Result<Option<Self>> {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-        #[cfg(target_os = "macos")]
-        if config.shell.is_none() {
-            return Ok(None);
-        }
-
+        let login_shell = cfg!(target_os = "macos") && config.shell.is_none();
         let program = match &config.shell {
             Some(shell) => shell.program().to_owned(),
-            None => match std::env::var("SHELL") {
-                Ok(shell) if !shell.is_empty() => shell,
+            None => match user_shell {
+                Some(shell) if !shell.is_empty() => shell,
                 _ => return Ok(None),
             },
         };
@@ -52,7 +54,7 @@ impl ShellIntegration {
             Some("zsh") => original_args.iter().all(|arg| arg == "-i"),
             _ => false,
         };
-        if !supported {
+        if !supported || (login_shell && shell_name != Some("zsh")) {
             return Ok(None);
         }
         let original_shell = Shell::new(program.clone(), original_args.to_vec());
@@ -116,13 +118,15 @@ impl ShellIntegration {
             OpenOptions::new().write(true).create_new(true).mode(0o600).open(&script_path)?;
         script_file.write_all(script.as_bytes())?;
         if shell_name == Some("zsh") {
-            let script = zsh_env_script(&quoted_directory, original_zdotdir.as_deref());
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(directory.path().join(".zshenv"))?;
-            file.write_all(script.as_bytes())?;
+            let environment = zsh_env_script(&quoted_directory, original_zdotdir.as_deref());
+            for (name, script) in [(".zshenv", environment.as_str()), (".zprofile", ZSH_PROFILE)] {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(directory.path().join(name))?;
+                file.write_all(script.as_bytes())?;
+            }
         }
 
         let args = match shell_name {
@@ -142,8 +146,10 @@ impl ShellIntegration {
         if shell_name == Some("zsh") {
             config.env.insert("ZDOTDIR".into(), directory.path().to_string_lossy().into_owned());
         }
-        config.shell = Some(Shell::new(program, args));
-        Ok(Some(Self { directory, original_shell }))
+        if !login_shell {
+            config.shell = Some(Shell::new(program, args));
+        }
+        Ok(Some(Self { directory, original_shell, login_shell }))
     }
 
     #[cfg(not(unix))]
@@ -151,8 +157,8 @@ impl ShellIntegration {
         Ok(None)
     }
 
-    pub fn original_shell(&self) -> &Shell {
-        &self.original_shell
+    pub fn saved_shell(&self) -> Option<&Shell> {
+        (!self.login_shell).then_some(&self.original_shell)
     }
 
     pub fn replay(&self, record: &CommandRecord) -> io::Result<String> {
@@ -467,6 +473,23 @@ __alacritty_zdotdir_exported=0
 ZDOTDIR=$__alacritty_session_dir
 "#;
 
+const ZSH_PROFILE: &str = r#"
+unset ZDOTDIR
+if [[ $__alacritty_zdotdir_set == 1 ]]; then
+    ZDOTDIR=$__alacritty_zdotdir_value
+    [[ $__alacritty_zdotdir_exported == 1 ]] && export ZDOTDIR
+fi
+if [[ -f "${ZDOTDIR-$HOME}/.zprofile" ]]; then
+    builtin source "${ZDOTDIR-$HOME}/.zprofile"
+fi
+[[ ${parameters[ZDOTDIR]-} != *readonly* ]] || return 0
+__alacritty_zdotdir_set=${+ZDOTDIR}
+__alacritty_zdotdir_value=${ZDOTDIR-}
+__alacritty_zdotdir_exported=0
+[[ ${parameters[ZDOTDIR]-} == *export* ]] && __alacritty_zdotdir_exported=1
+ZDOTDIR=$__alacritty_session_dir
+"#;
+
 const ZSH_RC: &str = r#"
 unset ZDOTDIR
 if [[ $__alacritty_zdotdir_set == 1 ]]; then
@@ -565,6 +588,49 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_default_login_zsh_reads_every_user_startup_file_and_installs_hooks() {
+        let home = tempfile::tempdir().unwrap();
+        let log = home.path().join("order");
+        for name in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+            let line = format!("print -r -- {name} >> {}\n", shell_quote(&log.to_string_lossy()));
+            fs::write(home.path().join(name), line).unwrap();
+        }
+        let mut options = Options::default();
+        let integration =
+            ShellIntegration::prepare_with(&mut options, Some("/bin/zsh".into())).unwrap().unwrap();
+        let directory = integration.directory.path().to_owned();
+        assert!(options.shell.is_none());
+        assert!(integration.saved_shell().is_none());
+        assert_eq!(options.env.get("ZDOTDIR").unwrap(), &directory.to_string_lossy());
+        let output = std::process::Command::new("/bin/zsh")
+            .args([
+                "-l",
+                "-i",
+                "-c",
+                "print -r -- ${+functions[__alacritty_session_prompt]} ${ZDOTDIR-unset}",
+            ])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("PATH", "/usr/bin:/bin")
+            .env("ZDOTDIR", &directory)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "1 unset");
+        assert_eq!(fs::read_to_string(&log).unwrap(), ".zshenv\n.zprofile\n.zshrc\n.zlogin\n");
+
+        let mut options = Options::default();
+        let original = options.clone();
+        assert!(
+            ShellIntegration::prepare_with(&mut options, Some("/bin/bash".into()))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(options, original);
+    }
 
     #[test]
     fn parses_multiline_commands_and_execution_directory() {
@@ -733,7 +799,7 @@ mod tests {
             let original = Shell::new(program.into(), vec!["-i".into()]);
             let mut options = Options { shell: Some(original.clone()), ..Options::default() };
             let integration = ShellIntegration::prepare(&mut options).unwrap().unwrap();
-            assert_eq!(integration.original_shell(), &original);
+            assert_eq!(&integration.original_shell, &original);
             let record = CommandRecord {
                 command: "printf '%s' 'first\trow\nsecond\u{1b}X'\n".into(),
                 working_directory: PathBuf::from("/tmp/user's working directory"),

@@ -29,7 +29,7 @@ one pane fill the tab and then go back to the full layout.
 The menu gives quick access to tabs, panes, saved sessions and settings. It
 also works with the keyboard. In a small window, it can scroll.
 
-On Linux, **Settings → Applications** lists installed IDEs/editors and file managers.
+On Linux and macOS, **Settings → Applications** lists installed IDEs/editors and file managers.
 Choose a preferred app in each category and save. The menu then offers actions such
 as **Open in VS Code**, **Open in Zed**, **Open in Nautilus** or **Open in Dolphin**.
 The first two menu actions open the preferred editor and file manager, before
@@ -44,6 +44,10 @@ Flatpak launchers, are detected when GIO is available. Reopen settings after
 installing an application. A saved app that is no longer installed stays visible
 as unavailable; choose another app or Automatic.
 
+On macOS, Termust finds application bundles in `~/Applications`, `/Applications`
+and the system folders, and opens the folder through `open -a`. Automatic opens
+the folder in Finder. The menu uses generic editor and folder icons on macOS.
+
 The same preferences can be set in the terminal configuration:
 
 ```toml
@@ -54,7 +58,7 @@ file_manager = "nautilus"
 
 Supported editor IDs are `auto`, `code`, `zed`, `codium`, `code-insiders`, `kate`
 and `sublime`. File manager IDs are `auto`, `nautilus`, `dolphin`, `nemo`, `thunar`,
-`caja` and `pcmanfm`. The registered desktop application or executable must be installed.
+`caja`, `pcmanfm` and `finder` (macOS). The registered desktop application or executable must be installed.
 
 ![Right-click menu](images/terminal-tools/context-menu.png)
 

@@ -268,6 +268,9 @@ pub enum Message {
     PaneLimit,
     ClosePaneTitle,
     ClosePaneQuestion,
+    QuitTitle,
+    QuitQuestion,
+    QuitAccept,
     ScrollbackSaveHint,
     LanguagePage,
     ShortcutEditHint,
@@ -566,6 +569,12 @@ impl Locale {
             (Self::PtBr, Message::ClosePaneTitle) => "Fechar painel",
             (Self::En, Message::ClosePaneQuestion) => "Close this terminal pane?",
             (Self::PtBr, Message::ClosePaneQuestion) => "Fechar este painel?",
+            (Self::En, Message::QuitTitle) => "Quit Termust",
+            (Self::PtBr, Message::QuitTitle) => "Sair do Termust",
+            (Self::En, Message::QuitQuestion) => "Close every window and tab?",
+            (Self::PtBr, Message::QuitQuestion) => "Fechar todas as janelas e abas?",
+            (Self::En, Message::QuitAccept) => "Quit",
+            (Self::PtBr, Message::QuitAccept) => "Sair",
 
             (Self::En, Message::Appearance) => "Appearance",
             (Self::PtBr, Message::Appearance) => "Aparência",
@@ -899,11 +908,34 @@ impl Locale {
             },
         }
     }
+
+    #[cfg(target_os = "macos")]
+    pub fn quit_summary(self, windows: usize, tabs: usize) -> String {
+        let plural = |count: usize, one: &str, many: &str| {
+            format!("{count} {}", if count == 1 { one } else { many })
+        };
+        match self {
+            Self::En => {
+                format!(
+                    "{} in {}",
+                    plural(tabs, "tab", "tabs"),
+                    plural(windows, "window", "windows")
+                )
+            },
+            Self::PtBr => {
+                format!(
+                    "{} em {}",
+                    plural(tabs, "aba", "abas"),
+                    plural(windows, "janela", "janelas")
+                )
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 impl Message {
-    const ALL: [Self; 205] = [
+    const ALL: [Self; 208] = [
         Self::AgentChats,
         Self::Applications,
         Self::PreferredEditor,
@@ -1093,6 +1125,9 @@ impl Message {
         Self::PaneLimit,
         Self::ClosePaneTitle,
         Self::ClosePaneQuestion,
+        Self::QuitTitle,
+        Self::QuitQuestion,
+        Self::QuitAccept,
         Self::ScrollbackSaveHint,
         Self::LanguagePage,
         Self::ShortcutEditHint,
@@ -1218,6 +1253,15 @@ mod tests {
         assert_eq!(resolve_from(None, None, Some("de_DE"), None, Some("pt-BR")), Locale::En);
         assert_eq!(resolve_from(None, None, None, None, None), Locale::En);
         assert_eq!(resolve_from(None, None, None, None, Some("fr-FR")), Locale::En);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn quit_summary_counts_tabs_and_windows_in_both_languages() {
+        assert_eq!(Locale::En.quit_summary(1, 1), "1 tab in 1 window");
+        assert_eq!(Locale::En.quit_summary(2, 5), "5 tabs in 2 windows");
+        assert_eq!(Locale::PtBr.quit_summary(1, 1), "1 aba em 1 janela");
+        assert_eq!(Locale::PtBr.quit_summary(3, 7), "7 abas em 3 janelas");
     }
 
     #[test]

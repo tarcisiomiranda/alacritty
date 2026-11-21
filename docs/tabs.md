@@ -2,8 +2,10 @@
 
 Termust supports independent terminal sessions in one window on Linux, BSD,
 Windows and macOS. Each tab keeps its own shell, scrollback, selection and search.
-Sessions continue running while another tab is selected. On macOS, `Cmd+N`
-opens a new window and `Cmd+T` adds a tab to the current window.
+Sessions continue running while another tab is selected. On macOS the Termust
+tab bar replaces the system window tabs, so tabs, groups and panes work the same
+way as on Linux. `Cmd+N` opens a new window and `Cmd+T` adds a tab to the
+current window.
 
 | Action | Linux, BSD and Windows | macOS |
 | --- | --- | --- |
@@ -21,6 +23,17 @@ opens a new window and `Cmd+T` adds a tab to the current window.
 | Select the next tab | Ctrl+Tab / Ctrl+PageDown | Ctrl+Tab / Cmd+Shift+] |
 | Select a numbered tab | Alt+1 through Alt+8 | Cmd+1 through Cmd+8 |
 | Select the last tab | Alt+9 | Cmd+9 |
+
+Inside Termust dialogs, Cmd+A, Cmd+V and Cmd+Enter work like their Ctrl
+counterparts.
+
+Cmd+Q and **Quit Termust** in the application menu show one confirmation with
+the number of open tabs and windows. **Confirm before closing a tab** controls
+this dialog too; with it turned off, Cmd+Q quits immediately. When automatic
+recovery is on, the focused window's tabs are saved before Termust quits.
+With `window.decorations = "Transparent"` or `"Buttonless"`, the tab bar starts
+below the strip that holds the window buttons, so clicks there keep moving the
+window.
 
 F2 opens tab settings at the shell prompt. Applications using the alternate
 screen, such as terminal editors and process monitors, keep their F2 key. Use

@@ -101,6 +101,8 @@ pub struct Processor {
     global_ipc_options: ParsedOptions,
     cli_options: CliOptions,
     config: Rc<UiConfig>,
+    #[cfg(target_os = "macos")]
+    quit_menu: Option<objc2::rc::Retained<crate::macos::menu::QuitTarget>>,
 }
 
 impl Processor {
@@ -146,6 +148,24 @@ impl Processor {
             #[cfg(unix)]
             global_ipc_options: Default::default(),
             config_monitor,
+            #[cfg(target_os = "macos")]
+            quit_menu: None,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn request_quit(&mut self, event_loop: &ActiveEventLoop) {
+        let windows = self.windows.len();
+        let tabs = self.windows.values().map(WindowContext::tab_count).sum();
+        let target = self
+            .windows
+            .iter()
+            .find(|(_, window)| window.is_focused())
+            .or_else(|| self.windows.iter().next())
+            .map(|(id, _)| *id);
+        match target.and_then(|id| self.windows.get_mut(&id)) {
+            Some(window) => window.request_quit(windows, tabs, &self.proxy, &mut self.scheduler),
+            None => event_loop.exit(),
         }
     }
 
@@ -431,6 +451,7 @@ impl ApplicationHandler<Event> for Processor {
         {
             use winit::platform::macos::ActiveEventLoopExtMacOS;
             event_loop.set_allows_automatic_window_tabbing(false);
+            self.quit_menu = crate::macos::menu::route_quit(self.proxy.clone());
         }
 
         if self.cli_options.daemon {
@@ -628,6 +649,8 @@ impl ApplicationHandler<Event> for Processor {
             // Shutdown all windows.
             #[cfg(unix)]
             (EventType::Shutdown, _) => event_loop.exit(),
+            #[cfg(target_os = "macos")]
+            (EventType::RequestQuit, _) => self.request_quit(event_loop),
             // Process events affecting all windows.
             (payload, None) => {
                 let event = WinitEvent::UserEvent(Event::new(payload, None));
@@ -829,6 +852,8 @@ pub enum EventType {
     SearchNext,
     #[cfg(unix)]
     Shutdown,
+    #[cfg(target_os = "macos")]
+    RequestQuit,
     Frame,
 }
 
@@ -2295,6 +2320,8 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 EventType::CheckUpdates
                 | EventType::InstallUpdate(_)
                 | EventType::UpdateFinished(_) => (),
+                #[cfg(target_os = "macos")]
+                EventType::RequestQuit => (),
                 EventType::Message(_)
                 | EventType::ConfigReload(_)
                 | EventType::CreateWindow(_)

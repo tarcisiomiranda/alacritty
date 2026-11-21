@@ -114,9 +114,18 @@ launch command below opens the updated build alongside existing windows.
 The previous bundle is available at
 `~/Applications/.termust/previous.app`.
 
-Use `Cmd+T` for a tab, `Cmd+D` to split right, `Cmd+Shift+D` to split below,
-and `Cmd+,` for Settings. Termust opens your account's login shell by default,
-including your Zsh startup files when the account uses Zsh.
+On macOS, Termust uses its own tab bar instead of the system window tabs, so
+tabs, groups, split panes, saved sessions and agent status use the same code
+as on Linux. Use `Cmd+T` for a tab, `Cmd+W` to close it after confirmation,
+`Cmd+N` for a window, `Cmd+D` to split right, `Cmd+Shift+D` to split below and
+`Cmd+,` for Settings. `Cmd+Q` asks once before closing every window. Termust
+opens your account's login shell by default, including your Zsh startup files
+when the account uses Zsh, and records commands and folders from the default
+Zsh. The right-click menu opens the current folder in VS Code, Zed or Finder.
+On macOS 26.6.2, `mise run test:macos-gui` checks tabs, panes, windows, groups,
+recovery after a crash, quitting, the transparent title bar and agent status
+with a sample agent. Session files are stored under `~/.local/state/termust`,
+as on Linux.
 
 ```sh
 open -n ~/Applications/Termust.app

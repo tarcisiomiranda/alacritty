@@ -1157,9 +1157,9 @@ impl PreferencesDialog {
                 navigation(13, 5, Message::LanguagePage),
                 navigation(2, 2, Message::Shortcuts),
             ),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             Row::Two(navigation(33, 6, Message::Agents), navigation(36, 7, Message::Applications)),
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             Row::One(navigation(33, 6, Message::Agents)),
         ];
         match self.page {
@@ -2522,24 +2522,40 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn application_choices_list_installed_apps_and_preserve_missing_preferences() {
         use crate::desktop_apps::{AppKind, InstalledApps};
-        use std::os::unix::fs::PermissionsExt;
 
         let root = tempfile::tempdir().unwrap();
-        for name in ["code", "zed", "nautilus", "dolphin"] {
-            let path = root.path().join(name);
-            std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        #[cfg(target_os = "linux")]
+        let (applications, managers) = {
+            use std::os::unix::fs::PermissionsExt;
+            for name in ["code", "zed", "nautilus", "dolphin"] {
+                let path = root.path().join(name);
+                std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            (
+                InstalledApps::detect_in(root.path().as_os_str(), &[]),
+                ["auto", "nautilus", "dolphin"],
+            )
+        };
+        #[cfg(target_os = "macos")]
+        let (applications, managers) = {
+            for name in ["Visual Studio Code.app", "Zed.app", "Finder.app"] {
+                let contents = root.path().join(name).join("Contents");
+                std::fs::create_dir_all(&contents).unwrap();
+                std::fs::write(contents.join("Info.plist"), "").unwrap();
+            }
+            (InstalledApps::detect_bundles(&[root.path().into()]), ["auto", "finder"])
+        };
         let mut preferences = PreferencesDialog::new(
             Rc::new(UiConfig::default()),
             crossfont::Size::new(11.),
             Vec::new(),
         );
-        preferences.applications = InstalledApps::detect_in(root.path().as_os_str(), &[]);
+        preferences.applications = applications;
         assert_eq!(
             preferences
                 .application_options(AppKind::Editor)
@@ -2554,13 +2570,13 @@ mod tests {
                 .iter()
                 .map(|(id, ..)| id.as_str())
                 .collect::<Vec<_>>(),
-            ["auto", "nautilus", "dolphin"]
+            managers
         );
         preferences.activate(36);
         preferences.activate(402);
-        preferences.activate(502);
+        preferences.activate(500 + managers.len() - 1);
         assert_eq!(preferences.values.editor, "zed");
-        assert_eq!(preferences.values.file_manager, "dolphin");
+        assert_eq!(preferences.values.file_manager, managers[managers.len() - 1]);
         assert_eq!(preferences.original.general.editor, "auto");
         assert_eq!(preferences.original.general.file_manager, "auto");
 
@@ -2612,7 +2628,7 @@ mod tests {
                 13,
                 2,
                 33,
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 36
             ]
         );
@@ -2881,13 +2897,14 @@ mod tests {
             .logical_key(&Key::Named(NamedKey::F9), ModifiersState::CONTROL | ModifiersState::ALT);
         assert!(!dialog.captures_shortcut());
         let ProductivityDialog::Preferences(preferences) = &dialog else { unreachable!() };
-        assert_eq!(preferences.shortcut_label("CreateNewTab"), "Ctrl+Alt+F9");
+        let expected = if cfg!(target_os = "macos") { "Ctrl+Option+F9" } else { "Ctrl+Alt+F9" };
+        assert_eq!(preferences.shortcut_label("CreateNewTab"), expected);
         assert!(config.general.shortcuts.is_empty());
         let mut preview = (*config).clone();
         preferences.values.preview(&mut preview).unwrap();
         assert!(preview.general.shortcuts.is_empty());
         let Some(ProductivityAction::SaveSettings(values)) = dialog.activate(14) else { panic!() };
-        assert_eq!(values.shortcut_overrides["CreateNewTab"], "Ctrl+Alt+F9");
+        assert_eq!(values.shortcut_overrides["CreateNewTab"], expected);
         dialog.activate(28);
         let ProductivityDialog::Preferences(preferences) = &dialog else { unreachable!() };
         assert_eq!(
@@ -2910,7 +2927,10 @@ mod tests {
                 matches!(element.kind, UiKind::Navigation | UiKind::SelectedNavigation)
             })
             .collect();
-        assert_eq!(navigation.len(), 7 + usize::from(cfg!(target_os = "linux")));
+        assert_eq!(
+            navigation.len(),
+            7 + usize::from(cfg!(any(target_os = "linux", target_os = "macos")))
+        );
         assert!(
             navigation.iter().all(|(element, _)| element.rect.left == navigation[0].0.rect.left)
         );
@@ -2944,7 +2964,7 @@ mod tests {
                 Some(13),
                 Some(2),
                 Some(33),
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 Some(36)
             ]
         );
@@ -3013,7 +3033,7 @@ mod tests {
         let before = dialog.parts(45, 18);
         let save = before.iter().find(|(_, id)| *id == Some(14)).unwrap().0.rect;
         assert!(!before.iter().any(|(_, id)| *id == Some(12)));
-        for _ in 0..14 + usize::from(cfg!(target_os = "linux")) {
+        for _ in 0..14 + usize::from(cfg!(any(target_os = "linux", target_os = "macos"))) {
             dialog.logical_key(&Key::Named(NamedKey::Tab), ModifiersState::empty());
             dialog.parts(45, 18);
         }
@@ -3103,7 +3123,7 @@ mod tests {
                 13,
                 2,
                 33,
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 36,
             ] {
                 let mut preferences = PreferencesDialog::new(
@@ -3458,6 +3478,9 @@ mod tests {
         assert_eq!(input.text, "backend");
         input.key(&Key::Character("bad\ntext".into()), ModifiersState::empty(), 80);
         assert_eq!(input.text, "backend");
+        input.key(&Key::Character("a".into()), ModifiersState::SUPER, 80);
+        input.key(&Key::Character("api".into()), ModifiersState::empty(), 80);
+        assert_eq!(input.text, if cfg!(target_os = "macos") { "api" } else { "backendapi" });
     }
 
     #[test]

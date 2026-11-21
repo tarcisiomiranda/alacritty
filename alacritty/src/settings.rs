@@ -138,11 +138,13 @@ pub fn shortcut_text(key: &Key, mods: ModifiersState, location: KeyLocation) -> 
         key
     };
     let mut parts = Vec::new();
+    let (alt, command) =
+        if cfg!(target_os = "macos") { ("Option", "Cmd") } else { ("Alt", "Super") };
     for (modifier, label) in [
         (ModifiersState::CONTROL, "Ctrl"),
-        (ModifiersState::ALT, "Alt"),
+        (ModifiersState::ALT, alt),
         (ModifiersState::SHIFT, "Shift"),
-        (ModifiersState::SUPER, if cfg!(target_os = "macos") { "Cmd" } else { "Super" }),
+        (ModifiersState::SUPER, command),
     ] {
         if mods.contains(modifier) {
             parts.push(label.to_owned());
@@ -689,6 +691,30 @@ PRESERVED='yes'
     }
 
     #[test]
+    fn shortcut_labels_round_trip_through_platform_modifier_names() {
+        let mods = ModifiersState::CONTROL
+            | ModifiersState::ALT
+            | ModifiersState::SHIFT
+            | ModifiersState::SUPER;
+        let label =
+            shortcut_text(&Key::Character("t".into()), mods, KeyLocation::Standard).unwrap();
+        let expected = if cfg!(target_os = "macos") {
+            "Ctrl+Option+Shift+Cmd+T"
+        } else {
+            "Ctrl+Alt+Shift+Super+T"
+        };
+        assert_eq!(label, expected);
+        assert_eq!(shortcut_binding("CreateNewTab", &label).unwrap().mods, mods);
+        let close = shortcut_text(
+            &Key::Character("w".into()),
+            ModifiersState::SUPER,
+            KeyLocation::Standard,
+        )
+        .unwrap();
+        assert_eq!(close, if cfg!(target_os = "macos") { "Cmd+W" } else { "Super+W" });
+    }
+
+    #[test]
     fn shortcut_overrides_replace_only_supported_actions_and_fail_soft() {
         let config: UiConfig = toml::from_str(
             "[keyboard]\nbindings=[{key='x',mods='Control',chars='custom'},{key='F8',mode='Vi',\
@@ -828,7 +854,6 @@ style={shape='Beam',blinking='Always'}
         assert_eq!(std::fs::read(&path).unwrap(), original_file);
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn menu_action_overrides_preserve_f2_for_alternate_screen_applications() {
         let rename = shortcut_binding("RenameTab", "F2").unwrap();

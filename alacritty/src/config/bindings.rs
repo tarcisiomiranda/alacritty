@@ -673,8 +673,8 @@ fn macos_keybindings() -> Vec<KeyBinding> {
         ArrowRight, ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneRight;
         ArrowUp,    ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneUp;
         ArrowDown,  ModifiersState::SUPER | ModifiersState::ALT;               Action::FocusPaneDown;
-        "]",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectNextTab;
-        "[",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectPreviousTab;
+        "}",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectNextTab;
+        "{",    ModifiersState::SUPER | ModifiersState::SHIFT;                 Action::SelectPreviousTab;
         Tab,    ModifiersState::CONTROL;                                       Action::SelectNextTab;
         Tab,    ModifiersState::CONTROL | ModifiersState::SHIFT;               Action::SelectPreviousTab;
         "1",    ModifiersState::SUPER;                                         Action::SelectTab1;
@@ -1395,6 +1395,68 @@ mod tests {
                 assert_eq!(actions, action.clone().into_iter().collect::<Vec<_>>());
             }
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shortcuts_drive_internal_tabs_with_command() {
+        let bindings: Vec<_> =
+            default_key_bindings().into_iter().chain(macos_keybindings()).collect();
+        let character = |text: &str| Key::Character(text.into());
+        let cmd = ModifiersState::SUPER;
+        let cmd_shift = ModifiersState::SUPER | ModifiersState::SHIFT;
+        let cmd_option = ModifiersState::SUPER | ModifiersState::ALT;
+        let expected = [
+            (character("t"), cmd, Action::CreateNewTab),
+            (character("w"), cmd, Action::CloseTab),
+            (character("t"), cmd_shift, Action::ReopenClosedTab),
+            (character("r"), cmd_shift, Action::RenameTab),
+            (character("e"), cmd_shift, Action::DuplicateTab),
+            (character("s"), cmd_shift, Action::SaveSession),
+            (character("o"), cmd_shift, Action::RestoreSession),
+            (character("p"), cmd_shift, Action::OpenWorkspaces),
+            (character(","), cmd, Action::OpenSettings),
+            (character("d"), cmd, Action::SplitVertical),
+            (character("d"), cmd_shift, Action::SplitHorizontal),
+            (character("z"), cmd_shift, Action::TogglePaneZoom),
+            (character("w"), cmd_option, Action::ClosePane),
+            (Key::Named(NamedKey::ArrowLeft), cmd_option, Action::FocusPaneLeft),
+            (Key::Named(NamedKey::ArrowRight), cmd_option, Action::FocusPaneRight),
+            (Key::Named(NamedKey::ArrowUp), cmd_option, Action::FocusPaneUp),
+            (Key::Named(NamedKey::ArrowDown), cmd_option, Action::FocusPaneDown),
+            (Key::Named(NamedKey::PageUp), cmd_shift, Action::MoveTabLeft),
+            (Key::Named(NamedKey::PageDown), cmd_shift, Action::MoveTabRight),
+            (character("}"), cmd_shift, Action::SelectNextTab),
+            (character("{"), cmd_shift, Action::SelectPreviousTab),
+            (Key::Named(NamedKey::Tab), ModifiersState::CONTROL, Action::SelectNextTab),
+            (
+                Key::Named(NamedKey::Tab),
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                Action::SelectPreviousTab,
+            ),
+            (character("1"), cmd, Action::SelectTab1),
+            (character("8"), cmd, Action::SelectTab8),
+            (character("9"), cmd, Action::SelectLastTab),
+            (character("n"), cmd, Action::CreateNewWindow),
+            (character("q"), cmd, Action::Quit),
+        ];
+        for (key, mods, action) in expected {
+            let trigger = BindingKey::Keycode { key, location: KeyLocation::Any };
+            for mode in [BindingMode::empty(), BindingMode::ALT_SCREEN, BindingMode::all()] {
+                let actions: Vec<_> = bindings
+                    .iter()
+                    .filter(|binding| binding.is_triggered_by(mode, mods, &trigger))
+                    .map(|binding| binding.action.clone())
+                    .collect();
+                assert_eq!(actions, vec![action.clone()], "{trigger:?} {mods:?} {mode:?}");
+            }
+        }
+        let tab =
+            BindingKey::Keycode { key: Key::Named(NamedKey::Tab), location: KeyLocation::Any };
+        let command_tab = |binding: &KeyBinding| {
+            binding.mods.contains(ModifiersState::SUPER) && binding.trigger == tab
+        };
+        assert!(!bindings.iter().any(command_tab));
     }
 
     #[cfg(not(target_os = "macos"))]

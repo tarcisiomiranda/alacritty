@@ -25,9 +25,9 @@ pub enum MenuAction {
     ClosePane,
     Groups,
     Agents,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     OpenEditor,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     OpenFileManager,
 }
 
@@ -51,9 +51,9 @@ impl MenuAction {
             MenuAction::ClosePane => "ClosePane",
             MenuAction::Groups => "TabGroups",
             MenuAction::Agents => "Agents",
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             MenuAction::OpenEditor => "OpenEditor",
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             MenuAction::OpenFileManager => "OpenFileManager",
         }
     }
@@ -67,40 +67,52 @@ pub struct MenuItem {
     pub enabled: bool,
 }
 
+const fn platform(other: &'static str, macos: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") { macos } else { other }
+}
+
 const MENU_ITEMS: &[(MenuAction, Message, &str)] = &[
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     (MenuAction::OpenEditor, Message::OpenEditor, ""),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     (MenuAction::OpenFileManager, Message::OpenFolder, ""),
-    (MenuAction::NewTab, Message::NewTab, "Ctrl+Shift+T"),
+    (MenuAction::NewTab, Message::NewTab, platform("Ctrl+Shift+T", "Cmd+T")),
     (MenuAction::Rename, Message::Rename, "F2"),
-    (MenuAction::Duplicate, Message::DuplicateTab, "Ctrl+Shift+D"),
-    (MenuAction::ReopenClosed, Message::ReopenClosedTab, "Ctrl+Shift+Alt+T"),
-    (MenuAction::SplitVertical, Message::SplitVertical, "Ctrl+Shift+E"),
-    (MenuAction::SplitHorizontal, Message::SplitHorizontal, "Ctrl+Shift+J"),
-    (MenuAction::PaneZoom, Message::TogglePaneZoom, "Ctrl+Shift+Z"),
-    (MenuAction::Copy, Message::Copy, "Ctrl+Shift+C"),
-    (MenuAction::Paste, Message::Paste, "Ctrl+Shift+V"),
-    (MenuAction::Save, Message::SaveAll, "Ctrl+Shift+S"),
-    (MenuAction::Restore, Message::Restore, "Ctrl+Shift+O"),
-    (MenuAction::Workspaces, Message::Workspaces, "Ctrl+Shift+P"),
-    (MenuAction::Settings, Message::Settings, "Ctrl+,"),
+    (MenuAction::Duplicate, Message::DuplicateTab, platform("Ctrl+Shift+D", "Shift+Cmd+D")),
+    (
+        MenuAction::ReopenClosed,
+        Message::ReopenClosedTab,
+        platform("Ctrl+Shift+Alt+T", "Shift+Cmd+T"),
+    ),
+    (MenuAction::SplitVertical, Message::SplitVertical, platform("Ctrl+Shift+E", "Shift+Cmd+E")),
+    (
+        MenuAction::SplitHorizontal,
+        Message::SplitHorizontal,
+        platform("Ctrl+Shift+J", "Shift+Cmd+J"),
+    ),
+    (MenuAction::PaneZoom, Message::TogglePaneZoom, platform("Ctrl+Shift+Z", "Shift+Cmd+Z")),
+    (MenuAction::Copy, Message::Copy, platform("Ctrl+Shift+C", "Cmd+C")),
+    (MenuAction::Paste, Message::Paste, platform("Ctrl+Shift+V", "Cmd+V")),
+    (MenuAction::Save, Message::SaveAll, platform("Ctrl+Shift+S", "Shift+Cmd+S")),
+    (MenuAction::Restore, Message::Restore, platform("Ctrl+Shift+O", "Shift+Cmd+O")),
+    (MenuAction::Workspaces, Message::Workspaces, platform("Ctrl+Shift+P", "Shift+Cmd+P")),
+    (MenuAction::Settings, Message::Settings, platform("Ctrl+,", "Cmd+,")),
     (MenuAction::Agents, Message::Agents, ""),
     (MenuAction::Groups, Message::TabGroups, ""),
-    (MenuAction::ClosePane, Message::ClosePane, "Ctrl+Alt+W"),
-    (MenuAction::Close, Message::Close, "Ctrl+Shift+W"),
+    (MenuAction::ClosePane, Message::ClosePane, platform("Ctrl+Alt+W", "Option+Cmd+W")),
+    (MenuAction::Close, Message::Close, platform("Ctrl+Shift+W", "Cmd+W")),
 ];
 
 const fn menu_item_index(index: usize) -> usize {
-    if cfg!(target_os = "linux") { index + 2 } else { index }
+    if cfg!(any(target_os = "linux", target_os = "macos")) { index + 2 } else { index }
 }
 
 const MENU_ROWS: &[Option<usize>] = &[
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     Some(0),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     Some(1),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     None,
     Some(menu_item_index(0)),
     Some(menu_item_index(1)),
@@ -141,11 +153,11 @@ pub struct ContextMenu {
     pub selected: Option<MenuAction>,
     pub copy_enabled: bool,
     pub shortcuts: std::collections::BTreeMap<String, String>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     editor_name: Option<String>,
     #[cfg(target_os = "linux")]
     editor_icon: Option<std::sync::Arc<crate::app_icon::AppIcon>>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     file_manager_name: Option<String>,
     #[cfg(target_os = "linux")]
     file_manager_icon: Option<std::sync::Arc<crate::app_icon::AppIcon>>,
@@ -163,11 +175,11 @@ impl ContextMenu {
             selected: None,
             copy_enabled: false,
             shortcuts: Default::default(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             editor_name: None,
             #[cfg(target_os = "linux")]
             editor_icon: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             file_manager_name: None,
             #[cfg(target_os = "linux")]
             file_manager_icon: None,
@@ -178,7 +190,7 @@ impl ContextMenu {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn update_applications(&mut self, config: &UiConfig) {
         use crate::desktop_apps::{self, AppKind, InstalledApps};
         let apps = InstalledApps::detect();
@@ -191,16 +203,19 @@ impl ContextMenu {
         };
         self.editor_name = label(AppKind::Editor, &config.general.editor);
         self.file_manager_name = label(AppKind::FileManager, &config.general.file_manager);
-        self.editor_icon = Some(crate::app_icon::AppIcon::load(
-            AppKind::Editor,
-            apps.resolve(AppKind::Editor, &config.general.editor)
-                .map_or(config.general.editor.as_str(), |app| app.id),
-        ));
-        self.file_manager_icon = Some(crate::app_icon::AppIcon::load(
-            AppKind::FileManager,
-            apps.resolve(AppKind::FileManager, &config.general.file_manager)
-                .map_or(config.general.file_manager.as_str(), |app| app.id),
-        ));
+        #[cfg(target_os = "linux")]
+        {
+            self.editor_icon = Some(crate::app_icon::AppIcon::load(
+                AppKind::Editor,
+                apps.resolve(AppKind::Editor, &config.general.editor)
+                    .map_or(config.general.editor.as_str(), |app| app.id),
+            ));
+            self.file_manager_icon = Some(crate::app_icon::AppIcon::load(
+                AppKind::FileManager,
+                apps.resolve(AppKind::FileManager, &config.general.file_manager)
+                    .map_or(config.general.file_manager.as_str(), |app| app.id),
+            ));
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -419,13 +434,13 @@ impl ContextMenu {
                 Some(MenuItem {
                     rect: Self::row_rect(viewport.layout, viewport.body_top + row),
                     text: {
-                        #[cfg(target_os = "linux")]
+                        #[cfg(any(target_os = "linux", target_os = "macos"))]
                         let name = match action {
                             MenuAction::OpenEditor => self.editor_name.as_deref(),
                             MenuAction::OpenFileManager => self.file_manager_name.as_deref(),
                             _ => None,
                         };
-                        #[cfg(not(target_os = "linux"))]
+                        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
                         let name: Option<&str> = None;
                         name.map_or_else(
                             || self.locale.text(message).into(),
@@ -530,7 +545,7 @@ impl ContextMenu {
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn desktop_actions_display_preferred_names_in_both_languages() {
         let mut config = UiConfig::default();
@@ -594,7 +609,7 @@ bindings = [
                 Some(MenuAction::Settings)
             );
             let copy = items.iter().find(|item| item.action == MenuAction::Copy).unwrap();
-            assert_eq!(copy.shortcut, "Ctrl+Shift+C");
+            assert_eq!(copy.shortcut, platform("Ctrl+Shift+C", "Cmd+C"));
         }
         menu.shortcuts.insert("SplitVertical".into(), "Ctrl+Alt+E".into());
         let items = menu.items(80, 25);
@@ -610,9 +625,9 @@ bindings = [
         menu.copy_enabled = true;
         let items = menu.items(80, 32);
         let expected = vec![
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             MenuAction::OpenEditor,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             MenuAction::OpenFileManager,
             MenuAction::NewTab,
             MenuAction::Rename,
@@ -643,7 +658,7 @@ bindings = [
             .filter(|element| element.kind == UiKind::Divider)
             .map(|element| element.rect.top)
             .collect();
-        let expected_separators = if cfg!(target_os = "linux") {
+        let expected_separators = if cfg!(any(target_os = "linux", target_os = "macos")) {
             vec![2, 5, 10, 14, 17, 24]
         } else {
             vec![2, 7, 11, 14, 21]
@@ -712,7 +727,7 @@ bindings = [
         assert!(menu.hover(2, 1, 80, 32));
         assert_eq!(menu.selected, None);
         assert_eq!(menu.click(2, 1, 80, 32), None);
-        let separator = if cfg!(target_os = "linux") { 5 } else { 7 };
+        let separator = if cfg!(any(target_os = "linux", target_os = "macos")) { 5 } else { 7 };
         assert_eq!(menu.click(2, separator, 80, 32), None);
         assert!(!menu.hit_scroll(2, separator, 80, 32));
         assert_eq!(menu.scroll_offset, 0);
@@ -724,9 +739,9 @@ bindings = [
         menu.move_selection(true, 80, 25);
         assert_eq!(menu.selected, Some(MenuAction::Close));
         menu.move_selection(false, 80, 25);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(menu.selected, Some(MenuAction::OpenEditor));
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         assert_eq!(menu.selected, Some(MenuAction::NewTab));
         menu.selected = Some(MenuAction::PaneZoom);
         menu.move_selection(false, 80, 25);

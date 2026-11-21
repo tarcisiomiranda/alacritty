@@ -1,8 +1,10 @@
 #[cfg(target_os = "linux")]
-use std::ffi::{OsStr, OsString};
-#[cfg(target_os = "linux")]
+use std::ffi::OsStr;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::ffi::OsString;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +21,8 @@ struct AppSpec {
     programs: &'static [&'static str],
     #[cfg(target_os = "linux")]
     desktops: &'static [&'static str],
+    #[cfg(target_os = "macos")]
+    bundles: &'static [&'static str],
 }
 
 const CATALOGUE: &[AppSpec] = &[
@@ -30,6 +34,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["code"],
         #[cfg(target_os = "linux")]
         desktops: &["code.desktop", "com.visualstudio.code.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["Visual Studio Code.app"],
     },
     AppSpec {
         id: "zed",
@@ -39,6 +45,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["zed", "zeditor"],
         #[cfg(target_os = "linux")]
         desktops: &["dev.zed.Zed.desktop", "zed.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["Zed.app", "Zed Preview.app"],
     },
     AppSpec {
         id: "codium",
@@ -48,6 +56,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["codium"],
         #[cfg(target_os = "linux")]
         desktops: &["codium.desktop", "com.vscodium.codium.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["VSCodium.app"],
     },
     AppSpec {
         id: "code-insiders",
@@ -57,6 +67,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["code-insiders"],
         #[cfg(target_os = "linux")]
         desktops: &["code-insiders.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["Visual Studio Code - Insiders.app"],
     },
     AppSpec {
         id: "kate",
@@ -66,6 +78,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["kate"],
         #[cfg(target_os = "linux")]
         desktops: &["org.kde.kate.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["Kate.app"],
     },
     AppSpec {
         id: "sublime",
@@ -75,6 +89,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["subl", "sublime_text"],
         #[cfg(target_os = "linux")]
         desktops: &["sublime_text.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &["Sublime Text.app"],
     },
     AppSpec {
         id: "nautilus",
@@ -84,6 +100,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["nautilus"],
         #[cfg(target_os = "linux")]
         desktops: &["org.gnome.Nautilus.desktop", "nautilus.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
     },
     AppSpec {
         id: "dolphin",
@@ -93,6 +111,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["dolphin"],
         #[cfg(target_os = "linux")]
         desktops: &["org.kde.dolphin.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
     },
     AppSpec {
         id: "nemo",
@@ -102,6 +122,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["nemo"],
         #[cfg(target_os = "linux")]
         desktops: &["nemo.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
     },
     AppSpec {
         id: "thunar",
@@ -111,6 +133,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["thunar", "Thunar"],
         #[cfg(target_os = "linux")]
         desktops: &["thunar.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
     },
     AppSpec {
         id: "caja",
@@ -120,6 +144,8 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["caja"],
         #[cfg(target_os = "linux")]
         desktops: &["caja-folder-handler.desktop", "caja.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
     },
     AppSpec {
         id: "pcmanfm",
@@ -129,6 +155,19 @@ const CATALOGUE: &[AppSpec] = &[
         programs: &["pcmanfm", "pcmanfm-qt"],
         #[cfg(target_os = "linux")]
         desktops: &["pcmanfm.desktop", "pcmanfm-qt.desktop"],
+        #[cfg(target_os = "macos")]
+        bundles: &[],
+    },
+    AppSpec {
+        id: "finder",
+        name: "Finder",
+        kind: AppKind::FileManager,
+        #[cfg(target_os = "linux")]
+        programs: &[],
+        #[cfg(target_os = "linux")]
+        desktops: &[],
+        #[cfg(target_os = "macos")]
+        bundles: &["Finder.app"],
     },
 ];
 
@@ -144,13 +183,13 @@ pub fn name(kind: AppKind, id: &str) -> Option<&'static str> {
 pub struct Application {
     pub id: &'static str,
     pub name: &'static str,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     program: PathBuf,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     prefix: Vec<OsString>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl Application {
     fn arguments(&self, directory: &Path) -> io::Result<Vec<OsString>> {
         if !directory.is_absolute() || !directory.is_dir() {
@@ -161,7 +200,6 @@ impl Application {
         Ok(args)
     }
 
-    #[cfg(target_os = "linux")]
     pub fn launch(&self, directory: &Path, master_fd: i32, shell_pid: u32) -> io::Result<()> {
         let args = self.arguments(directory)?;
         let program = self.program.to_str().ok_or_else(|| {
@@ -205,7 +243,21 @@ impl InstalledApps {
             roots.push("/var/lib/flatpak/exports/share/applications".into());
             Self::detect_in(&std::env::var_os("PATH").unwrap_or_default(), &roots)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            let mut roots = Vec::new();
+            if let Some(home) =
+                std::env::var_os("HOME").map(PathBuf::from).filter(|path| path.is_absolute())
+            {
+                roots.push(home.join("Applications"));
+            }
+            roots.extend(
+                ["/Applications", "/System/Applications", "/System/Library/CoreServices"]
+                    .map(PathBuf::from),
+            );
+            Self::detect_bundles(&roots)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         Self::default()
     }
 
@@ -268,6 +320,36 @@ impl InstalledApps {
                     prefix: vec!["open".into()],
                 })
             });
+        apps
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl InstalledApps {
+    pub(crate) fn detect_bundles(roots: &[PathBuf]) -> Self {
+        let open = PathBuf::from("/usr/bin/open");
+        let mut apps = Self::default();
+        for spec in CATALOGUE {
+            let Some(bundle) = roots
+                .iter()
+                .flat_map(|root| spec.bundles.iter().map(move |name| root.join(name)))
+                .find(|path| path.join("Contents/Info.plist").is_file())
+            else {
+                continue;
+            };
+            let app = Application {
+                id: spec.id,
+                name: spec.name,
+                program: open.clone(),
+                prefix: vec!["-a".into(), bundle.into_os_string()],
+            };
+            match spec.kind {
+                AppKind::Editor => apps.editors.push(app),
+                AppKind::FileManager => apps.file_managers.push(app),
+            }
+        }
+        apps.default_manager =
+            Some(Application { id: "auto", name: "Finder", program: open, prefix: Vec::new() });
         apps
     }
 }
@@ -354,5 +436,48 @@ mod tests {
         assert_eq!(app.arguments(&folder).unwrap(), [folder.into_os_string()]);
         assert!(known(AppKind::Editor, "code"));
         assert!(!known(AppKind::FileManager, "code"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use std::fs;
+
+    use super::*;
+
+    fn bundle(root: &Path, name: &str) {
+        let contents = root.join(name).join("Contents");
+        fs::create_dir_all(&contents).unwrap();
+        fs::write(contents.join("Info.plist"), "").unwrap();
+    }
+
+    #[test]
+    fn bundles_open_folders_through_launch_services_with_separate_arguments() {
+        let user = tempfile::tempdir().unwrap();
+        let system = tempfile::tempdir().unwrap();
+        bundle(system.path(), "Visual Studio Code.app");
+        bundle(user.path(), "Visual Studio Code.app");
+        bundle(system.path(), "Zed.app");
+        bundle(system.path(), "Finder.app");
+        fs::create_dir_all(system.path().join("VSCodium.app")).unwrap();
+        let apps = InstalledApps::detect_bundles(&[user.path().into(), system.path().into()]);
+        assert_eq!(apps.editors.iter().map(|app| app.id).collect::<Vec<_>>(), ["code", "zed"]);
+        assert_eq!(apps.file_managers.iter().map(|app| app.id).collect::<Vec<_>>(), ["finder"]);
+        let folder = system.path().join("--ação ; $(touch injected) 'quoted'");
+        fs::create_dir(&folder).unwrap();
+        let code = apps.resolve(AppKind::Editor, "auto").unwrap();
+        assert_eq!(code.id, "code");
+        assert_eq!(code.program, Path::new("/usr/bin/open"));
+        assert_eq!(code.arguments(&folder).unwrap(), [
+            OsString::from("-a"),
+            user.path().join("Visual Studio Code.app").into_os_string(),
+            folder.clone().into_os_string()
+        ]);
+        let finder = apps.resolve(AppKind::FileManager, "auto").unwrap();
+        assert_eq!(finder.name, "Finder");
+        assert_eq!(finder.arguments(&folder).unwrap(), [folder.into_os_string()]);
+        assert!(code.arguments(Path::new("relative")).is_err());
+        assert!(apps.resolve(AppKind::Editor, "codium").is_none());
+        assert!(known(AppKind::FileManager, "finder"));
     }
 }

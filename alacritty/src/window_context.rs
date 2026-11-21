@@ -37,7 +37,7 @@ use alacritty_terminal::vte::ansi::NamedColor;
 use crate::agent::{AgentIntegration, AgentState};
 use crate::cli::{ParsedOptions, WindowOptions};
 use crate::clipboard::Clipboard;
-use crate::close_confirmation::{CloseAction, CloseConfirmation};
+use crate::close_confirmation::{CloseAction, CloseConfirmation, CloseTarget};
 use crate::config::UiConfig;
 use crate::context_menu::{ContextMenu, MenuAction};
 #[cfg(not(windows))]
@@ -126,10 +126,11 @@ impl TabContext {
                 None
             });
         let integration = ShellIntegration::prepare(&mut pty_config)?;
-        let original_shell = integration.as_ref().map(|integration| SavedShell {
-            program: integration.original_shell().program().to_owned(),
-            args: integration.original_shell().args().to_vec(),
-        });
+        let original_shell =
+            integration.as_ref().and_then(ShellIntegration::saved_shell).map(|shell| SavedShell {
+                program: shell.program().to_owned(),
+                args: shell.args().to_vec(),
+            });
         let event_proxy = EventProxy::for_tab(proxy, display.window.id(), id);
         let mut terminal =
             Term::new(config.term_options(), &display.size_info, event_proxy.clone());
@@ -692,7 +693,7 @@ impl WindowContext {
         }
         if let Some(menu) = &mut self.display.context_menu {
             menu.locale = locale;
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             menu.update_applications(&self.config);
             if let Some(pane) = self
                 .tabs
@@ -1026,30 +1027,77 @@ impl WindowContext {
             return;
         }
         let id = self.tabs.active.panes.active.id;
-        let confirm = match &self.display.productivity_dialog {
-            Some(ProductivityDialog::Preferences(dialog)) => {
-                dialog.original.general.confirm_tab_close
-            },
-            _ => self.config.general.confirm_tab_close,
-        };
-        if !confirm {
+        if !self.confirms_close() {
             self.close_pane_immediately(id, proxy, scheduler);
             return;
         }
         let title = self.tabs.active.panes.active.display_title().to_owned();
+        let mut dialog = CloseConfirmation::new(id, title, self.config.general.language.resolve());
+        dialog.target = CloseTarget::Pane;
+        self.show_close_confirmation(dialog, scheduler);
+        self.closing_pane = Some(id);
+    }
+
+    fn confirms_close(&self) -> bool {
+        match &self.display.productivity_dialog {
+            Some(ProductivityDialog::Preferences(dialog)) => {
+                dialog.original.general.confirm_tab_close
+            },
+            _ => self.config.general.confirm_tab_close,
+        }
+    }
+
+    fn show_close_confirmation(&mut self, dialog: CloseConfirmation, scheduler: &mut Scheduler) {
         self.close_context_menu();
         self.close_tab_dialog();
         self.close_language_settings();
         self.close_productivity(true);
         self.cancel_mouse_drag(scheduler);
-        let mut dialog = CloseConfirmation::new(id, title, self.config.general.language.resolve());
-        dialog.pane = true;
-        self.closing_pane = Some(id);
         self.display.close_confirmation = Some(dialog);
         self.display.window.set_ime_inhibitor(ImeInhibitor::VI, true);
         self.display.ime.set_preedit(None);
         self.dirty = true;
         self.display.damage_tracker.frame().mark_fully_damaged();
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn is_focused(&self) -> bool {
+        self.tabs.active.terminal.lock().is_focused
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn tab_count(&self) -> usize {
+        self.tabs.len()
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn request_quit(
+        &mut self,
+        windows: usize,
+        tabs: usize,
+        proxy: &EventLoopProxy<Event>,
+        scheduler: &mut Scheduler,
+    ) {
+        if self.display.close_confirmation.is_some() {
+            return;
+        }
+        if !self.confirms_close() {
+            self.quit_application(proxy);
+            return;
+        }
+        let locale = self.config.general.language.resolve();
+        let mut dialog =
+            CloseConfirmation::new(self.tabs.active.id, locale.quit_summary(windows, tabs), locale);
+        dialog.target = CloseTarget::Application;
+        self.closing_pane = None;
+        self.show_close_confirmation(dialog, scheduler);
+        self.display.window.focus_window();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn quit_application(&mut self, proxy: &EventLoopProxy<Event>) {
+        self.persist_recovery();
+        let _ = proxy.send_event(Event::new(EventType::Shutdown, None));
     }
 
     fn close_pane_immediately(
@@ -1198,7 +1246,7 @@ impl WindowContext {
     fn pane_tab_hit(&self) -> Option<TabButton> {
         let size = self.display.size_info;
         if self.pointer_position.x < size.padding_x() as f64
-            || self.pointer_position.y < 0.
+            || self.pointer_position.y < self.display.top_inset as f64
             || self.pointer_position.y >= size.padding_y() as f64
         {
             return None;
@@ -2885,27 +2933,12 @@ impl WindowContext {
         let id = tab.id;
         let title = tab.display_title().to_owned();
         self.closing_pane = None;
-        let confirm = match &self.display.productivity_dialog {
-            Some(ProductivityDialog::Preferences(dialog)) => {
-                dialog.original.general.confirm_tab_close
-            },
-            _ => self.config.general.confirm_tab_close,
-        };
-        if !confirm {
+        if !self.confirms_close() {
             self.close_tab_immediately(id, proxy, scheduler);
             return;
         }
-        self.close_context_menu();
-        self.close_tab_dialog();
-        self.close_language_settings();
-        self.close_productivity(true);
-        self.cancel_mouse_drag(scheduler);
-        self.display.close_confirmation =
-            Some(CloseConfirmation::new(id, title, self.config.general.language.resolve()));
-        self.display.window.set_ime_inhibitor(ImeInhibitor::VI, true);
-        self.display.ime.set_preedit(None);
-        self.dirty = true;
-        self.display.damage_tracker.frame().mark_fully_damaged();
+        let dialog = CloseConfirmation::new(id, title, self.config.general.language.resolve());
+        self.show_close_confirmation(dialog, scheduler);
     }
 
     fn handle_close_confirmation(
@@ -2994,11 +3027,16 @@ impl WindowContext {
             _ => return false,
         };
         let id = dialog.tab_id;
-        let pane = self.closing_pane;
+        let target = dialog.target;
         if let Some(action) = action {
             self.dismiss_close_confirmation();
             if action == CloseAction::Confirm {
-                if pane.is_some() {
+                #[cfg(target_os = "macos")]
+                if target == CloseTarget::Application {
+                    self.quit_application(proxy);
+                    return true;
+                }
+                if target == CloseTarget::Pane {
                     self.close_pane_immediately(id, proxy, scheduler);
                 } else {
                     self.close_tab_immediately(id, proxy, scheduler);
@@ -3343,7 +3381,7 @@ impl WindowContext {
             tab.search_state.history_index.is_some(),
         );
         menu.update_shortcuts(&self.config, mode);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         menu.update_applications(&self.config);
         menu.locale = self.config.general.language.resolve();
         self.display.context_menu = Some(menu);
@@ -3377,8 +3415,8 @@ impl WindowContext {
             return false;
         };
         let size = self.display.size_info;
-        let top =
-            self.pointer_position.y >= 0. && self.pointer_position.y < size.padding_y() as f64;
+        let top = self.pointer_position.y >= self.display.top_inset as f64
+            && self.pointer_position.y < size.padding_y() as f64;
         let (column, _) = self.pointer_cell();
         let hit = top
             .then(|| self.display.tab_bar.hit(column, size.columns()))
@@ -3534,7 +3572,7 @@ impl WindowContext {
         let Some(action) = action else { return true };
         self.capture_modal_action(event);
         let id = self.display.context_menu.as_ref().unwrap().tab_id;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let pane_id = self.context_menu_pane;
         self.close_context_menu();
         let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else { return true };
@@ -3546,7 +3584,7 @@ impl WindowContext {
                 self.tab_actions.push(EventType::CreateTab(options));
             },
             MenuAction::Settings => self.open_preferences(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             MenuAction::OpenEditor | MenuAction::OpenFileManager => {
                 use crate::desktop_apps::{AppKind, InstalledApps};
                 let (kind, preference) = if action == MenuAction::OpenEditor {
@@ -3609,7 +3647,10 @@ impl WindowContext {
             self.pointer_position = *position;
             let size = self.display.size_info;
             let x = position.x - size.padding_x() as f64;
-            let hit = if x >= 0. && position.y >= 0. && position.y < size.padding_y() as f64 {
+            let hit = if x >= 0.
+                && position.y >= self.display.top_inset as f64
+                && position.y < size.padding_y() as f64
+            {
                 self.display.tab_bar.hit((x / size.cell_width() as f64) as usize, size.columns())
             } else {
                 None
@@ -3620,7 +3661,10 @@ impl WindowContext {
                 if let Some(id) = self.tab_drag {
                     let size = self.display.size_info;
                     let x = position.x - size.padding_x() as f64;
-                    if x >= 0. && position.y >= 0. && position.y < size.padding_y() as f64 {
+                    if x >= 0.
+                        && position.y >= self.display.top_inset as f64
+                        && position.y < size.padding_y() as f64
+                    {
                         let hit = self
                             .display
                             .tab_bar
@@ -3667,7 +3711,7 @@ impl WindowContext {
                 self.tab_mouse_pressed = true;
                 let size = self.display.size_info;
                 let x = self.pointer_position.x - size.padding_x() as f64;
-                if x < 0. || !top {
+                if x < 0. || !top || self.pointer_position.y < self.display.top_inset as f64 {
                     return true;
                 }
                 let column = (x / size.cell_width() as f64) as usize;
