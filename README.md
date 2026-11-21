@@ -108,9 +108,19 @@ mise run install
 
 The installer downloads a native binary without requiring Rust and installs
 `~/Applications/Termust.app`. Run the same command again to update; the previous
-bundle remains available at `~/Applications/.termust/previous.app`. A basic
-launch was tested on macOS 26.6.2; full graphical workflows remain under
-validation.
+bundle remains available at `~/Applications/.termust/previous.app`.
+
+On macOS, Termust uses its own tab bar instead of the system window tabs, so
+tabs, groups, split panes, saved sessions and agent status use the same code
+as on Linux.
+Shortcuts use Command: Cmd+T opens a tab, Cmd+W closes it after confirmation,
+Cmd+N opens a window, Cmd+, opens settings and Cmd+Q asks once before closing
+every window. The default zsh login shell keeps reading `.zprofile` and `.zshrc`
+while Termust records commands and folders. The right-click menu opens the
+current folder in VS Code, Zed or Finder. On macOS 26.6.2, `mise run test:macos-gui`
+checks tabs, panes, windows, groups, recovery after a crash, quitting, the
+transparent title bar and agent status with a sample agent. Session files are
+stored under `~/.local/state/termust`, as on Linux.
 
 ```sh
 open ~/Applications/Termust.app

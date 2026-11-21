@@ -159,6 +159,8 @@ tab closure. The setting is `general.confirm_tab_close`, defaults to `true`,
 and uses the same safe configuration persistence as other preferences.
 An unsaved preference preview does not change close behavior. Natural shell
 exits and whole-window close actions retain their existing behavior.
+On macOS, Cmd+Q and the application menu's **Quit Termust** use the same
+setting to confirm once before closing every window.
 
 ## Tab organization and activity
 

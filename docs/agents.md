@@ -91,6 +91,9 @@ integration does not turn on that saving option.
 sessions, including independent panes, animations, compact chat lists, group filters, focus, acknowledgement,
 malformed events, integration settings and window attention. Tests use sample
 data. Real installed OpenCode and Antigravity startup checks run when available.
+On macOS, `mise run test:macos-gui` runs the same sample agent through the
+Claude proxy, raises a permission request and checks that the overview focuses
+that tab.
 
 The optional `scripts/test-codex-agent-native.py --live` sends a small real
 Codex request in an isolated graphical session. Its additional `--permission`

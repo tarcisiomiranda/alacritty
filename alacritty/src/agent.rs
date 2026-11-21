@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use alacritty_terminal::tty::Options;
 use serde::Deserialize;
@@ -153,10 +153,7 @@ impl AgentIntegration {
         if !enabled || cfg!(windows) {
             return Ok(None);
         }
-        let python = std::env::split_paths(&original_path)
-            .map(|path| path.join("python3"))
-            .find(|path| executable(path));
-        let Some(python) = python else { return Ok(None) };
+        let Some(python) = find_python(&original_path, &toolchain_dirs()) else { return Ok(None) };
         let directory = tempfile::Builder::new().prefix("termust-agents-").tempdir()?;
         let root = directory.path();
         #[cfg(unix)]
@@ -376,6 +373,33 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+const FALLBACK_PYTHON_DIRS: &[&str] =
+    if cfg!(target_os = "macos") { &["/opt/homebrew/bin", "/usr/local/bin"] } else { &[] };
+
+fn toolchain_dirs() -> Vec<PathBuf> {
+    std::env::var_os("DEVELOPER_DIR")
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(
+            ["/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer"]
+                .map(PathBuf::from),
+        )
+        .collect()
+}
+
+fn find_python(search_path: &str, toolchains: &[PathBuf]) -> Option<PathBuf> {
+    std::env::split_paths(search_path)
+        .chain(FALLBACK_PYTHON_DIRS.iter().map(PathBuf::from))
+        .map(|path| path.join("python3"))
+        .find(|path| executable(path) && !installer_stub(path, toolchains))
+}
+
+fn installer_stub(path: &Path, toolchains: &[PathBuf]) -> bool {
+    cfg!(target_os = "macos")
+        && path == Path::new("/usr/bin/python3")
+        && !toolchains.iter().any(|dir| dir.join("usr/bin/python3").is_file())
+}
+
 fn executable(path: &Path) -> bool {
     let Ok(metadata) = path.metadata() else { return false };
     #[cfg(unix)]
@@ -445,6 +469,30 @@ fn process_alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn python_lookup_skips_the_macos_installer_stub_without_developer_tools() {
+        use std::os::unix::fs::PermissionsExt;
+        let custom = tempfile::tempdir().unwrap();
+        let python = custom.path().join("python3");
+        fs::write(&python, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+        let toolchain = tempfile::tempdir().unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        let search = format!("/usr/bin:{}", custom.path().display());
+        let stub = Path::new("/usr/bin/python3");
+        if executable(stub) {
+            let expected = if cfg!(target_os = "macos") { python.clone() } else { stub.into() };
+            assert_eq!(find_python(&search, &[empty.path().into()]), Some(expected));
+        }
+        fs::create_dir_all(toolchain.path().join("usr/bin")).unwrap();
+        fs::write(toolchain.path().join("usr/bin/python3"), "").unwrap();
+        assert!(!installer_stub(stub, &[toolchain.path().into()]));
+        assert_eq!(installer_stub(stub, &[empty.path().into()]), cfg!(target_os = "macos"));
+        assert!(!installer_stub(&python, &[empty.path().into()]));
+        assert_eq!(find_python(custom.path().to_str().unwrap(), &[]), Some(python));
+    }
 
     fn integration() -> AgentIntegration {
         AgentIntegration { directory: tempfile::tempdir().unwrap(), records: BTreeMap::new() }

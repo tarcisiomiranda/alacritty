@@ -1,9 +1,10 @@
 # Terminal tabs
 
 This version supports independent terminal sessions in one window on Linux,
-BSD and Windows. Each tab keeps its own shell, scrollback, selection and search.
-Sessions continue running while another tab is selected. macOS retains its
-native window tabs.
+macOS, BSD and Windows. Each tab keeps its own shell, scrollback, selection and
+search. Sessions continue running while another tab is selected. On macOS the
+Termust tab bar replaces the system window tabs, so tabs, groups and panes work
+the same way as on Linux.
 
 | Shortcut | Action |
 | --- | --- |
@@ -21,6 +22,38 @@ native window tabs.
 | Ctrl+Tab / Ctrl+PageDown | Select the next tab |
 | Alt+1 through Alt+8 | Select a numbered tab |
 | Alt+9 | Select the last tab |
+
+On macOS the same actions use Command:
+
+| Shortcut | Action |
+| --- | --- |
+| Cmd+T | Create a tab |
+| Cmd+W | Close the active tab |
+| F2 / Shift+Cmd+R | Rename the active tab and open its settings |
+| Shift+Cmd+S | Save all tabs in the current window |
+| Shift+Cmd+O | Reopen the saved tabs in the current window |
+| Shift+Cmd+D | Duplicate the active tab |
+| Shift+Cmd+T | Reopen a recently closed tab |
+| Shift+Cmd+PageUp / PageDown | Move the active tab |
+| Shift+Cmd+P | Manage named workspaces |
+| Cmd+, | Open settings |
+| Ctrl+Shift+Tab / Shift+Cmd+[ | Select the previous tab |
+| Ctrl+Tab / Shift+Cmd+] | Select the next tab |
+| Cmd+1 through Cmd+8 | Select a numbered tab |
+| Cmd+9 | Select the last tab |
+| Cmd+N | Open a new window |
+| Cmd+Q | Quit Termust after one confirmation for every window |
+
+Inside Termust dialogs, Cmd+A, Cmd+V and Cmd+Enter work like their Ctrl
+counterparts.
+
+Cmd+Q and **Quit Termust** in the application menu show one confirmation with
+the number of open tabs and windows. **Confirm before closing a tab** controls
+this dialog too; with it turned off, Cmd+Q quits immediately. When automatic
+recovery is on, the focused window's tabs are saved before Termust quits.
+With `window.decorations = "Transparent"` or `"Buttonless"`, the tab bar starts
+below the strip that holds the window buttons, so clicks there keep moving the
+window.
 
 F2 opens tab settings at the shell prompt. Applications using the alternate
 screen, such as terminal editors and process monitors, keep their F2 key;

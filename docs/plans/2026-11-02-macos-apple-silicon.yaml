@@ -2,7 +2,7 @@ plan: macos-apple-silicon
 title: Levar o Termust completo para macOS Apple Silicon
 status: draft
 created: 2026-11-02
-updated: 2026-11-03
+updated: 2026-11-20
 language: pt-BR
 goal: Compilar, instalar e usar o Termust nativo ARM64 no Mac com abas, grupos, painéis, menus e recuperação de estado.
 handoff:
@@ -174,7 +174,7 @@ stages:
       - mise exec -- cargo test --locked --workspace --target aarch64-apple-darwin
   - id: unified-tabs
     desc: Ativar abas internas, grupos e painéis com o mesmo modelo de sessão do Linux.
-    status: todo
+    status: done
     work:
       - Habilitar TabBar e a reserva superior desde a geometria inicial, inclusive antes do primeiro resize.
       - Roteiar criar, selecionar, numerar e fechar abas para Tabs<TerminalTab> no macOS.
@@ -187,7 +187,8 @@ stages:
       - Painéis divididos mantêm foco, proporções, busca e isolamento ao mudar de aba ou grupo.
   - id: mac-input
     desc: Ajustar atalhos e interação nativa sem consumir teclas destinadas aos programas do terminal.
-    status: todo
+    status: done
+    note: Cmd+Q e o item Quit do menu passam por uma confirmação única; com decorações Transparent e Buttonless a barra de abas fica abaixo da faixa dos botões da janela.
     work:
       - Definir atalhos com Command para abas, configuração e clipboard e registrar a tabela final na documentação.
       - Usar Cmd+W para CloseTab com confirmação e Cmd+N para nova janela; auditar separadamente Cmd+Q e o botão de fechar a janela.
@@ -202,7 +203,7 @@ stages:
       - Teclas de cópia, colagem e edição funcionam tanto no terminal quanto nos diálogos em inglês e português.
   - id: login-shell-state
     desc: Capturar comandos do shell padrão e restaurar o estado com segurança no macOS.
-    status: todo
+    status: done
     work:
       - Integrar o Zsh padrão ao fluxo de login preservando .zshenv, .zprofile, .zshrc, .zlogin e ZDOTDIR conforme a ordem real de inicialização.
       - Validar PATH e ferramentas instaladas pelo usuário quando o aplicativo abre pelo Finder, sem depender de ter sido iniciado por outro terminal.
@@ -251,7 +252,8 @@ stages:
       - Preservar o instalador e todos os gates de compatibilidade Linux, com testes separados por plataforma.
   - id: native-validation
     desc: Validar a experiência gráfica real no Mac e registrar as evidências.
-    status: todo
+    status: in_progress
+    note: scripts/test-macos-gui.py (mise run test:macos-gui) passou dez cenários no macOS 26.6.2; faltam prints, porque a gravação de tela não estava liberada para a automação.
     work:
       - Criar automação macOS ou uma verificação manual reproduzível; não considerar Xvfb um teste da interface Cocoa.
       - Usar dados de exemplo e diretórios temporários; não registrar comandos ou conteúdo pessoal nos prints.
@@ -329,4 +331,4 @@ references:
     url: https://developer.apple.com/developer-id/
   - title: Notarização de software macOS
     url: https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
-next_action: Validar abas, grupos, painéis e restauração de sessão na interface nativa do Mac.
+next_action: Conferir visualmente as telas de configurações e a visão de agentes, testar um Claude ou Codex real e gerar uma release macOS com autorização; detalhes em specs/macos-apple-silicon.yaml.

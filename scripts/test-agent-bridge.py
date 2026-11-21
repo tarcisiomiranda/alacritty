@@ -184,7 +184,7 @@ class BridgeTests(unittest.TestCase):
     def test_actual_fake_cli_preserves_arguments_user_settings_and_hook_chain(self):
         settings = self.base / "user settings.json"
         original = {"theme": "light", "permissions": {"defaultMode": "manual"},
-                    "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/bin/true"}]}]}}
+                    "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "true"}]}]}}
         settings.write_text(json.dumps(original))
         env = dict(self.env, TEST_EVENTS=json.dumps([["SessionStart", {}], ["UserPromptSubmit", {}], ["Stop", {}]]))
         result = self.invoke("run", args=["--settings", str(settings), "--permission-mode", "manual", "literal prompt $()"], env=env)

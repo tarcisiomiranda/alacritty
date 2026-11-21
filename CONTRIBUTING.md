@@ -15,6 +15,11 @@ mise run test:shortcuts
 mise run test:install
 ```
 
+On a Mac, `mise run test:macos-gui` drives the native app through tabs, panes,
+groups, recovery after a crash, quitting and agent status. It needs
+Accessibility permission for the terminal that runs it and takes over the
+keyboard and mouse for about three minutes.
+
 Use the existing Rust style and keep changes focused. Update the YAML spec in
 `specs/` and the matching guide when behavior changes. Add a regression test for
 bugs that could return.

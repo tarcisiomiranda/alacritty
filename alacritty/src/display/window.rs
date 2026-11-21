@@ -244,6 +244,25 @@ impl Window {
         self.window.focus_window();
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn titlebar_inset(&self) -> f32 {
+        let view = match self.raw_window_handle() {
+            RawWindowHandle::AppKit(handle) => {
+                assert!(MainThreadMarker::new().is_some());
+                unsafe { handle.ns_view.cast::<NSView>().as_ref() }
+            },
+            _ => return 0.,
+        };
+        let Some(window) = view.window() else { return 0. };
+        let covered = view.frame().size.height - window.contentLayoutRect().size.height;
+        (covered.max(0.) * self.scale_factor) as f32
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn titlebar_inset(&self) -> f32 {
+        0.
+    }
+
     /// Set the window title.
     #[inline]
     pub fn set_title(&mut self, title: String) {
@@ -486,35 +505,6 @@ impl Window {
         };
 
         view.window().unwrap().setHasShadow(has_shadows);
-    }
-
-    /// Select tab at the given `index`.
-    #[cfg(target_os = "macos")]
-    pub fn select_tab_at_index(&self, index: usize) {
-        self.window.select_tab_at_index(index);
-    }
-
-    /// Select the last tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_last_tab(&self) {
-        self.window.select_tab_at_index(self.window.num_tabs() - 1);
-    }
-
-    /// Select next tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_next_tab(&self) {
-        self.window.select_next_tab();
-    }
-
-    /// Select previous tab.
-    #[cfg(target_os = "macos")]
-    pub fn select_previous_tab(&self) {
-        self.window.select_previous_tab();
-    }
-
-    #[cfg(target_os = "macos")]
-    pub fn tabbing_id(&self) -> String {
-        self.window.tabbing_identifier()
     }
 }
 

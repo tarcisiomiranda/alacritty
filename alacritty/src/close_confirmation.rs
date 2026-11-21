@@ -11,10 +11,18 @@ pub enum CloseAction {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseTarget {
+    Tab,
+    Pane,
+    #[cfg(target_os = "macos")]
+    Application,
+}
+
 pub struct CloseConfirmation {
     pub tab_id: TabId,
     pub locale: Locale,
-    pub pane: bool,
+    pub target: CloseTarget,
     title: String,
     hovered: Option<CloseAction>,
 }
@@ -22,7 +30,40 @@ pub struct CloseConfirmation {
 impl CloseConfirmation {
     pub fn new(tab_id: TabId, title: String, locale: Locale) -> Self {
         let title = title.chars().map(|ch| if ch.is_control() { ' ' } else { ch }).collect();
-        Self { tab_id, locale, pane: false, title, hovered: None }
+        Self { tab_id, locale, target: CloseTarget::Tab, title, hovered: None }
+    }
+
+    fn heading(&self) -> String {
+        self.locale
+            .text(match self.target {
+                CloseTarget::Tab => Message::CloseTabTitle,
+                CloseTarget::Pane => Message::ClosePaneTitle,
+                #[cfg(target_os = "macos")]
+                CloseTarget::Application => Message::QuitTitle,
+            })
+            .into()
+    }
+
+    fn question(&self) -> String {
+        self.locale
+            .text(match self.target {
+                CloseTarget::Tab => Message::CloseTabQuestion,
+                CloseTarget::Pane => Message::ClosePaneQuestion,
+                #[cfg(target_os = "macos")]
+                CloseTarget::Application => Message::QuitQuestion,
+            })
+            .into()
+    }
+
+    fn accept(&self) -> String {
+        self.locale
+            .text(match self.target {
+                CloseTarget::Tab => Message::CloseTabAccept,
+                CloseTarget::Pane => Message::ClosePane,
+                #[cfg(target_os = "macos")]
+                CloseTarget::Application => Message::QuitAccept,
+            })
+            .into()
     }
 
     pub fn layout(&self, columns: usize, lines: usize) -> UiRect {
@@ -144,24 +185,8 @@ impl CloseConfirmation {
             }
         };
         if spacious && content_end >= 6 {
-            add(
-                1,
-                UiKind::Title,
-                self.locale
-                    .text(if self.pane { Message::ClosePaneTitle } else { Message::CloseTabTitle })
-                    .into(),
-            );
-            add(
-                3,
-                UiKind::Label,
-                self.locale
-                    .text(if self.pane {
-                        Message::ClosePaneQuestion
-                    } else {
-                        Message::CloseTabQuestion
-                    })
-                    .into(),
-            );
+            add(1, UiKind::Title, self.heading());
+            add(3, UiKind::Label, self.question());
             add(4, UiKind::Command, self.title.clone());
             if content_end > 5 {
                 add(
@@ -171,39 +196,13 @@ impl CloseConfirmation {
                 );
             }
         } else if content_end >= 4 {
-            add(
-                0,
-                UiKind::Title,
-                self.locale
-                    .text(if self.pane { Message::ClosePaneTitle } else { Message::CloseTabTitle })
-                    .into(),
-            );
-            add(
-                1,
-                UiKind::Label,
-                self.locale
-                    .text(if self.pane {
-                        Message::ClosePaneQuestion
-                    } else {
-                        Message::CloseTabQuestion
-                    })
-                    .into(),
-            );
+            add(0, UiKind::Title, self.heading());
+            add(1, UiKind::Label, self.question());
             add(2, UiKind::Command, self.title.clone());
             add(3, UiKind::Subtitle, self.locale.text(Message::CloseTabWarning).into());
         } else {
             if content_end >= 2 {
-                add(
-                    0,
-                    UiKind::Title,
-                    self.locale
-                        .text(if self.pane {
-                            Message::ClosePaneTitle
-                        } else {
-                            Message::CloseTabTitle
-                        })
-                        .into(),
-                );
+                add(0, UiKind::Title, self.heading());
             }
             if content_end > 0 {
                 add(usize::from(content_end >= 2), UiKind::Command, self.title.clone());
@@ -225,17 +224,13 @@ impl CloseConfirmation {
             let gap = usize::from(width >= 28) * 2;
             let accept_width = if width >= 28 { 14 } else { width / 2 };
             let reject_width = (width - accept_width - gap).min(12);
-            parts.push(
-                self.part(
-                    layout,
-                    (inset, button_row, accept_width),
-                    UiKind::DangerButton,
-                    self.locale
-                        .text(if self.pane { Message::ClosePane } else { Message::CloseTabAccept })
-                        .into(),
-                    Some(CloseAction::Confirm),
-                ),
-            );
+            parts.push(self.part(
+                layout,
+                (inset, button_row, accept_width),
+                UiKind::DangerButton,
+                self.accept(),
+                Some(CloseAction::Confirm),
+            ));
             parts.push(self.part(
                 layout,
                 (inset + accept_width + gap, button_row, reject_width),
@@ -245,21 +240,13 @@ impl CloseConfirmation {
             ));
         } else {
             if button_rows == 2 {
-                parts.push(
-                    self.part(
-                        layout,
-                        (inset, button_row, width),
-                        UiKind::DangerButton,
-                        self.locale
-                            .text(if self.pane {
-                                Message::ClosePane
-                            } else {
-                                Message::CloseTabAccept
-                            })
-                            .into(),
-                        Some(CloseAction::Confirm),
-                    ),
-                );
+                parts.push(self.part(
+                    layout,
+                    (inset, button_row, width),
+                    UiKind::DangerButton,
+                    self.accept(),
+                    Some(CloseAction::Confirm),
+                ));
             }
             parts.push(self.part(
                 layout,
@@ -436,5 +423,28 @@ mod tests {
         );
         assert!(elements.iter().any(|element| element.text == "Fechar aba"));
         assert!(elements.iter().any(|element| element.text == "Cancelar"));
+    }
+
+    #[test]
+    fn each_target_names_what_will_close() {
+        let targets = [
+            (CloseTarget::Tab, "Close tab", "Close this tab?", "Close tab"),
+            (CloseTarget::Pane, "Close terminal pane", "Close this terminal pane?", "Close pane"),
+            #[cfg(target_os = "macos")]
+            (CloseTarget::Application, "Quit Termust", "Close every window and tab?", "Quit"),
+        ];
+        for (target, heading, question, accept) in targets {
+            let mut dialog = CloseConfirmation::new(1, "5 tabs in 2 windows".into(), Locale::En);
+            dialog.target = target;
+            let elements = dialog.elements(100, 40);
+            for text in [heading, question, "5 tabs in 2 windows"] {
+                assert!(elements.iter().any(|element| element.text == text), "{target:?} {text}");
+            }
+            assert!(
+                elements.iter().any(|element| {
+                    element.kind == UiKind::DangerButton && element.text == accept
+                })
+            );
+        }
     }
 }

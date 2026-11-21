@@ -14,6 +14,10 @@ profile. Existing programs continue running in their own panes.
 | Ctrl+Alt+W | Close the focused pane |
 | Ctrl+Shift+W | Close the whole tab, including its panes |
 
+On macOS use Shift+Cmd+E, Shift+Cmd+J and Shift+Cmd+Z to split and maximize,
+Option+Cmd+arrows to move the focus, Option+Cmd+W to close a pane and Cmd+W to
+close the whole tab.
+
 Click inside a pane to focus it. A subtle one-pixel line separates panes; it does
 not reserve a whole text row or column. Drag the line or its invisible surrounding
 margin to change the proportions.

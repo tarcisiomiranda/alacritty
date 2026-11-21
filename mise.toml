@@ -74,6 +74,10 @@ run = "cargo build --locked -p termust && python3 -B scripts/test-state-groups.p
 description = "Verify desktop application preferences and safe folder launches on isolated X11"
 run = "cargo build --locked -p termust && python3 -B scripts/test-desktop-apps.py"
 
+[tasks."test:macos-gui"]
+description = "Drive the native macOS app through tabs, panes, groups, recovery, quit and agent checks"
+run = "cargo build --locked -p termust && python3 -B scripts/test-macos-gui.py"
+
 [tasks."test:agents"]
 description = "Verify private agent adapters and native tab attention workflows"
 run = "cargo build --locked -p termust && python3 -B scripts/test-agent-bridge.py && python3 -B scripts/test-agents.py"

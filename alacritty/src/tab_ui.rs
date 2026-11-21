@@ -9,6 +9,10 @@ use crate::localization::{Locale, Message};
 use crate::session::CommandRecord;
 use crate::tabs::TabId;
 
+pub fn command_key(modifiers: ModifiersState) -> bool {
+    modifiers.control_key() || (cfg!(target_os = "macos") && modifiers.super_key())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DialogAction {
     Apply,
@@ -467,7 +471,7 @@ impl TabDialog {
             Key::Named(NamedKey::Space) if self.focus == 1 => self.toggle_replay(),
             Key::Character(text) if text.as_str() == " " && self.focus == 1 => self.toggle_replay(),
             Key::Character(text)
-                if text.eq_ignore_ascii_case("a") && modifiers.control_key() && self.focus == 0 =>
+                if text.eq_ignore_ascii_case("a") && command_key(modifiers) && self.focus == 0 =>
             {
                 self.selected_all = true;
             },

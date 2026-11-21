@@ -1,0 +1,92 @@
+spec: macos-apple-silicon
+title: Full Termust workflow on macOS Apple Silicon
+status: in_progress
+created: 2026-11-20
+updated: 2026-11-20
+goal: Use the same Termust tabs, groups, panes, sessions, shortcuts, desktop actions and agent status on macOS as on Linux.
+problem: The macOS build disabled the Termust tab bar, routed tab actions to native window tabs, bound Cmd+W to closing the whole window, skipped shell integration for the default login shell and offered no desktop folder actions.
+behavior:
+  - Show the Termust tab bar on macOS and route tab creation, selection and closing to internal tabs inside one window.
+  - Disable automatic system window tabbing so Cmd+N windows never merge into a second tab model.
+  - Use Command shortcuts that mirror the Linux Ctrl+Shift set; Cmd+W closes only the active tab with the existing confirmation.
+  - Label modifiers as Ctrl, Option, Shift and Cmd in settings and menus, while still accepting Alt and Super in saved configuration.
+  - Accept Cmd+A, Cmd+V, Cmd+F and Cmd+Enter in Termust dialogs in addition to the Ctrl forms.
+  - Keep the macOS /usr/bin/login zsh login shell and chain .zshenv, .zprofile, .zshrc and .zlogin through the private integration directory.
+  - Detect editor and Finder application bundles and open the pane folder through /usr/bin/open with separate arguments.
+  - Skip the /usr/bin/python3 installer stub when no developer tools exist and fall back to Homebrew python3 for agent integration.
+  - Route Cmd+Q and the application menu Quit item through one confirmation that names the open tabs and windows, then close every window.
+  - Start the tab bar below the window button strip when window.decorations is Transparent or Buttonless.
+requirements_functional:
+  - Preserve Linux, BSD and Windows shortcuts, menus and session formats.
+  - Record commands and working directories from the default zsh without changing the user's startup files.
+  - Store no explicit shell in sessions created from the default macOS login shell, so restoration keeps the login flow.
+  - Keep all new visible text available in English and Brazilian Portuguese.
+decisions:
+  - Shift+Cmd+] and Shift+Cmd+[ are bound as "}" and "{" because macOS reports the shifted character for these keys.
+  - Ctrl+Tab replaces Cmd+Tab for tab cycling because the system application switcher owns Cmd+Tab.
+  - Reopen closed tab uses Shift+Cmd+T, the common macOS browser shortcut, instead of the Linux Ctrl+Shift+Alt+T.
+  - Default macOS shells other than zsh stay without integration; an explicitly configured bash, zsh or fish keeps the existing integration.
+  - Application icons in the context menu stay Linux only because they depend on GdkPixbuf.
+  - The winit default menu binds Cmd+Q to terminate:, which closed every window before any key binding ran; Termust retargets that menu item instead of removing the menu.
+  - Quit confirmation reuses general.confirm_tab_close, so one preference controls every close confirmation; quitting saves the focused window's recovery first.
+  - The tab bar sits below the transparent title bar because AppKit drags the window and zooms on double-click in that strip; the height comes from the window's contentLayoutRect.
+  - Linux and Windows keep the existing Quit action, which closes only the current window.
+  - Quit from the Dock menu or at logout sends terminate: straight to the application and still closes without confirmation.
+constraints:
+  - Do not replace the renderer, sign or notarize builds, or publish a release in this phase.
+  - Preserve user configuration, saved sessions and the installed Termust.app.
+implemented:
+  - Enabled the tab bar and internal tab routing on macOS and removed the unused native tab selection helpers.
+  - Disabled automatic window tabbing at startup.
+  - Added macOS Command bindings with tests for every tab, pane, settings and window shortcut.
+  - Added macOS modifier labels and macOS default menu labels.
+  - Added the login zsh integration with a .zprofile bridge and a test that runs zsh -l -i against fake startup files.
+  - Added application bundle detection for VS Code, Zed, VSCodium, VS Code Insiders, Kate, Sublime Text and Finder.
+  - Added the python3 installer stub guard and Homebrew fallback for agent integration.
+  - Replaced the /bin/true hook fixture in scripts/test-agent-bridge.py with true so the bridge suite runs on macOS.
+  - Retargeted the application menu Quit item to a Termust request, with a close dialog target for quitting and English and Portuguese texts.
+  - Reserved the transparent title bar height above the tab bar and ignored tab hits inside that strip.
+  - Added scripts/test-macos-gui.py and the mise task test:macos-gui for native graphical checks.
+verification:
+  - mise exec rust@1.89.0 -- cargo test --locked --workspace passed with 485 tests on macOS 26.6.2 arm64.
+  - mise exec rust@1.89.0 -- cargo clippy --locked --workspace --all-targets reported no warnings.
+  - python3 -B scripts/test-agent-bridge.py passed 21 tests on macOS.
+  - In the real app with isolated XDG directories, Cmd+T, Cmd+W with N and Enter, Cmd+1, Cmd+2, Cmd+9, Ctrl+Tab, Ctrl+Shift+Tab, Shift+Cmd+], Shift+Cmd+[, Shift+Cmd+T, Shift+Cmd+E, Option+Cmd+W and Cmd+N behaved as expected, checked through window and shell counts and saved sessions.
+  - The default zsh started through /usr/bin/login as a login interactive shell with Homebrew PATH, restored ZDOTDIR and recorded the typed command and folder.
+  - The context menu opened the pane folder in Finder; F2 with Cmd+A and Cmd+V renamed a tab.
+  - mise exec rust@1.89.0 -- cargo test --locked --workspace passed with 488 tests on macOS after the quit and title bar changes; clippy reported no warnings.
+  - python3 -B scripts/test-macos-gui.py passed ten scenarios on macOS 26.6.2 - tabs, panes, windows, quit with and without confirmation, menu Quit, groups surviving SIGKILL, recovery of names, folders, text and split panes after SIGKILL, title bar strip in Full, Transparent and Buttonless, the default login shell and agent permission status through the Claude proxy with a sample agent.
+  - In a Linux rust:1.89 container the workspace tests passed except shell_integration bash_reports_executed_commands_without_password_input, which fails the same way on the original copy; clippy reported no warnings.
+  - cargo check for x86_64-pc-windows-gnu compiled; its only new warning is the unused ZSH_PROFILE constant, in the same group as the existing unused shell integration constants on Windows.
+  - A local release bundle at dist/macos/Termust.app passed codesign --verify, plutil, lipo (arm64) and otool with only system libraries, and its binary passed the tabs, quit and recovery scenarios; it was not installed or published.
+pending:
+  - Visually check the group selector, the agent overview, the quit dialog and the settings pages on the Mac; screen capture was not available to the automated checks.
+  - Check live agent status with a real Claude or Codex session on macOS; the runner uses the sample agent from scripts/test-agents.py.
+  - Add screenshot comparison to scripts/test-macos-gui.py once Screen Recording permission is available.
+  - Build, package and publish a macOS release that includes these changes.
+steps:
+  - id: unified-tabs
+    desc: Internal tabs, groups and panes on macOS
+    status: done
+    note: Tabs, panes and groups verified through the runner; the group selector still needs a visual check.
+  - id: mac-input
+    desc: Command shortcuts and dialog editing keys
+    status: done
+  - id: login-shell-state
+    desc: Default zsh integration and session recording
+    status: done
+    note: Recovery after SIGKILL restores names, folders, text, groups and split panes.
+  - id: desktop-apps
+    desc: Open the pane folder in editors and Finder
+    status: done
+  - id: agents
+    desc: Agent integration prerequisites on macOS
+    status: in_progress
+    note: Bridge tests and the sample agent overview check pass; a real Claude or Codex session is pending.
+  - id: quit-and-titlebar
+    desc: Quit confirmation and transparent title bar layout
+    status: done
+  - id: native-validation
+    desc: Repeatable graphical checks on macOS
+    status: in_progress
+    note: Ten scenarios pass through System Events and recovery.json; screenshots are pending.

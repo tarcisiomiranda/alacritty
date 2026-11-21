@@ -274,6 +274,17 @@ impl SizeInfo<f32> {
         self.reserve_lines(count);
     }
 
+    pub fn reserve_top_pixels(&mut self, pixels: f32) {
+        let pixels = pixels.max(0.).ceil();
+        if pixels == 0. {
+            return;
+        }
+        self.padding_y += pixels;
+        let lines = (self.height - self.padding_y - self.bottom_padding_y) / self.cell_height;
+        self.screen_lines =
+            cmp::max((lines.max(0.) as usize).min(self.screen_lines), MIN_SCREEN_LINES);
+    }
+
     pub fn pane_extent(&self) -> (usize, usize) {
         (
             (self.columns as f32 * self.cell_width) as usize,
@@ -390,6 +401,7 @@ pub struct PaneRender<'a, T> {
 
 pub struct Display {
     pub window: Window,
+    pub top_inset: f32,
     pub tab_bar: Option<crate::tabs::TabBar>,
     pub tab_dialog: Option<crate::tab_ui::TabDialog>,
     pub context_menu: Option<crate::context_menu::ContextMenu>,
@@ -481,8 +493,10 @@ impl Display {
         let (cell_width, cell_height) = compute_cell_size(config, &metrics);
 
         // Resize the window to account for the user configured size.
+        let top_inset = window.titlebar_inset();
         if let Some(dimensions) = config.window.dimensions() {
-            let size = window_size(config, dimensions, cell_width, cell_height, scale_factor);
+            let mut size = window_size(config, dimensions, cell_width, cell_height, scale_factor);
+            size.height += top_inset.ceil() as u32;
             window.request_inner_size(size);
         }
 
@@ -520,9 +534,8 @@ impl Display {
             config.window.dynamic_padding && config.window.dimensions().is_none(),
         );
 
-        if cfg!(not(target_os = "macos")) {
-            size_info.reserve_top_lines(crate::tabs::TabBar::ROWS);
-        }
+        size_info.reserve_top_pixels(top_inset);
+        size_info.reserve_top_lines(crate::tabs::TabBar::ROWS);
         info!("Cell size: {cell_width} x {cell_height}");
         info!("Padding: {} x {}", size_info.padding_x(), size_info.padding_y());
         info!("Width: {}, Height: {}", size_info.width(), size_info.height());
@@ -586,7 +599,8 @@ impl Display {
             renderer_preference: config.debug.renderer,
             surface: ManuallyDrop::new(surface),
             colors: List::from(&config.colors),
-            tab_bar: cfg!(not(target_os = "macos")).then(Default::default),
+            top_inset,
+            tab_bar: Some(Default::default()),
             tab_dialog: None,
             context_menu: None,
             language_dialog: None,
@@ -790,6 +804,9 @@ impl Display {
             padding.1,
             config.window.dynamic_padding,
         );
+
+        self.top_inset = self.window.titlebar_inset();
+        new_size.reserve_top_pixels(self.top_inset);
 
         // Update number of column/lines in the viewport.
         if self.tab_bar.is_some() {
@@ -2619,6 +2636,23 @@ mod pane_size_tests {
         assert_eq!((physical.padding_x(), physical.right_padding_x()), (410, 390));
         let pty: WindowSize = pane.into();
         assert_eq!((pty.num_cols, pty.num_lines), (20, 10));
+    }
+
+    #[test]
+    fn titlebar_pixels_move_the_tab_bar_and_grid_below_the_covered_strip() {
+        let mut window = SizeInfo::new(1000., 800., 10., 20., 10., 10., false);
+        let lines = window.screen_lines();
+        window.reserve_top_pixels(0.);
+        assert_eq!((window.padding_y(), window.screen_lines()), (10., lines));
+        window.reserve_top_pixels(55.4);
+        assert_eq!(window.padding_y(), 66.);
+        assert_eq!(window.screen_lines(), ((800. - 66. - 10.) / 20.) as usize);
+        window.reserve_top_lines(crate::tabs::TabBar::ROWS);
+        assert_eq!(window.padding_y(), 86.);
+        assert_eq!(window.screen_lines(), ((800. - 66. - 10.) / 20.) as usize - 1);
+        let mut tiny = SizeInfo::new(100., 40., 10., 20., 0., 0., false);
+        tiny.reserve_top_pixels(500.);
+        assert_eq!(tiny.screen_lines(), MIN_SCREEN_LINES);
     }
 
     #[test]
